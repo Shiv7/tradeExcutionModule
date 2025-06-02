@@ -2,6 +2,7 @@ package com.kotsin.execution.service;
 
 import com.kotsin.execution.model.ActiveTrade;
 import com.kotsin.execution.model.TradeResult;
+import com.kotsin.execution.producer.TradeResultProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

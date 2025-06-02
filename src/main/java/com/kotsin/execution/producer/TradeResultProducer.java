@@ -4,16 +4,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kotsin.execution.model.TradeResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
+import org.springframework.util.concurrent.ListenableFuture;
+import org.springframework.util.concurrent.ListenableFutureCallback;
 
-import java.time.LocalDateTime;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Kafka producer service that publishes final trade results with profit/loss
- * to the trade-results topic when trades are closed.
+ * Producer service that publishes comprehensive trade results to Kafka topics.
+ * Publishes final profit/loss details when trades close.
  */
 @Service
 @Slf4j
@@ -23,86 +25,67 @@ public class TradeResultProducer {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
     
-    // Topic for publishing trade results with profit/loss
-    private static final String TRADE_RESULTS_TOPIC = "trade-results";
+    @Value("${kafka.topics.results.trade-results:trade-results}")
+    private String tradeResultsTopic;
+    
+    @Value("${kafka.topics.results.daily-summary:daily-trade-summary}")
+    private String dailySummaryTopic;
     
     /**
-     * Publish trade result to Kafka topic
+     * Publish comprehensive trade result to trade-results topic
      */
     public void publishTradeResult(TradeResult tradeResult) {
         try {
-            // Set result generation timestamp
-            tradeResult.setResultGeneratedTime(LocalDateTime.now());
-            tradeResult.setSystemVersion("1.0.0");
+            // Convert trade result to JSON
+            String tradeResultJson = objectMapper.writeValueAsString(tradeResult);
             
-            // Calculate final metrics
-            tradeResult.calculateProfitLoss();
-            tradeResult.calculateDuration();
+            // Use trade ID as Kafka key for partitioning
+            String key = tradeResult.getTradeId();
             
-            // Convert to JSON
-            String resultJson = objectMapper.writeValueAsString(tradeResult);
+            log.info("💰 Publishing trade result to topic '{}' for trade: {}", tradeResultsTopic, key);
             
-            // Use scripCode as partition key for ordered processing
-            String partitionKey = tradeResult.getScripCode();
+            // Send to Kafka with callback for monitoring
+            CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(tradeResultsTopic, key, tradeResultJson);
             
-            log.info("📤 Publishing trade result for {}: P&L = {}, ROI = {}%", 
-                    tradeResult.getScripCode(), 
-                    tradeResult.getProfitLoss(), 
-                    tradeResult.getRoi());
-            
-            // Send to Kafka
-            CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(
-                    TRADE_RESULTS_TOPIC, 
-                    partitionKey, 
-                    resultJson
-            );
-            
-            // Handle success/failure asynchronously
-            future.whenComplete((result, exception) -> {
-                if (exception == null) {
-                    log.info("✅ Successfully published trade result for trade: {} to topic: {} at offset: {}", 
-                            tradeResult.getTradeId(), 
-                            TRADE_RESULTS_TOPIC,
-                            result.getRecordMetadata().offset());
+            future.whenComplete((result, ex) -> {
+                if (ex == null) {
+                    log.info("✅ Trade result published successfully: {} (Offset: {}, Partition: {})", 
+                            key, 
+                            result.getRecordMetadata().offset(),
+                            result.getRecordMetadata().partition());
+                    
+                    // Log key details for monitoring
+                    logTradeResultSummary(tradeResult);
+                    
                 } else {
-                    log.error("🚨 Failed to publish trade result for trade: {} to topic: {}: {}", 
-                            tradeResult.getTradeId(), 
-                            TRADE_RESULTS_TOPIC, 
-                            exception.getMessage(), 
-                            exception);
+                    log.error("🚨 Failed to publish trade result: {} - Error: {}", key, ex.getMessage(), ex);
                 }
             });
             
         } catch (Exception e) {
-            log.error("🚨 Error serializing trade result for trade {}: {}", tradeResult.getTradeId(), e.getMessage(), e);
+            log.error("🚨 Error publishing trade result for {}: {}", tradeResult.getTradeId(), e.getMessage(), e);
         }
     }
     
     /**
-     * Publish daily summary of all trades
+     * Publish daily trading summary
      */
-    public void publishDailySummary(String date, int totalTrades, int winners, int losers, 
-                                   double totalPnL, double totalROI) {
+    public void publishDailySummary(Object dailySummary) {
         try {
-            // Create daily summary object
-            DailySummary summary = DailySummary.builder()
-                    .date(date)
-                    .totalTrades(totalTrades)
-                    .winners(winners)
-                    .losers(losers)
-                    .winRate(totalTrades > 0 ? (double) winners / totalTrades * 100 : 0.0)
-                    .totalPnL(totalPnL)
-                    .totalROI(totalROI)
-                    .averagePnL(totalTrades > 0 ? totalPnL / totalTrades : 0.0)
-                    .generatedTime(LocalDateTime.now())
-                    .build();
+            String summaryJson = objectMapper.writeValueAsString(dailySummary);
+            String key = "daily-summary-" + java.time.LocalDate.now();
             
-            String summaryJson = objectMapper.writeValueAsString(summary);
+            log.info("📊 Publishing daily summary to topic '{}'", dailySummaryTopic);
             
-            log.info("📊 Publishing daily summary for {}: {} trades, {}% win rate, P&L: {}", 
-                    date, totalTrades, summary.getWinRate(), totalPnL);
+            CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(dailySummaryTopic, key, summaryJson);
             
-            kafkaTemplate.send("daily-trade-summary", date, summaryJson);
+            future.whenComplete((result, ex) -> {
+                if (ex == null) {
+                    log.info("✅ Daily summary published successfully");
+                } else {
+                    log.error("🚨 Failed to publish daily summary: {}", ex.getMessage(), ex);
+                }
+            });
             
         } catch (Exception e) {
             log.error("🚨 Error publishing daily summary: {}", e.getMessage(), e);
@@ -110,21 +93,81 @@ public class TradeResultProducer {
     }
     
     /**
-     * Inner class for daily summary data
+     * Log trade result summary for monitoring
      */
-    @lombok.Data
-    @lombok.Builder
-    @lombok.AllArgsConstructor
-    @lombok.NoArgsConstructor
-    public static class DailySummary {
-        private String date;
-        private int totalTrades;
-        private int winners;
-        private int losers;
-        private double winRate;
-        private double totalPnL;
-        private double totalROI;
-        private double averagePnL;
-        private LocalDateTime generatedTime;
+    private void logTradeResultSummary(TradeResult tradeResult) {
+        try {
+            String summary = String.format(
+                "💰 TRADE RESULT PUBLISHED 💰\n" +
+                "🆔 Trade ID: %s\n" +
+                "📊 Script: %s (%s)\n" +
+                "🎯 Strategy: %s\n" +
+                "📈 Direction: %s\n" +
+                "💰 Entry: %.2f → Exit: %.2f\n" +
+                "💸 P&L: %.2f (%.2f%% ROI)\n" +
+                "✅ Result: %s\n" +
+                "⏱️ Duration: %d minutes\n" +
+                "❓ Exit Reason: %s\n" +
+                "🎯 Targets Hit: T1=%s, T2=%s\n" +
+                "📊 Published to: %s",
+                
+                tradeResult.getTradeId(),
+                tradeResult.getCompanyName(), tradeResult.getScripCode(),
+                tradeResult.getStrategyName(),
+                tradeResult.getSignalType(),
+                tradeResult.getEntryPrice(), tradeResult.getExitPrice(),
+                tradeResult.getProfitLoss(), tradeResult.getRoi(),
+                tradeResult.isWinner() ? "WIN 🎉" : "LOSS 😔",
+                tradeResult.getDurationMinutes() != null ? tradeResult.getDurationMinutes() : 0,
+                tradeResult.getExitReason(),
+                tradeResult.getTarget1Hit() ? "YES ✅" : "NO ❌",
+                tradeResult.getTarget2Hit() ? "YES ✅" : "NO ❌",
+                tradeResultsTopic
+            );
+            
+            log.info(summary);
+            
+        } catch (Exception e) {
+            log.debug("Error logging trade result summary: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * Test connectivity to Kafka topics
+     */
+    public boolean testKafkaConnectivity() {
+        try {
+            // Send a test message
+            String testMessage = "{\"test\": \"connectivity\", \"timestamp\": \"" + java.time.LocalDateTime.now() + "\"}";
+            
+            CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(tradeResultsTopic, "test-key", testMessage);
+            
+            // Wait for result with timeout
+            SendResult<String, String> result = future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            
+            log.info("✅ Kafka connectivity test successful - Offset: {}, Partition: {}", 
+                    result.getRecordMetadata().offset(),
+                    result.getRecordMetadata().partition());
+            
+            return true;
+            
+        } catch (Exception e) {
+            log.error("🚨 Kafka connectivity test failed: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Get producer metrics for monitoring
+     */
+    public String getProducerMetrics() {
+        try {
+            return String.format("Kafka Producer Status: Connected to %s, Topics: [%s, %s]",
+                    kafkaTemplate.getProducerFactory().getConfigurationProperties().get("bootstrap.servers"),
+                    tradeResultsTopic,
+                    dailySummaryTopic);
+        } catch (Exception e) {
+            return "Kafka Producer Status: Error getting metrics - " + e.getMessage();
+        }
     }
 } 
