@@ -298,6 +298,9 @@ public class TradeExecutionService {
             case "BB_SUPERTREND":
                 trade.addMetadata("bbSuperTrendContext", extractBBSuperTrendContext(signalData));
                 break;
+            case "BB_BREAKOUT":
+                trade.addMetadata("bbBreakoutContext", extractBBBreakoutContext(signalData));
+                break;
             case "SUPERTREND_BREAK":
             case "THREE_MINUTE_SUPERTREND":
                 trade.addMetadata("superTrendContext", extractSuperTrendContext(signalData));
@@ -305,6 +308,8 @@ public class TradeExecutionService {
             case "FUDKII_STRATEGY":
                 trade.addMetadata("fudkiiContext", extractFudkiiContext(signalData));
                 break;
+            default:
+                log.warn("⚠️ Unknown strategy type for context: {}", strategyName);
         }
     }
     

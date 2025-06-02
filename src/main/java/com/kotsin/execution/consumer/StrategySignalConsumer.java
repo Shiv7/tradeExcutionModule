@@ -162,35 +162,27 @@ public class StrategySignalConsumer {
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
-            // Validate trading hours
-            if (!tradingHoursService.isTradingHours()) {
-                log.warn("⏰ BB Breakout signal received outside trading hours - rejected");
+            // Extract timing and exchange information
+            LocalDateTime messageTime = extractMessageTime(signalData, timestamp);
+            String exchange = extractStringValue(signalData, "exchange");
+            String scripCode = extractStringValue(signalData, "scripCode");
+            
+            // Validate trading hours and message timing
+            if (!tradingHoursService.shouldProcessTrade(exchange, messageTime)) {
+                log.warn("🚫 Skipping BB Breakout signal for {} - outside trading hours or too old", scripCode);
                 acknowledgment.acknowledge();
                 return;
             }
             
-            // Validate message age
-            if (!isRecentMessage(timestamp)) {
-                log.warn("⏰ BB Breakout signal too old ({} minutes) - rejected", 
-                        (System.currentTimeMillis() - timestamp) / 60000);
-                acknowledgment.acknowledge();
-                return;
-            }
+            // Process the signal
+            processStrategySignal(signalData, messageTime, "BB_BREAKOUT");
             
-            // Process BB breakout signal
-            String signalType = determineSignalType(signalData, "BB_BREAKOUT");
-            if (signalType != null) {
-                tradeExecutionService.processSignal(signalData, "BB_BREAKOUT", signalType);
-                log.info("✅ BB Breakout signal processed successfully: {}", signalType);
-            } else {
-                log.warn("⚠️ Invalid BB Breakout signal received - no valid signal type found");
-            }
-            
+            log.info("✅ BB Breakout signal processed successfully for: {}", scripCode);
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("❌ Error processing BB Breakout signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge(); // Acknowledge to prevent reprocessing
+            log.error("🚨 Error processing BB Breakout signal: {}", e.getMessage(), e);
+            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
     }
     
