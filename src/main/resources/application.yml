@@ -2,69 +2,98 @@ spring:
   application:
     name: trade-execution-module
   
-  # Kafka Configuration
+  # Kafka Configuration - Use LATEST offset to avoid old messages
   kafka:
     bootstrap-servers: 172.31.12.118:9092
-    
-    # Consumer Configuration
     consumer:
       group-id: trade-execution-group
-      auto-offset-reset: latest
+      auto-offset-reset: latest  # 🚨 CRITICAL: Use latest to avoid old messages
+      enable-auto-commit: false  # Manual commit for better control
+      max-poll-records: 10       # Process small batches for real-time response
+      session-timeout-ms: 30000  # 30 seconds
+      heartbeat-interval-ms: 10000 # 10 seconds
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      enable-auto-commit: true
-      auto-commit-interval: 1000
-      session-timeout: 30000
-      heartbeat-interval: 3000
-      max-poll-records: 100
-      
-    # Producer Configuration
+      properties:
+        # Additional consumer properties for real-time processing
+        fetch.min.bytes: 1
+        fetch.max.wait.ms: 500   # Low latency
+        isolation.level: read_committed
+    
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      acks: all
+      acks: all  # Ensure reliable delivery of trade results
       retries: 3
       batch-size: 16384
-      linger-ms: 1
-      buffer-memory: 33554432
-      
-  # Redis Configuration for Indicator Data
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      timeout: 2000ms
-      jedis:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
-          max-wait: -1ms
+      linger-ms: 5  # Low latency for trade results
+      properties:
+        # Producer reliability settings
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 1
+
+# Redis Configuration for indicator data
+data:
+  redis:
+    host: localhost
+    port: 6379
+    timeout: 2000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-wait: -1ms
+        max-idle: 8
+        min-idle: 0
 
 # Application Configuration
 app:
   # Trading Configuration
   trading:
+    # Trading hours validation (IST)
+    hours:
+      nse:
+        start: "09:15"      # NSE trading start
+        end: "15:30"        # NSE trading end
+      mcx:
+        start: "09:00"      # MCX trading start  
+        end: "23:30"        # MCX trading end
+      timezone: "Asia/Kolkata"  # IST timezone
+      
     # Risk Management
     risk:
-      max-risk-per-trade: 1.0  # Maximum 1% risk per trade
-      default-position-size: 1000  # Default position size
-      max-position-size: 10000    # Maximum position size
+      max-risk-per-trade: 1.0      # 1% max risk per trade
+      default-position-size: 1000   # Default position size
+      max-position-size: 10000     # Maximum position size
       
     # Trade Management
     management:
-      max-active-trades-per-script: 1  # One trade per script at a time
-      max-holding-days: 5             # Maximum 5 days holding period
-      entry-buffer-percent: 0.1       # 0.1% buffer for entry
-      trailing-stop-reduction: 0.5    # 50% reduction in stop distance after target 1
+      max-active-trades-per-script: 1  # One trade per script
+      max-holding-days: 5             # 5-day max holding
+      entry-buffer-percent: 0.1       # 0.1% entry buffer
       
     # Target Configuration
     targets:
-      use-multiple-targets: true
-      target1-multiplier: 1.5    # 1.5R target
-      target2-multiplier: 2.5    # 2.5R target
-      target3-multiplier: 4.0    # 4.0R target
-      target4-multiplier: 6.0    # 6.0R target
+      target1-multiplier: 1.5    # 1.5R first target
+      target2-multiplier: 2.5    # 2.5R second target
+      target3-multiplier: 4.0    # 4.0R third target
+      target4-multiplier: 6.0    # 6.0R fourth target
+
+# Kafka Topics Configuration
+kafka:
+  topics:
+    # Input topics (consumed)
+    signals:
+      bb-supertrend: bb-supertrend-signals
+      supertrend-break: supertrend-break-signals
+      three-minute-supertrend: three-minute-supertrend-signals
+      fudkii: fudkii_Signal
+    
+    market-data: forwardtesting-data
+    
+    # Output topics (produced)
+    results:
+      trade-results: trade-results        # 🎯 Main profit/loss results
+      daily-summary: daily-trade-summary  # Daily performance summaries
 
 # Logging Configuration
 logging:
@@ -83,7 +112,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,metrics,info,loggers
   endpoint:
     health:
       show-details: always
