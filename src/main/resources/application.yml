@@ -84,9 +84,14 @@ kafka:
     # Input topics (consumed)
     signals:
       bb-supertrend: bb-supertrend-signals
+      bb-breakout: bb-breakout-signals         # 🆕 BB-only breakouts
       supertrend-break: supertrend-break-signals
-      three-minute-supertrend: three-minute-supertrend-signals
-      fudkii: fudkii_Signal
+      three-minute-supertrend: 3-minute-supertrend-signals
+      fudkii: fudkii_Signal                     # FUDKII combined signals
+      
+      # FUDKII Multi-Source Confirmation Topics
+      fudkii-3m-confirmation: 3-minute-supertrend-signals  # FUDKII from 3m SuperTrend
+      fudkii-bb-confirmation: bb-supertrend-signals        # FUDKII from BB SuperTrend
     
     market-data: forwardtesting-data
     

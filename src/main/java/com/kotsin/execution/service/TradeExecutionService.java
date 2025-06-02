@@ -428,6 +428,7 @@ public class TradeExecutionService {
     private Map<String, Object> extractFudkiiContext(Map<String, Object> signalData) {
         Map<String, Object> context = new HashMap<>();
         context.put("bullishIndicator", signalData.get("bullishMultiTimeFrameIndicator"));
+        context.put("confirmationType", "FUDKII Strategy");
         return context;
     }
     
@@ -497,5 +498,15 @@ public class TradeExecutionService {
                 strategyName, 
                 signalTime.toString().replaceAll("[^0-9]", "").substring(0, 10),
                 UUID.randomUUID().toString().substring(0, 8));
+    }
+    
+    private Map<String, Object> extractBBBreakoutContext(Map<String, Object> signalData) {
+        Map<String, Object> context = new HashMap<>();
+        context.put("bbBreakoutType", "BB-Only Breakout");
+        context.put("breakoutDirection", extractStringValue(signalData, "signal"));
+        context.put("bbUpper", extractDoubleValue(signalData, "bbUpper"));
+        context.put("bbLower", extractDoubleValue(signalData, "bbLower"));
+        context.put("currentPrice", extractDoubleValue(signalData, "lastRate"));
+        return context;
     }
 } 

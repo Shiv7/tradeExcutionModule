@@ -147,6 +147,54 @@ public class StrategySignalConsumer {
     }
     
     /**
+     * BB Breakout Strategy Signals - BB-only breakouts
+     */
+    @KafkaListener(topics = "bb-breakout-signals", 
+                   groupId = "${spring.kafka.consumer.group-id}")
+    public void consumeBBBreakoutSignal(
+            @Payload String message,
+            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+            Acknowledgment acknowledgment) {
+        
+        try {
+            log.info("📡 Received BB Breakout signal from topic: {}", topic);
+            
+            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
+            
+            // Validate trading hours
+            if (!tradingHoursService.isTradingHours()) {
+                log.warn("⏰ BB Breakout signal received outside trading hours - rejected");
+                acknowledgment.acknowledge();
+                return;
+            }
+            
+            // Validate message age
+            if (!isRecentMessage(timestamp)) {
+                log.warn("⏰ BB Breakout signal too old ({} minutes) - rejected", 
+                        (System.currentTimeMillis() - timestamp) / 60000);
+                acknowledgment.acknowledge();
+                return;
+            }
+            
+            // Process BB breakout signal
+            String signalType = determineSignalType(signalData, "BB_BREAKOUT");
+            if (signalType != null) {
+                tradeExecutionService.processSignal(signalData, "BB_BREAKOUT", signalType);
+                log.info("✅ BB Breakout signal processed successfully: {}", signalType);
+            } else {
+                log.warn("⚠️ Invalid BB Breakout signal received - no valid signal type found");
+            }
+            
+            acknowledgment.acknowledge();
+            
+        } catch (Exception e) {
+            log.error("❌ Error processing BB Breakout signal: {}", e.getMessage(), e);
+            acknowledgment.acknowledge(); // Acknowledge to prevent reprocessing
+        }
+    }
+    
+    /**
      * Fudkii Strategy Signals - Custom strategy
      */
     @KafkaListener(topics = "${kafka.topics.signals.fudkii:fudkii_Signal}", 
@@ -239,29 +287,19 @@ public class StrategySignalConsumer {
             switch (strategyName) {
                 case "BB_SUPERTREND":
                     return determineBBSuperTrendSignal(signalData);
-                    
+                case "BB_BREAKOUT":
+                    return determineBBBreakoutSignal(signalData);
                 case "SUPERTREND_BREAK":
                 case "THREE_MINUTE_SUPERTREND":
-                    if ("Buy".equalsIgnoreCase(supertrendSignal)) return "BULLISH";
-                    if ("Sell".equalsIgnoreCase(supertrendSignal)) return "BEARISH";
-                    if (isBullish != null) return isBullish ? "BULLISH" : "BEARISH";
-                    break;
-                    
+                    return determineSuperTrendSignal(supertrendSignal, isBullish, signal);
                 case "FUDKII_STRATEGY":
-                    Boolean fudkiiBullish = extractBooleanValue(signalData, "bullishMultiTimeFrameIndicator");
-                    if (fudkiiBullish != null) return fudkiiBullish ? "BULLISH" : "BEARISH";
-                    break;
+                    return determineFudkiiSignal(signalData);
+                default:
+                    log.warn("⚠️ Unknown strategy type: {}", strategyName);
+                    return null;
             }
-            
-            // Fallback to generic signal field
-            if ("Buy".equalsIgnoreCase(signal) || "BULLISH".equalsIgnoreCase(signal)) return "BULLISH";
-            if ("Sell".equalsIgnoreCase(signal) || "BEARISH".equalsIgnoreCase(signal)) return "BEARISH";
-            
-            log.warn("⚠️ Could not determine signal type for strategy: {} with data: {}", strategyName, signalData);
-            return null;
-            
         } catch (Exception e) {
-            log.error("Error determining signal type: {}", e.getMessage());
+            log.error("❌ Error determining signal type for {}: {}", strategyName, e.getMessage());
             return null;
         }
     }
@@ -354,6 +392,52 @@ public class StrategySignalConsumer {
         if (value instanceof String) {
             return Boolean.parseBoolean((String) value);
         }
+        return null;
+    }
+    
+    /**
+     * Helper method to determine BB Breakout signal type
+     */
+    private String determineBBBreakoutSignal(Map<String, Object> signalData) {
+        // BB breakout signals use BB band breakout direction
+        String signal = extractStringValue(signalData, "signal");
+        Boolean isBullish = extractBooleanValue(signalData, "supertrendIsBullish");
+        
+        if ("Buy".equalsIgnoreCase(signal)) return "BULLISH";
+        if ("Sell".equalsIgnoreCase(signal)) return "BEARISH";
+        if (isBullish != null) return isBullish ? "BULLISH" : "BEARISH";
+        
+        return null;
+    }
+    
+    /**
+     * Helper method to determine SuperTrend signal type
+     */
+    private String determineSuperTrendSignal(String supertrendSignal, Boolean isBullish, String signal) {
+        if ("Buy".equalsIgnoreCase(supertrendSignal)) return "BULLISH";
+        if ("Sell".equalsIgnoreCase(supertrendSignal)) return "BEARISH";
+        if (isBullish != null) return isBullish ? "BULLISH" : "BEARISH";
+        if ("Buy".equalsIgnoreCase(signal) || "BULLISH".equalsIgnoreCase(signal)) return "BULLISH";
+        if ("Sell".equalsIgnoreCase(signal) || "BEARISH".equalsIgnoreCase(signal)) return "BEARISH";
+        
+        return null;
+    }
+    
+    /**
+     * Helper method to determine FUDKII signal type
+     */
+    private String determineFudkiiSignal(Map<String, Object> signalData) {
+        Boolean fudkiiBullish = extractBooleanValue(signalData, "bullishMultiTimeFrameIndicator");
+        if (fudkiiBullish != null) return fudkiiBullish ? "BULLISH" : "BEARISH";
+        
+        // Fallback to standard signal fields
+        String signal = extractStringValue(signalData, "signal");
+        Boolean isBullish = extractBooleanValue(signalData, "supertrendIsBullish");
+        
+        if ("Buy".equalsIgnoreCase(signal)) return "BULLISH";
+        if ("Sell".equalsIgnoreCase(signal)) return "BEARISH";
+        if (isBullish != null) return isBullish ? "BULLISH" : "BEARISH";
+        
         return null;
     }
 } 
