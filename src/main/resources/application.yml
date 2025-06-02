@@ -1,0 +1,97 @@
+spring:
+  application:
+    name: trade-execution-module
+  
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    
+    # Consumer Configuration
+    consumer:
+      group-id: trade-execution-group
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: true
+      auto-commit-interval: 1000
+      session-timeout: 30000
+      heartbeat-interval: 3000
+      max-poll-records: 100
+      
+    # Producer Configuration
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+      batch-size: 16384
+      linger-ms: 1
+      buffer-memory: 33554432
+      
+  # Redis Configuration for Indicator Data
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+      jedis:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+# Application Configuration
+app:
+  # Trading Configuration
+  trading:
+    # Risk Management
+    risk:
+      max-risk-per-trade: 1.0  # Maximum 1% risk per trade
+      default-position-size: 1000  # Default position size
+      max-position-size: 10000    # Maximum position size
+      
+    # Trade Management
+    management:
+      max-active-trades-per-script: 1  # One trade per script at a time
+      max-holding-days: 5             # Maximum 5 days holding period
+      entry-buffer-percent: 0.1       # 0.1% buffer for entry
+      trailing-stop-reduction: 0.5    # 50% reduction in stop distance after target 1
+      
+    # Target Configuration
+    targets:
+      use-multiple-targets: true
+      target1-multiplier: 1.5    # 1.5R target
+      target2-multiplier: 2.5    # 2.5R target
+      target3-multiplier: 4.0    # 4.0R target
+      target4-multiplier: 6.0    # 6.0R target
+
+# Logging Configuration
+logging:
+  level:
+    com.kotsin.execution: INFO
+    org.springframework.kafka: WARN
+    org.apache.kafka: WARN
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/trade-execution.log
+
+# Management Endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Server Configuration
+server:
+  port: 8080 
