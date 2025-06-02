@@ -4,7 +4,7 @@ spring:
   
   # Kafka Configuration
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: 172.31.12.118:9092
     
     # Consumer Configuration
     consumer:
