@@ -53,8 +53,8 @@ public class LiveMarketDataConsumer {
             
             // Extract basic information
             String scripCode = extractStringValue(tickData, "companyName");
-            String exchange = extractStringValue(tickData, "exchange");
-            Double lastRate = extractDoubleValue(tickData, "lastRate");
+            String exchange = extractStringValue(tickData, "Exch");
+            Double lastRate = extractDoubleValue(tickData, "LastRate");
             
             // Extract or generate timestamp
             LocalDateTime tickTime = extractTickTime(tickData, timestamp);

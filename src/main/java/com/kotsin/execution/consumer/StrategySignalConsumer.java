@@ -15,10 +15,12 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Consumer for strategy signals with trading hours validation.
- * Uses latest offset to avoid processing old messages outside trading hours.
+ * Consumer for all 7 strategy signal topics from the new signal routing system.
+ * Consumes signals from: 3m-supertrend, 15m-bb, 15m-supertrend, 15m-fudkii, 
+ * 30m-bb, 30m-supertrend, 30m-fudkii signals.
  */
 @Component
 @Slf4j
@@ -31,332 +33,297 @@ public class StrategySignalConsumer {
     
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     
+    // Metrics
+    private final AtomicLong processed3m = new AtomicLong(0);
+    private final AtomicLong processed15m = new AtomicLong(0);
+    private final AtomicLong processed30m = new AtomicLong(0);
+    
     /**
-     * BB SuperTrend Strategy Signals - 30m timeframe
+     * 3-Minute SuperTrend Signals - Fast scalping signals
      */
-    @KafkaListener(topics = "${kafka.topics.signals.bb-supertrend:bb-supertrend-signals}", 
+    @KafkaListener(topics = "3m-supertrend-signals", 
                    groupId = "${spring.kafka.consumer.group-id}")
-    public void consumeBBSuperTrendSignal(
+    public void consume3mSuperTrendSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("📡 Received BB SuperTrend signal from topic: {}", topic);
+            log.info("🔥 [3M] Received SuperTrend signal from: {}", topic);
             
-            // Parse signal data
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
-            // Extract timing and exchange information
-            LocalDateTime messageTime = extractMessageTime(signalData, timestamp);
-            String exchange = extractStringValue(signalData, "exchange");
-            String scripCode = extractStringValue(signalData, "scripCode");
-            
-            // Validate trading hours and message timing
-            if (!tradingHoursService.shouldProcessTrade(exchange, messageTime)) {
-                log.warn("🚫 Skipping BB SuperTrend signal for {} - outside trading hours or too old", scripCode);
-                acknowledgment.acknowledge();
-                return;
+            if (isValidSignal(signalData, "3M")) {
+                processStrategySignal(signalData, "3M_SUPERTREND");
+                processed3m.incrementAndGet();
+                
+                log.info("✅ [3M] SuperTrend signal processed: {}", extractStringValue(signalData, "scripCode"));
             }
             
-            // Process the signal
-            processStrategySignal(signalData, messageTime, "BB_SUPERTREND");
-            
-            log.info("✅ BB SuperTrend signal processed successfully for: {}", scripCode);
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 Error processing BB SuperTrend signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
+            log.error("🚨 [3M] Error processing SuperTrend signal: {}", e.getMessage(), e);
+            acknowledgment.acknowledge();
         }
     }
     
     /**
-     * SuperTrend Break Strategy Signals - Multi-timeframe
+     * 15-Minute BB Signals - Bollinger Band breakouts
      */
-    @KafkaListener(topics = "${kafka.topics.signals.supertrend-break:supertrend-break-signals}", 
+    @KafkaListener(topics = "15m-bb-signals", 
                    groupId = "${spring.kafka.consumer.group-id}")
-    public void consumeSuperTrendBreakSignal(
+    public void consume15mBBSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("📡 Received SuperTrend Break signal from topic: {}", topic);
+            log.info("📊 [15M-BB] Received BB signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
-            LocalDateTime messageTime = extractMessageTime(signalData, timestamp);
-            String exchange = extractStringValue(signalData, "exchange");
-            String scripCode = extractStringValue(signalData, "scripCode");
-            
-            if (!tradingHoursService.shouldProcessTrade(exchange, messageTime)) {
-                log.warn("🚫 Skipping SuperTrend Break signal for {} - outside trading hours or too old", scripCode);
-                acknowledgment.acknowledge();
-                return;
+            if (isValidSignal(signalData, "15M-BB")) {
+                processStrategySignal(signalData, "15M_BB");
+                processed15m.incrementAndGet();
+                
+                log.info("✅ [15M-BB] BB signal processed: {}", extractStringValue(signalData, "scripCode"));
             }
             
-            processStrategySignal(signalData, messageTime, "SUPERTREND_BREAK");
-            
-            log.info("✅ SuperTrend Break signal processed successfully for: {}", scripCode);
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 Error processing SuperTrend Break signal: {}", e.getMessage(), e);
+            log.error("🚨 [15M-BB] Error processing BB signal: {}", e.getMessage(), e);
             acknowledgment.acknowledge();
         }
     }
     
     /**
-     * Three Minute SuperTrend Strategy Signals - 3m timeframe
+     * 15-Minute SuperTrend Signals - SuperTrend direction changes
      */
-    @KafkaListener(topics = "${kafka.topics.signals.three-minute-supertrend:three-minute-supertrend-signals}", 
+    @KafkaListener(topics = "15m-supertrend-signals", 
                    groupId = "${spring.kafka.consumer.group-id}")
-    public void consumeThreeMinuteSuperTrendSignal(
+    public void consume15mSuperTrendSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("📡 Received 3-Minute SuperTrend signal from topic: {}", topic);
+            log.info("📈 [15M-ST] Received SuperTrend signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
-            LocalDateTime messageTime = extractMessageTime(signalData, timestamp);
-            String exchange = extractStringValue(signalData, "exchange");
-            String scripCode = extractStringValue(signalData, "scripCode");
-            
-            if (!tradingHoursService.shouldProcessTrade(exchange, messageTime)) {
-                log.warn("🚫 Skipping 3-Minute SuperTrend signal for {} - outside trading hours or too old", scripCode);
-                acknowledgment.acknowledge();
-                return;
+            if (isValidSignal(signalData, "15M-ST")) {
+                processStrategySignal(signalData, "15M_SUPERTREND");
+                processed15m.incrementAndGet();
+                
+                log.info("✅ [15M-ST] SuperTrend signal processed: {}", extractStringValue(signalData, "scripCode"));
             }
             
-            processStrategySignal(signalData, messageTime, "THREE_MINUTE_SUPERTREND");
-            
-            log.info("✅ 3-Minute SuperTrend signal processed successfully for: {}", scripCode);
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 Error processing 3-Minute SuperTrend signal: {}", e.getMessage(), e);
+            log.error("🚨 [15M-ST] Error processing SuperTrend signal: {}", e.getMessage(), e);
             acknowledgment.acknowledge();
         }
     }
     
     /**
-     * BB Breakout Strategy Signals - BB-only breakouts
+     * 15-Minute FUDKII Signals - High confidence combined signals
      */
-    @KafkaListener(topics = "bb-breakout-signals", 
+    @KafkaListener(topics = "15m-fudkii-signals", 
                    groupId = "${spring.kafka.consumer.group-id}")
-    public void consumeBBBreakoutSignal(
+    public void consume15mFudkiiSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("📡 Received BB Breakout signal from topic: {}", topic);
+            log.info("🎯 [15M-FUDKII] Received HIGH confidence signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
-            // Extract timing and exchange information
-            LocalDateTime messageTime = extractMessageTime(signalData, timestamp);
-            String exchange = extractStringValue(signalData, "exchange");
-            String scripCode = extractStringValue(signalData, "scripCode");
-            
-            // Validate trading hours and message timing
-            if (!tradingHoursService.shouldProcessTrade(exchange, messageTime)) {
-                log.warn("🚫 Skipping BB Breakout signal for {} - outside trading hours or too old", scripCode);
-                acknowledgment.acknowledge();
-                return;
+            if (isValidSignal(signalData, "15M-FUDKII")) {
+                processStrategySignal(signalData, "15M_FUDKII");
+                processed15m.incrementAndGet();
+                
+                log.info("✅ [15M-FUDKII] HIGH confidence signal processed: {}", extractStringValue(signalData, "scripCode"));
             }
             
-            // Process the signal
-            processStrategySignal(signalData, messageTime, "BB_BREAKOUT");
-            
-            log.info("✅ BB Breakout signal processed successfully for: {}", scripCode);
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 Error processing BB Breakout signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
+            log.error("🚨 [15M-FUDKII] Error processing FUDKII signal: {}", e.getMessage(), e);
+            acknowledgment.acknowledge();
         }
     }
     
     /**
-     * Fudkii Strategy Signals - Custom strategy
+     * 30-Minute BB Signals - Bollinger Band breakouts
      */
-    @KafkaListener(topics = "${kafka.topics.signals.fudkii:fudkii_Signal}", 
+    @KafkaListener(topics = "30m-bb-signals", 
                    groupId = "${spring.kafka.consumer.group-id}")
-    public void consumeFudkiiSignal(
+    public void consume30mBBSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("📡 Received Fudkii signal from topic: {}", topic);
+            log.info("📊 [30M-BB] Received BB signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
-            LocalDateTime messageTime = extractMessageTime(signalData, timestamp);
-            String exchange = extractStringValue(signalData, "exchange");
-            String scripCode = extractStringValue(signalData, "scripCode");
-            
-            if (!tradingHoursService.shouldProcessTrade(exchange, messageTime)) {
-                log.warn("🚫 Skipping Fudkii signal for {} - outside trading hours or too old", scripCode);
-                acknowledgment.acknowledge();
-                return;
+            if (isValidSignal(signalData, "30M-BB")) {
+                processStrategySignal(signalData, "30M_BB");
+                processed30m.incrementAndGet();
+                
+                log.info("✅ [30M-BB] BB signal processed: {}", extractStringValue(signalData, "scripCode"));
             }
             
-            processStrategySignal(signalData, messageTime, "FUDKII_STRATEGY");
-            
-            log.info("✅ Fudkii signal processed successfully for: {}", scripCode);
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 Error processing Fudkii signal: {}", e.getMessage(), e);
+            log.error("🚨 [30M-BB] Error processing BB signal: {}", e.getMessage(), e);
             acknowledgment.acknowledge();
         }
     }
     
     /**
-     * Process strategy signal with comprehensive validation
+     * 30-Minute SuperTrend Signals - SuperTrend direction changes
      */
-    private void processStrategySignal(Map<String, Object> signalData, LocalDateTime messageTime, String strategyName) {
+    @KafkaListener(topics = "30m-supertrend-signals", 
+                   groupId = "${spring.kafka.consumer.group-id}")
+    public void consume30mSuperTrendSignals(
+            @Payload String message,
+            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+            Acknowledgment acknowledgment) {
+        
         try {
-            // Extract required fields
-            String scripCode = extractStringValue(signalData, "scripCode");
-            String companyName = extractStringValue(signalData, "companyName");
-            String exchange = extractStringValue(signalData, "exchange");
-            String exchangeType = extractStringValue(signalData, "exchangeType");
+            log.info("📈 [30M-ST] Received SuperTrend signal from: {}", topic);
             
-            // Determine signal type based on signal data
-            String signalType = determineSignalType(signalData, strategyName);
+            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
-            // Validate required fields
-            if (scripCode == null || signalType == null) {
-                log.warn("⚠️ Invalid signal data - missing scripCode or signal type: {}", signalData);
-                return;
+            if (isValidSignal(signalData, "30M-ST")) {
+                processStrategySignal(signalData, "30M_SUPERTREND");
+                processed30m.incrementAndGet();
+                
+                log.info("✅ [30M-ST] SuperTrend signal processed: {}", extractStringValue(signalData, "scripCode"));
             }
             
-            // Log signal processing with trading hours context
-            log.info("🎯 Processing {} signal for {} ({}) - Signal Type: {}, Exchange: {}, Time: {}", 
-                    strategyName, companyName, scripCode, signalType, exchange, messageTime);
-            
-            // Forward to trade execution service
-            tradeExecutionService.processNewSignal(
-                    signalData,
-                    messageTime,
-                    strategyName,
-                    signalType,
-                    scripCode,
-                    companyName != null ? companyName : scripCode,
-                    exchange != null ? exchange : "N", // Default to NSE
-                    exchangeType != null ? exchangeType : "EQUITY"
-            );
+            acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 Error in strategy signal processing: {}", e.getMessage(), e);
-            throw e; // Re-throw to trigger acknowledgment
+            log.error("🚨 [30M-ST] Error processing SuperTrend signal: {}", e.getMessage(), e);
+            acknowledgment.acknowledge();
         }
     }
     
     /**
-     * Determine signal type (BULLISH/BEARISH) from signal data
+     * 30-Minute FUDKII Signals - High confidence combined signals
      */
-    private String determineSignalType(Map<String, Object> signalData, String strategyName) {
+    @KafkaListener(topics = "30m-fudkii-signals", 
+                   groupId = "${spring.kafka.consumer.group-id}")
+    public void consume30mFudkiiSignals(
+            @Payload String message,
+            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+            Acknowledgment acknowledgment) {
+        
         try {
-            // Check common signal fields
-            String supertrendSignal = extractStringValue(signalData, "supertrendSignal");
-            Boolean isBullish = extractBooleanValue(signalData, "supertrendIsBullish");
+            log.info("🎯 [30M-FUDKII] Received HIGH confidence signal from: {}", topic);
+            
+            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
+            
+            if (isValidSignal(signalData, "30M-FUDKII")) {
+                processStrategySignal(signalData, "30M_FUDKII");
+                processed30m.incrementAndGet();
+                
+                log.info("✅ [30M-FUDKII] HIGH confidence signal processed: {}", extractStringValue(signalData, "scripCode"));
+            }
+            
+            acknowledgment.acknowledge();
+            
+        } catch (Exception e) {
+            log.error("🚨 [30M-FUDKII] Error processing FUDKII signal: {}", e.getMessage(), e);
+            acknowledgment.acknowledge();
+        }
+    }
+    
+    /**
+     * Validate signal data and trading hours
+     */
+    private boolean isValidSignal(Map<String, Object> signalData, String timeframe) {
+        try {
+            String scripCode = extractStringValue(signalData, "scripCode");
+            String exchange = extractStringValue(signalData, "exchange");
             String signal = extractStringValue(signalData, "signal");
             
-            // Strategy-specific signal detection
-            switch (strategyName) {
-                case "BB_SUPERTREND":
-                    return determineBBSuperTrendSignal(signalData);
-                case "BB_BREAKOUT":
-                    return determineBBBreakoutSignal(signalData);
-                case "SUPERTREND_BREAK":
-                case "THREE_MINUTE_SUPERTREND":
-                    return determineSuperTrendSignal(supertrendSignal, isBullish, signal);
-                case "FUDKII_STRATEGY":
-                    return determineFudkiiSignal(signalData);
-                default:
-                    log.warn("⚠️ Unknown strategy type: {}", strategyName);
-                    return null;
+            if (scripCode == null || scripCode.isEmpty()) {
+                log.warn("⚠️ [{}] Invalid signal: missing scripCode", timeframe);
+                return false;
             }
+            
+            if (signal == null || signal.isEmpty()) {
+                log.warn("⚠️ [{}] Invalid signal: missing signal for {}", timeframe, scripCode);
+                return false;
+            }
+            
+            // Validate trading hours
+            LocalDateTime now = tradingHoursService.getCurrentISTTime();
+            if (!tradingHoursService.shouldProcessTrade(exchange, now)) {
+                log.warn("🚫 [{}] Skipping signal for {} - outside trading hours", timeframe, scripCode);
+                return false;
+            }
+            
+            return true;
+            
         } catch (Exception e) {
-            log.error("❌ Error determining signal type for {}: {}", strategyName, e.getMessage());
-            return null;
+            log.error("🚨 [{}] Error validating signal: {}", timeframe, e.getMessage());
+            return false;
         }
     }
     
     /**
-     * Determine BB SuperTrend signal type based on simultaneous conditions
+     * Process validated strategy signal
      */
-    private String determineBBSuperTrendSignal(Map<String, Object> signalData) {
+    private void processStrategySignal(Map<String, Object> signalData, String strategyType) {
         try {
-            String supertrendSignal = extractStringValue(signalData, "supertrendSignal");
-            Double closePrice = extractDoubleValue(signalData, "closePrice");
-            Double bbUpper = extractDoubleValue(signalData, "bbUpper");
-            Double bbLower = extractDoubleValue(signalData, "bbLower");
+            String scripCode = extractStringValue(signalData, "scripCode");
+            String signal = extractStringValue(signalData, "signal");
+            Double entryPrice = extractDoubleValue(signalData, "entryPrice");
+            Double stopLoss = extractDoubleValue(signalData, "stopLoss");
+            Double target1 = extractDoubleValue(signalData, "target1");
+            String confidence = extractStringValue(signalData, "confidence");
             
-            // BB SuperTrend requires both SuperTrend signal AND BB breakout
-            if ("Buy".equalsIgnoreCase(supertrendSignal) && closePrice != null && bbUpper != null) {
-                if (closePrice > bbUpper) {
-                    return "BULLISH"; // SuperTrend Buy + Price above BB Upper
-                }
-            }
+            log.info("🎯 Processing {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
+                     strategyType, scripCode, signal, entryPrice, stopLoss, target1, confidence);
             
-            if ("Sell".equalsIgnoreCase(supertrendSignal) && closePrice != null && bbLower != null) {
-                if (closePrice < bbLower) {
-                    return "BEARISH"; // SuperTrend Sell + Price below BB Lower
-                }
-            }
-            
-            return null; // No valid BB SuperTrend signal
+            // Forward to trade execution service
+            tradeExecutionService.executeStrategySignal(
+                    scripCode, signal, entryPrice, stopLoss, target1, 
+                    strategyType, confidence);
             
         } catch (Exception e) {
-            log.error("Error determining BB SuperTrend signal: {}", e.getMessage());
-            return null;
+            log.error("🚨 Error processing strategy signal: {}", e.getMessage());
         }
     }
     
     /**
-     * Extract message timestamp, preferring signal timestamp over Kafka timestamp
-     */
-    private LocalDateTime extractMessageTime(Map<String, Object> signalData, long kafkaTimestamp) {
-        try {
-            // Try to extract timestamp from signal data first
-            String timestampStr = extractStringValue(signalData, "timestamp");
-            if (timestampStr != null) {
-                return LocalDateTime.parse(timestampStr, TIMESTAMP_FORMATTER);
-            }
-            
-            // Fallback to Kafka timestamp converted to IST
-            return tradingHoursService.getCurrentISTTime();
-            
-        } catch (Exception e) {
-            log.debug("Could not extract message timestamp, using current time: {}", e.getMessage());
-            return tradingHoursService.getCurrentISTTime();
-        }
-    }
-    
-    /**
-     * Extract string value from signal data
+     * Extract string value safely
      */
     private String extractStringValue(Map<String, Object> data, String key) {
         Object value = data.get(key);
-        return value != null ? value.toString() : null;
+        return value != null ? value.toString().trim() : null;
     }
     
     /**
-     * Extract double value from signal data
+     * Extract double value safely
      */
     private Double extractDoubleValue(Map<String, Object> data, String key) {
         Object value = data.get(key);
@@ -374,62 +341,10 @@ public class StrategySignalConsumer {
     }
     
     /**
-     * Extract boolean value from signal data
+     * Get processing statistics
      */
-    private Boolean extractBooleanValue(Map<String, Object> data, String key) {
-        Object value = data.get(key);
-        if (value instanceof Boolean) {
-            return (Boolean) value;
-        }
-        if (value instanceof String) {
-            return Boolean.parseBoolean((String) value);
-        }
-        return null;
-    }
-    
-    /**
-     * Helper method to determine BB Breakout signal type
-     */
-    private String determineBBBreakoutSignal(Map<String, Object> signalData) {
-        // BB breakout signals use BB band breakout direction
-        String signal = extractStringValue(signalData, "signal");
-        Boolean isBullish = extractBooleanValue(signalData, "supertrendIsBullish");
-        
-        if ("Buy".equalsIgnoreCase(signal)) return "BULLISH";
-        if ("Sell".equalsIgnoreCase(signal)) return "BEARISH";
-        if (isBullish != null) return isBullish ? "BULLISH" : "BEARISH";
-        
-        return null;
-    }
-    
-    /**
-     * Helper method to determine SuperTrend signal type
-     */
-    private String determineSuperTrendSignal(String supertrendSignal, Boolean isBullish, String signal) {
-        if ("Buy".equalsIgnoreCase(supertrendSignal)) return "BULLISH";
-        if ("Sell".equalsIgnoreCase(supertrendSignal)) return "BEARISH";
-        if (isBullish != null) return isBullish ? "BULLISH" : "BEARISH";
-        if ("Buy".equalsIgnoreCase(signal) || "BULLISH".equalsIgnoreCase(signal)) return "BULLISH";
-        if ("Sell".equalsIgnoreCase(signal) || "BEARISH".equalsIgnoreCase(signal)) return "BEARISH";
-        
-        return null;
-    }
-    
-    /**
-     * Helper method to determine FUDKII signal type
-     */
-    private String determineFudkiiSignal(Map<String, Object> signalData) {
-        Boolean fudkiiBullish = extractBooleanValue(signalData, "bullishMultiTimeFrameIndicator");
-        if (fudkiiBullish != null) return fudkiiBullish ? "BULLISH" : "BEARISH";
-        
-        // Fallback to standard signal fields
-        String signal = extractStringValue(signalData, "signal");
-        Boolean isBullish = extractBooleanValue(signalData, "supertrendIsBullish");
-        
-        if ("Buy".equalsIgnoreCase(signal)) return "BULLISH";
-        if ("Sell".equalsIgnoreCase(signal)) return "BEARISH";
-        if (isBullish != null) return isBullish ? "BULLISH" : "BEARISH";
-        
-        return null;
+    public String getStats() {
+        return String.format("Signal Processing: 3m=%d, 15m=%d, 30m=%d", 
+                           processed3m.get(), processed15m.get(), processed30m.get());
     }
 } 

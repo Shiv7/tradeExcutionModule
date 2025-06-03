@@ -514,4 +514,69 @@ public class TradeExecutionService {
         context.put("currentPrice", extractDoubleValue(signalData, "lastRate"));
         return context;
     }
+    
+    /**
+     * Execute strategy signal from new signal routing system (called by StrategySignalConsumer)
+     */
+    public void executeStrategySignal(
+            String scripCode,
+            String signal,
+            Double entryPrice,
+            Double stopLoss,
+            Double target1,
+            String strategyType,
+            String confidence) {
+        
+        try {
+            LocalDateTime signalTime = LocalDateTime.now();
+            
+            log.info("🎯 Executing {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
+                     strategyType, scripCode, signal, entryPrice, stopLoss, target1, confidence);
+            
+            // Create signal data map
+            Map<String, Object> signalData = new HashMap<>();
+            signalData.put("scripCode", scripCode);
+            signalData.put("signal", signal);
+            signalData.put("entryPrice", entryPrice);
+            signalData.put("stopLoss", stopLoss);
+            signalData.put("target1", target1);
+            signalData.put("confidence", confidence);
+            signalData.put("strategyType", strategyType);
+            signalData.put("signalTime", signalTime.toString());
+            
+            // Determine signal type from signal string
+            String signalType = determineSignalType(signal);
+            
+            // Use new processNewSignal method
+            processNewSignal(
+                    signalData,
+                    signalTime,
+                    strategyType,
+                    signalType,
+                    scripCode,
+                    scripCode, // Use scripCode as companyName
+                    "M",       // Default exchange
+                    "D"        // Default exchange type
+            );
+            
+        } catch (Exception e) {
+            log.error("🚨 Error executing strategy signal for {}: {}", scripCode, e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Determine signal type from signal string
+     */
+    private String determineSignalType(String signal) {
+        if (signal == null) return "UNKNOWN";
+        
+        String upperSignal = signal.toUpperCase();
+        if (upperSignal.contains("BUY") || upperSignal.contains("BULLISH")) {
+            return "BULLISH";
+        } else if (upperSignal.contains("SELL") || upperSignal.contains("BEARISH")) {
+            return "BEARISH";
+        }
+        
+        return "UNKNOWN";
+    }
 } 

@@ -1,5 +1,6 @@
 com/kotsin/execution/service/TradingHoursService.class
 com/kotsin/execution/service/TradeExecutionService.class
+com/kotsin/execution/config/KafkaConfig.class
 com/kotsin/execution/consumer/StrategySignalConsumer.class
 com/kotsin/execution/consumer/LiveMarketDataConsumer.class
 com/kotsin/execution/service/ProfitLossCalculator.class

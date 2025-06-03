@@ -6,11 +6,11 @@ spring:
   kafka:
     bootstrap-servers: 172.31.12.118:9092
     consumer:
-      group-id: trade-execution-group
-      auto-offset-reset: latest  # 🚨 CRITICAL: Use latest to avoid old messages
-      enable-auto-commit: false  # Manual commit for better control
-      max-poll-records: 10       # Process small batches for real-time response
-      session-timeout-ms: 30000  # 30 seconds
+      group-id: trade-execution-group-v5
+      auto-offset-reset: earliest  # Change to earliest to consume all signals
+      enable-auto-commit: false    # Manual commit for better control
+      max-poll-records: 10         # Process small batches for real-time response
+      session-timeout-ms: 30000    # 30 seconds
       heartbeat-interval-ms: 10000 # 10 seconds
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -19,6 +19,9 @@ spring:
         fetch.min.bytes: 1
         fetch.max.wait.ms: 500   # Low latency
         isolation.level: read_committed
+    
+    listener:
+      ack-mode: manual_immediate  # Fixed: Move ack-mode to correct location
     
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -78,21 +81,25 @@ app:
       target3-multiplier: 4.0    # 4.0R third target
       target4-multiplier: 6.0    # 6.0R fourth target
 
-# Kafka Topics Configuration
+# Kafka Topics Configuration - Updated for new signal routing system
 kafka:
   topics:
-    # Input topics (consumed)
+    # Input topics (consumed) - NEW 7-topic signal system
     signals:
-      bb-supertrend: bb-supertrend-signals
-      bb-breakout: bb-breakout-signals         # 🆕 BB-only breakouts
-      supertrend-break: supertrend-break-signals
-      three-minute-supertrend: 3-minute-supertrend-signals
-      fudkii: fudkii_Signal                     # FUDKII combined signals
+      # 3-minute signals
+      supertrend-3m: 3m-supertrend-signals
       
-      # FUDKII Multi-Source Confirmation Topics
-      fudkii-3m-confirmation: 3-minute-supertrend-signals  # FUDKII from 3m SuperTrend
-      fudkii-bb-confirmation: bb-supertrend-signals        # FUDKII from BB SuperTrend
+      # 15-minute signals  
+      bb-15m: 15m-bb-signals
+      supertrend-15m: 15m-supertrend-signals
+      fudkii-15m: 15m-fudkii-signals
+      
+      # 30-minute signals
+      bb-30m: 30m-bb-signals
+      supertrend-30m: 30m-supertrend-signals
+      fudkii-30m: 30m-fudkii-signals
     
+    # Market data topic
     market-data: forwardtesting-data
     
     # Output topics (produced)
