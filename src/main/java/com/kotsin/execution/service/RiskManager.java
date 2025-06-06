@@ -44,19 +44,47 @@ public class RiskManager {
         Map<String, Double> tradeLevels = new HashMap<>();
         
         try {
-            // Extract price information from signal
-            Double closePrice = extractDoubleValue(signalData, "closePrice");
-            Double supertrendValue = extractDoubleValue(signalData, "supertrend");
+            // Extract price information from signal - check multiple field names
+            Double closePrice = extractDoubleValue(signalData, "entryPrice"); // Strategy uses entryPrice
+            if (closePrice == null) {
+                closePrice = extractDoubleValue(signalData, "closePrice"); // Fallback
+            }
             
-            if (closePrice == null || supertrendValue == null) {
-                log.warn("Missing price data for trade level calculation: close={}, supertrend={}", closePrice, supertrendValue);
+            Double supertrendValue = extractDoubleValue(signalData, "supertrendValue");
+            if (supertrendValue == null) {
+                supertrendValue = extractDoubleValue(signalData, "supertrend"); // Fallback
+            }
+            
+            // Additional fallbacks for Bollinger band strategies
+            Double bbUpper = extractDoubleValue(signalData, "bbUpper");
+            Double bbLower = extractDoubleValue(signalData, "bbLower");
+            Double bbMiddle = extractDoubleValue(signalData, "bbMiddle");
+            
+            log.debug("🔍 Signal data analysis: entryPrice={}, supertrend={}, bbUpper={}, bbLower={}, bbMiddle={}", 
+                     closePrice, supertrendValue, bbUpper, bbLower, bbMiddle);
+            
+            if (closePrice == null) {
+                log.error("❌ Missing entry/close price in signal data. Available fields: {}", signalData.keySet());
                 return tradeLevels;
             }
             
-            boolean isBullish = "BULLISH".equalsIgnoreCase(signalType);
+            // For BB strategies, use BB middle as backup stop if SuperTrend is missing
+            if (supertrendValue == null && bbMiddle != null) {
+                supertrendValue = bbMiddle;
+                log.info("📊 Using BB middle as SuperTrend backup: {}", supertrendValue);
+            }
             
-            // Calculate stop loss based on SuperTrend
-            double stopLoss = calculateStopLoss(closePrice, supertrendValue, isBullish);
+            if (supertrendValue == null) {
+                log.warn("⚠️ Missing SuperTrend data, using price-based stop calculation");
+                boolean isBullish = "BULLISH".equalsIgnoreCase(signalType) || "BUY".equalsIgnoreCase(signalType);
+                supertrendValue = isBullish ? closePrice * 0.97 : closePrice * 1.03; // 3% stop
+            }
+            
+            boolean isBullish = determineBullishSignal(signalType, signalData);
+            log.info("🎯 Calculating trade levels for {} signal at price {}", isBullish ? "BULLISH" : "BEARISH", closePrice);
+            
+            // Calculate stop loss based on SuperTrend or BB levels
+            double stopLoss = calculateStopLoss(closePrice, supertrendValue, isBullish, signalData);
             
             // Calculate risk per share
             double riskPerShare = Math.abs(closePrice - stopLoss);
@@ -83,27 +111,65 @@ public class RiskManager {
             tradeLevels.put("riskAmount", riskAmount);
             tradeLevels.put("positionSize", (double) positionSize);
             tradeLevels.put("entryPrice", closePrice);
+            tradeLevels.put("closePrice", closePrice); // Add both field names
+            tradeLevels.put("supertrend", supertrendValue);
             
-            log.info("📊 Calculated trade levels for {} trade at {}: Stop={}, Targets=[{}, {}, {}, {}], Position={}, Risk={}",
+            log.info("✅ Calculated trade levels for {} trade at {}: Stop={}, Targets=[{}, {}, {}, {}], Position={}, Risk={}",
                     signalType, closePrice, stopLoss, target1, target2, target3, target4, positionSize, riskAmount);
             
         } catch (Exception e) {
-            log.error("Error calculating trade levels: {}", e.getMessage(), e);
+            log.error("🚨 Error calculating trade levels: {}", e.getMessage(), e);
         }
         
         return tradeLevels;
     }
     
     /**
-     * Calculate stop loss based on SuperTrend
+     * Determine if signal is bullish based on signal type and data
      */
-    private double calculateStopLoss(double entryPrice, double supertrendValue, boolean isBullish) {
+    private boolean determineBullishSignal(String signalType, Map<String, Object> signalData) {
+        // Check explicit signal field first
+        String signal = extractStringValue(signalData, "signal");
+        if ("BUY".equalsIgnoreCase(signal) || "BULLISH".equalsIgnoreCase(signal)) {
+            return true;
+        }
+        if ("SELL".equalsIgnoreCase(signal) || "BEARISH".equalsIgnoreCase(signal)) {
+            return false;
+        }
+        
+        // Fallback to signal type
+        return "BULLISH".equalsIgnoreCase(signalType) || "BUY".equalsIgnoreCase(signalType);
+    }
+    
+    /**
+     * Calculate stop loss with enhanced logic for different strategies
+     */
+    private double calculateStopLoss(double entryPrice, double supertrendValue, boolean isBullish, Map<String, Object> signalData) {
+        // For BB strategies, consider BB levels
+        Double bbUpper = extractDoubleValue(signalData, "bbUpper");
+        Double bbLower = extractDoubleValue(signalData, "bbLower");
+        Double bbMiddle = extractDoubleValue(signalData, "bbMiddle");
+        
         if (isBullish) {
-            // For bullish trades, stop loss should be below entry, typically at SuperTrend
-            return Math.min(supertrendValue, entryPrice * 0.98); // Maximum 2% stop
+            // For bullish trades, stop loss should be below entry
+            double stopLoss = Math.min(supertrendValue, entryPrice * 0.975); // Maximum 2.5% stop
+            
+            // For BB strategies, consider BB middle or lower as additional reference
+            if (bbMiddle != null && bbMiddle < entryPrice) {
+                stopLoss = Math.max(stopLoss, bbMiddle); // Use higher of SuperTrend or BB middle
+            }
+            
+            return stopLoss;
         } else {
             // For bearish trades, stop loss should be above entry
-            return Math.max(supertrendValue, entryPrice * 1.02); // Maximum 2% stop
+            double stopLoss = Math.max(supertrendValue, entryPrice * 1.025); // Maximum 2.5% stop
+            
+            // For BB strategies, consider BB middle or upper as additional reference
+            if (bbMiddle != null && bbMiddle > entryPrice) {
+                stopLoss = Math.min(stopLoss, bbMiddle); // Use lower of SuperTrend or BB middle
+            }
+            
+            return stopLoss;
         }
     }
     
@@ -210,6 +276,17 @@ public class RiskManager {
             } catch (NumberFormatException e) {
                 return null;
             }
+        }
+        return null;
+    }
+    
+    /**
+     * Extract string value from signal data
+     */
+    private String extractStringValue(Map<String, Object> data, String key) {
+        Object value = data.get(key);
+        if (value instanceof String) {
+            return (String) value;
         }
         return null;
     }

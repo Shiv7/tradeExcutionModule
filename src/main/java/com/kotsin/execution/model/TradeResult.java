@@ -186,4 +186,18 @@ public class TradeResult {
     public boolean isBullish() {
         return "BULLISH".equalsIgnoreCase(signalType);
     }
+    
+    /**
+     * Get profit/loss (alias for profitLoss field)
+     */
+    public Double getPnL() {
+        return profitLoss;
+    }
+    
+    /**
+     * Set profit/loss (alias for profitLoss field)
+     */
+    public void setPnL(Double pnl) {
+        this.profitLoss = pnl;
+    }
 } 

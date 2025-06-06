@@ -26,6 +26,7 @@ public class TradeExecutionService {
     private final ProfitLossCalculator profitLossCalculator;
     private final TradeResultProducer tradeResultProducer;
     private final IndicatorDataService indicatorDataService;
+    private final TradeHistoryService tradeHistoryService;
     
     /**
      * Process a new signal from strategy modules
@@ -516,7 +517,7 @@ public class TradeExecutionService {
     }
     
     /**
-     * Execute strategy signal from new signal routing system (called by StrategySignalConsumer)
+     * Main entry point for executing strategy signals
      */
     public void executeStrategySignal(
             String scripCode,
@@ -528,40 +529,64 @@ public class TradeExecutionService {
             String confidence) {
         
         try {
-            LocalDateTime signalTime = LocalDateTime.now();
+            log.info("🎯 Executing strategy signal: {} {} @ {} (Strategy: {})", 
+                    signal, scripCode, entryPrice, strategyType);
             
-            log.info("🎯 Executing {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
-                     strategyType, scripCode, signal, entryPrice, stopLoss, target1, confidence);
-            
-            // Create signal data map
+            // Build signal data map with proper field mapping
             Map<String, Object> signalData = new HashMap<>();
-            signalData.put("scripCode", scripCode);
-            signalData.put("signal", signal);
             signalData.put("entryPrice", entryPrice);
+            signalData.put("closePrice", entryPrice); // Add both field names for compatibility
             signalData.put("stopLoss", stopLoss);
             signalData.put("target1", target1);
+            signalData.put("signal", signal);
             signalData.put("confidence", confidence);
-            signalData.put("strategyType", strategyType);
-            signalData.put("signalTime", signalTime.toString());
+            signalData.put("scripCode", scripCode);
             
-            // Determine signal type from signal string
+            // Extract additional signal data if available from metadata
+            // For now, use reasonable defaults for missing SuperTrend data
+            if (stopLoss != null) {
+                signalData.put("supertrend", stopLoss); // Use stop loss as SuperTrend reference
+                signalData.put("supertrendValue", stopLoss);
+            }
+            
+            // Determine signal type
             String signalType = determineSignalType(signal);
             
-            // Use new processNewSignal method
+            // Get current timestamp
+            LocalDateTime signalTime = LocalDateTime.now();
+            
+            // Log signal for tracking
+            tradeHistoryService.logSignal(scripCode, signal, strategyType, "Processing signal", true);
+            
+            // Process the signal using the main processing method
             processNewSignal(
                     signalData,
                     signalTime,
                     strategyType,
                     signalType,
                     scripCode,
-                    scripCode, // Use scripCode as companyName
-                    "M",       // Default exchange
-                    "D"        // Default exchange type
+                    extractCompanyName(scripCode), // TODO: Get actual company name
+                    "NSE", // Default exchange
+                    "EQUITY" // Default exchange type
             );
+            
+            log.info("✅ Strategy signal executed successfully: {} {}", signal, scripCode);
             
         } catch (Exception e) {
             log.error("🚨 Error executing strategy signal for {}: {}", scripCode, e.getMessage(), e);
+            
+            // Log failed signal
+            tradeHistoryService.logSignal(scripCode, signal, strategyType, 
+                    "Execution failed: " + e.getMessage(), false);
         }
+    }
+    
+    /**
+     * Extract company name from script code (placeholder implementation)
+     */
+    private String extractCompanyName(String scripCode) {
+        // TODO: Implement proper company name lookup
+        return "Company_" + scripCode;
     }
     
     /**

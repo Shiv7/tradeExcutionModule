@@ -199,4 +199,80 @@ public class ActiveTrade {
             }
         }
     }
+    
+    /**
+     * Calculate current profit/loss based on current market price
+     */
+    public double getCurrentPnL() {
+        if (entryPrice == null || currentPrice == null || positionSize == null || !entryTriggered) {
+            return 0.0;
+        }
+        
+        // Calculate unrealized P&L
+        if (isBullish()) {
+            return (currentPrice - entryPrice) * positionSize;
+        } else {
+            return (entryPrice - currentPrice) * positionSize;
+        }
+    }
+    
+    /**
+     * Calculate current ROI percentage
+     */
+    public double getCurrentROI() {
+        if (entryPrice == null || positionSize == null || !entryTriggered) {
+            return 0.0;
+        }
+        
+        double currentPnL = getCurrentPnL();
+        double investment = entryPrice * positionSize;
+        
+        return investment > 0 ? (currentPnL / investment) * 100.0 : 0.0;
+    }
+    
+    /**
+     * Get current trade status for display
+     */
+    public String getDisplayStatus() {
+        if (status == null) return "UNKNOWN";
+        
+        switch (status) {
+            case WAITING_FOR_ENTRY:
+                return "Waiting for Entry";
+            case ACTIVE:
+                if (target1Hit && target2Hit) {
+                    return "Active (T1+T2 Hit)";
+                } else if (target1Hit) {
+                    return "Active (T1 Hit)";
+                } else {
+                    return "Active";
+                }
+            case PARTIAL_EXIT:
+                return "Partial Exit";
+            case CLOSED_PROFIT:
+                return "Closed at Target";
+            case CLOSED_LOSS:
+                return "Stopped Out";
+            case CLOSED_TIME:
+                return "Time Exit";
+            case CANCELLED:
+                return "Cancelled";
+            default:
+                return status.toString();
+        }
+    }
+    
+    /**
+     * Get risk-reward ratio for target 1
+     */
+    public double getRiskRewardRatio() {
+        if (entryPrice == null || stopLoss == null || target1 == null) {
+            return 0.0;
+        }
+        
+        double riskPerShare = Math.abs(entryPrice - stopLoss);
+        double rewardPerShare = Math.abs(target1 - entryPrice);
+        
+        return riskPerShare > 0 ? rewardPerShare / riskPerShare : 0.0;
+    }
 } 

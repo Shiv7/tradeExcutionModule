@@ -83,6 +83,13 @@ public class TradeStateManager {
     }
     
     /**
+     * Get a specific active trade by ID (alias for getTrade)
+     */
+    public ActiveTrade getActiveTrade(String tradeId) {
+        return activeTrades.get(tradeId);
+    }
+    
+    /**
      * Get all active trades
      */
     public Map<String, ActiveTrade> getAllActiveTrades() {
@@ -139,5 +146,40 @@ public class TradeStateManager {
         int count = activeTrades.size();
         activeTrades.clear();
         log.warn("🧹 Cleared all {} active trades", count);
+    }
+    
+    /**
+     * Force close a trade (emergency function)
+     */
+    public boolean forceCloseTrade(String tradeId, String reason) {
+        try {
+            ActiveTrade trade = activeTrades.get(tradeId);
+            if (trade == null) {
+                log.warn("⚠️ Cannot force close trade {}: not found", tradeId);
+                return false;
+            }
+            
+            // Update trade status to indicate manual closure
+            trade.setStatus(ActiveTrade.TradeStatus.CLOSED_TIME);
+            trade.setExitTime(java.time.LocalDateTime.now());
+            trade.setExitReason("FORCE_CLOSED: " + reason);
+            
+            // If the trade was active, set exit price to current price
+            if (trade.getCurrentPrice() != null) {
+                trade.setExitPrice(trade.getCurrentPrice());
+            }
+            
+            // Remove from active trades
+            removeActiveTrade(tradeId);
+            
+            log.warn("🔴 Force closed trade: {} for {} - Reason: {}", 
+                    tradeId, trade.getScripCode(), reason);
+            
+            return true;
+            
+        } catch (Exception e) {
+            log.error("🚨 Error force closing trade {}: {}", tradeId, e.getMessage(), e);
+            return false;
+        }
     }
 } 
