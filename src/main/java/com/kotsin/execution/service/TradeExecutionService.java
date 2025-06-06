@@ -127,17 +127,59 @@ public class TradeExecutionService {
         try {
             Map<String, ActiveTrade> activeTrades = tradeStateManager.getActiveTradesForScript(scripCode);
             
+            // Enhanced logging for debugging
+            if (!activeTrades.isEmpty()) {
+                log.info("💹 Price update for {}: {} at {} - Found {} active trades", 
+                        scripCode, price, timestamp.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")), 
+                        activeTrades.size());
+                
+                // Log current trade statuses
+                activeTrades.values().forEach(trade -> {
+                    double currentPnL = trade.getCurrentPnL();
+                    log.info("📊 Trade {} - Status: {}, Entry: {}, Current P&L: {}, Position: {}", 
+                            trade.getTradeId(), trade.getStatus(), 
+                            trade.getEntryTriggered() ? trade.getEntryPrice() : "Waiting",
+                            currentPnL, trade.getPositionSize());
+                });
+            } else {
+                // Log occasionally for debugging when no trades found
+                if (System.currentTimeMillis() % 10000 < 1000) { // Log roughly every 10 seconds
+                    log.debug("📉 No active trades found for {} at price {}", scripCode, price);
+                }
+            }
+            
             for (ActiveTrade trade : activeTrades.values()) {
+                // Store previous values for comparison
+                Double previousPrice = trade.getCurrentPrice();
+                Double previousPnL = trade.getCurrentPnL();
+                
                 // Update price in trade object
                 trade.updatePrice(price, timestamp);
                 
                 // Check entry conditions
                 if (!trade.getEntryTriggered()) {
+                    log.info("🎯 Checking entry conditions for trade {} at price {}", trade.getTradeId(), price);
                     checkEntryConditions(trade, price, timestamp);
+                    
+                    if (trade.getEntryTriggered()) {
+                        log.info("🚀 TRADE ENTERED: {} at price {} (Previous signal price: {})", 
+                                trade.getTradeId(), price, extractPriceFromMetadata(trade));
+                    }
                 }
                 
                 // Check exit conditions for active trades
                 if (trade.getEntryTriggered() && trade.getStatus() == ActiveTrade.TradeStatus.ACTIVE) {
+                    Double currentPnL = trade.getCurrentPnL();
+                    
+                    // Log P&L changes for active trades
+                    if (previousPnL != null && Math.abs(currentPnL - previousPnL) > 10) {
+                        log.info("💰 P&L Update - Trade {}: {} → {} (Change: {})", 
+                                trade.getTradeId(), 
+                                String.format("%.2f", previousPnL),
+                                String.format("%.2f", currentPnL),
+                                String.format("%.2f", currentPnL - previousPnL));
+                    }
+                    
                     checkExitConditions(trade, price, timestamp);
                 }
                 
@@ -529,8 +571,12 @@ public class TradeExecutionService {
             String confidence) {
         
         try {
-            log.info("🎯 Executing strategy signal: {} {} @ {} (Strategy: {})", 
-                    signal, scripCode, entryPrice, strategyType);
+            // Get current IST time for signal processing
+            LocalDateTime signalTime = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata"));
+            
+            log.info("🎯 Executing strategy signal: {} {} @ {} (Strategy: {}) at IST: {}", 
+                    signal, scripCode, entryPrice, strategyType, 
+                    signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")));
             
             // Build signal data map with proper field mapping
             Map<String, Object> signalData = new HashMap<>();
@@ -541,6 +587,7 @@ public class TradeExecutionService {
             signalData.put("signal", signal);
             signalData.put("confidence", confidence);
             signalData.put("scripCode", scripCode);
+            signalData.put("signalTime", signalTime.toString());
             
             // Extract additional signal data if available from metadata
             // For now, use reasonable defaults for missing SuperTrend data
@@ -552,16 +599,14 @@ public class TradeExecutionService {
             // Determine signal type
             String signalType = determineSignalType(signal);
             
-            // Get current timestamp
-            LocalDateTime signalTime = LocalDateTime.now();
-            
             // Log signal for tracking
-            tradeHistoryService.logSignal(scripCode, signal, strategyType, "Processing signal", true);
+            tradeHistoryService.logSignal(scripCode, signal, strategyType, "Processing signal at IST: " + 
+                    signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")), true);
             
             // Process the signal using the main processing method
             processNewSignal(
                     signalData,
-                    signalTime,
+                    signalTime, // Use IST time
                     strategyType,
                     signalType,
                     scripCode,
@@ -570,7 +615,8 @@ public class TradeExecutionService {
                     "EQUITY" // Default exchange type
             );
             
-            log.info("✅ Strategy signal executed successfully: {} {}", signal, scripCode);
+            log.info("✅ Strategy signal executed successfully: {} {} at IST {}", 
+                    signal, scripCode, signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")));
             
         } catch (Exception e) {
             log.error("🚨 Error executing strategy signal for {}: {}", scripCode, e.getMessage(), e);

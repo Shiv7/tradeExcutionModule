@@ -3,11 +3,14 @@ package com.kotsin.execution.controller;
 import com.kotsin.execution.service.TradeExecutionService;
 import com.kotsin.execution.service.TradeStateManager;
 import com.kotsin.execution.service.TradeHistoryService;
+import com.kotsin.execution.service.TradingHoursService;
+import com.kotsin.execution.model.ActiveTrade;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.HashMap;
 
@@ -24,6 +27,7 @@ public class TestController {
     private final TradeExecutionService tradeExecutionService;
     private final TradeStateManager tradeStateManager;
     private final TradeHistoryService tradeHistoryService;
+    private final TradingHoursService tradingHoursService;
     
     /**
      * Test endpoint to manually create a trade
@@ -89,6 +93,110 @@ public class TestController {
     }
     
     /**
+     * Check trading hours status
+     * GET /api/v1/test/trading-hours
+     */
+    @GetMapping("/trading-hours")
+    public ResponseEntity<Map<String, Object>> getTradingHoursStatus() {
+        try {
+            Map<String, Object> status = new HashMap<>();
+            
+            java.time.LocalDateTime currentIST = tradingHoursService.getCurrentISTTime();
+            status.put("currentIST", currentIST.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            status.put("currentISTTime", currentIST.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+            
+            status.put("nseStatus", tradingHoursService.isWithinTradingHours("NSE") ? "OPEN 🟢" : "CLOSED 🔴");
+            status.put("mcxStatus", tradingHoursService.isWithinTradingHours("MCX") ? "OPEN 🟢" : "CLOSED 🔴");
+            status.put("isWeekend", tradingHoursService.isWeekend());
+            
+            status.put("nseTimeUntilOpen", tradingHoursService.getTimeUntilMarketOpen("NSE"));
+            status.put("mcxTimeUntilOpen", tradingHoursService.getTimeUntilMarketOpen("MCX"));
+            
+            // Test processing flags
+            status.put("shouldProcessNSE", tradingHoursService.shouldProcessTrade("NSE", currentIST));
+            status.put("shouldProcessMCX", tradingHoursService.shouldProcessTrade("MCX", currentIST));
+            
+            log.info("🕐 Trading hours status requested at {}", currentIST);
+            
+            return ResponseEntity.ok(status);
+            
+        } catch (Exception e) {
+            log.error("🚨 Error getting trading hours status: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Failed to get trading hours status"));
+        }
+    }
+    
+    /**
+     * Get detailed active trades information
+     * GET /api/v1/test/active-trades-debug
+     */
+    @GetMapping("/active-trades-debug")
+    public ResponseEntity<Map<String, Object>> getActiveTradesDebug() {
+        try {
+            Map<String, ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Map<String, Object> response = new HashMap<>();
+            
+            response.put("totalActiveTrades", activeTrades.size());
+            response.put("trades", activeTrades.values());
+            response.put("timestamp", java.time.LocalDateTime.now());
+            
+            // Add summary by script and strategy
+            Map<String, Integer> byScript = tradeStateManager.getTradeCountByScript();
+            Map<String, Integer> byStrategy = tradeStateManager.getTradeCountByStrategy();
+            
+            response.put("tradesByScript", byScript);
+            response.put("tradesByStrategy", byStrategy);
+            
+            // Log the request
+            log.info("🔍 Active trades debug requested - Found {} trades", activeTrades.size());
+            activeTrades.values().forEach(trade -> {
+                log.info("📊 Active Trade: {} - {} {} - Status: {}, Entry: {}", 
+                        trade.getTradeId(), trade.getSignalType(), trade.getScripCode(),
+                        trade.getStatus(), trade.getEntryTriggered() ? trade.getEntryPrice() : "Waiting");
+            });
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("🚨 Error getting active trades debug: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Failed to get active trades debug"));
+        }
+    }
+    
+    /**
+     * Test market data simulation
+     * POST /api/v1/test/simulate-price
+     */
+    @PostMapping("/simulate-price")
+    public ResponseEntity<Map<String, Object>> simulatePrice(
+            @RequestParam String scripCode,
+            @RequestParam Double price) {
+        
+        try {
+            log.info("🧪 Simulating price update: {} @ {}", scripCode, price);
+            
+            // Simulate a price update
+            tradeExecutionService.updateTradeWithPrice(scripCode, price, java.time.LocalDateTime.now());
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Price simulation executed");
+            response.put("scripCode", scripCode);
+            response.put("price", price);
+            response.put("timestamp", java.time.LocalDateTime.now());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("🚨 Error simulating price: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Failed to simulate price", "message", e.getMessage()));
+        }
+    }
+    
+    /**
      * Test signal logging
      * POST /api/v1/test/log-signal
      */
@@ -113,6 +221,76 @@ public class TestController {
             log.error("🚨 Error logging test signal: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError()
                     .body(Map.of("error", "Failed to log signal"));
+        }
+    }
+    
+    /**
+     * Test timezone conversion
+     * GET /api/v1/test/timezone-debug
+     */
+    @GetMapping("/timezone-debug")
+    public ResponseEntity<Map<String, Object>> getTimezoneDebug(
+            @RequestParam(required = false) String utcTime) {
+        
+        try {
+            Map<String, Object> response = new HashMap<>();
+            
+            // Current times
+            java.time.LocalDateTime currentUTC = java.time.LocalDateTime.now(java.time.ZoneId.of("UTC"));
+            java.time.LocalDateTime currentIST = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Kolkata"));
+            
+            response.put("currentUTC", currentUTC.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            response.put("currentIST", currentIST.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            
+            // Time difference
+            long offsetMinutes = java.time.Duration.between(currentUTC, currentIST).toMinutes();
+            response.put("offsetMinutes", offsetMinutes);
+            response.put("offsetHours", offsetMinutes / 60.0);
+            
+            // If UTC time provided, convert it
+            if (utcTime != null && !utcTime.isEmpty()) {
+                try {
+                    java.time.LocalDateTime parsedUTC = java.time.LocalDateTime.parse(utcTime, 
+                            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                    
+                    // Convert to IST
+                    java.time.ZonedDateTime utcZoned = parsedUTC.atZone(java.time.ZoneId.of("UTC"));
+                    java.time.ZonedDateTime istZoned = utcZoned.withZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata"));
+                    java.time.LocalDateTime convertedIST = istZoned.toLocalDateTime();
+                    
+                    response.put("providedUTC", utcTime);
+                    response.put("convertedIST", convertedIST.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    
+                    // Check if converted time is within trading hours
+                    boolean withinNSE = tradingHoursService.isWithinTradingHours("NSE", convertedIST);
+                    boolean shouldProcess = tradingHoursService.shouldProcessTrade("NSE", convertedIST);
+                    
+                    response.put("withinNSETradingHours", withinNSE);
+                    response.put("shouldProcessTrade", shouldProcess);
+                    
+                } catch (Exception e) {
+                    response.put("conversionError", "Failed to parse UTC time: " + e.getMessage());
+                }
+            }
+            
+            // Example conversions
+            Map<String, String> examples = new HashMap<>();
+            examples.put("07:58 UTC", "13:28 IST (1:28 PM)");
+            examples.put("03:45 UTC", "09:15 IST (Market Open)");
+            examples.put("10:00 UTC", "15:30 IST (Market Close)");
+            examples.put("12:00 UTC", "17:30 IST (After Market)");
+            
+            response.put("conversionExamples", examples);
+            
+            log.info("🕐 Timezone debug requested - UTC: {}, IST: {}, Offset: {} hours", 
+                    currentUTC, currentIST, offsetMinutes / 60.0);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("🚨 Error in timezone debug: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Failed to get timezone debug info"));
         }
     }
 } 

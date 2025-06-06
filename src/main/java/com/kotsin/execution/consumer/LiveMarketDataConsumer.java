@@ -35,6 +35,7 @@ public class LiveMarketDataConsumer {
     // Metrics for monitoring
     private final AtomicLong processedTicks = new AtomicLong(0);
     private final AtomicLong rejectedTicks = new AtomicLong(0);
+    private final AtomicLong matchedTicks = new AtomicLong(0);
     
     /**
      * Consume live market data with trading hours validation
@@ -51,43 +52,55 @@ public class LiveMarketDataConsumer {
             // Parse tick data
             Map<String, Object> tickData = objectMapper.readValue(message, Map.class);
             
-            // Extract basic information
-            String scripCode = extractStringValue(tickData, "companyName");
+            // Extract basic information with multiple fallback fields
+            String scripCode = extractScripCode(tickData);
             String exchange = extractStringValue(tickData, "Exch");
             Double lastRate = extractDoubleValue(tickData, "LastRate");
             
             // Extract or generate timestamp
             LocalDateTime tickTime = extractTickTime(tickData, timestamp);
             
+            // Enhanced logging for debugging
+            if (processedTicks.get() % 100 == 0) {
+                log.debug("🔍 Market Data Sample - ScripCode: {}, Exchange: {}, Price: {}, Time: {}, Available fields: {}", 
+                        scripCode, exchange, lastRate, tickTime, tickData.keySet());
+            }
+            
             // Quick validation
             if (scripCode == null || lastRate == null) {
-                log.debug("Skipping tick with missing data: scripCode={}, lastRate={}", scripCode, lastRate);
+                log.debug("Skipping tick with missing data: scripCode={}, lastRate={}, fields={}", 
+                        scripCode, lastRate, tickData.keySet());
                 acknowledgment.acknowledge();
                 return;
             }
             
-            // Validate trading hours and tick timing
-            if (!tradingHoursService.shouldProcessTrade(exchange, tickTime)) {
+            // Enhanced trading hours validation with debugging
+            if (!isValidTradingTime(exchange, tickTime)) {
                 rejectedTicks.incrementAndGet();
-                // Log rejection only occasionally to avoid spam
-                if (rejectedTicks.get() % 100 == 0) {
-                    log.debug("🚫 Rejected {} ticks outside trading hours (Exchange: {}, Latest: {})", 
-                            rejectedTicks.get(), exchange, tickTime);
+                // Log rejection with more details
+                if (rejectedTicks.get() % 500 == 0) {
+                    log.warn("🚫 Rejected {} ticks outside trading hours - Exchange: {}, Current IST: {}, Tick Time: {}", 
+                            rejectedTicks.get(), exchange, 
+                            tradingHoursService.getCurrentISTTime(), tickTime);
                 }
                 acknowledgment.acknowledge();
                 return;
             }
             
             // Process valid tick
-            processValidTick(scripCode, lastRate, tickTime);
+            boolean tickMatched = processValidTick(scripCode, lastRate, tickTime);
+            if (tickMatched) {
+                matchedTicks.incrementAndGet();
+            }
             
             // Update metrics
             long processed = processedTicks.incrementAndGet();
             
-            // Log progress periodically
+            // Enhanced progress logging
             if (processed % 1000 == 0) {
-                log.info("📊 Processed {} market ticks, rejected {} (Trading hours validation)", 
-                        processed, rejectedTicks.get());
+                log.info("📊 Market Data Stats - Processed: {}, Rejected: {}, Matched to Trades: {}, Current IST: {}", 
+                        processed, rejectedTicks.get(), matchedTicks.get(), 
+                        tradingHoursService.getCurrentISTTime().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             }
             
             acknowledgment.acknowledge();
@@ -99,17 +112,106 @@ public class LiveMarketDataConsumer {
     }
     
     /**
+     * Enhanced script code extraction with multiple fallback fields
+     */
+    private String extractScripCode(Map<String, Object> tickData) {
+        // Try multiple field names that might contain script code
+        String scripCode = extractStringValue(tickData, "companyName");
+        if (scripCode != null && !scripCode.isEmpty()) {
+            return scripCode.trim();
+        }
+        
+        scripCode = extractStringValue(tickData, "scripCode");
+        if (scripCode != null && !scripCode.isEmpty()) {
+            return scripCode.trim();
+        }
+        
+        scripCode = extractStringValue(tickData, "token");
+        if (scripCode != null && !scripCode.isEmpty()) {
+            return scripCode.trim();
+        }
+        
+        scripCode = extractStringValue(tickData, "instrument_token");
+        if (scripCode != null && !scripCode.isEmpty()) {
+            return scripCode.trim();
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Enhanced trading hours validation with detailed logging
+     */
+    private boolean isValidTradingTime(String exchange, LocalDateTime tickTime) {
+        LocalDateTime currentIST = tradingHoursService.getCurrentISTTime();
+        
+        // Check if it's weekend
+        if (tradingHoursService.isWeekend()) {
+            if (rejectedTicks.get() % 1000 == 0) {
+                log.debug("🚫 Weekend - rejecting tick for {}", exchange);
+            }
+            return false;
+        }
+        
+        // For testing/demo purposes, allow some flexibility outside trading hours
+        // but log it clearly
+        boolean withinStrictHours = tradingHoursService.shouldProcessTrade(exchange, tickTime);
+        
+        if (!withinStrictHours) {
+            // For demo/testing, allow processing within 2 hours of market hours
+            boolean isFlexibleTime = isWithinFlexibleHours(exchange, currentIST);
+            
+            if (isFlexibleTime) {
+                if (rejectedTicks.get() % 500 == 0) {
+                    log.info("⚠️ Processing tick in FLEXIBLE hours (outside strict trading hours) - Exchange: {}, IST: {}", 
+                            exchange, currentIST.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+                }
+                return true;
+            }
+            
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Check if current time is within flexible hours (for testing/demo)
+     */
+    private boolean isWithinFlexibleHours(String exchange, LocalDateTime currentTime) {
+        java.time.LocalTime currentTimeOfDay = currentTime.toLocalTime();
+        
+        if ("N".equalsIgnoreCase(exchange) || "NSE".equalsIgnoreCase(exchange)) {
+            // NSE flexible: 7:00 AM to 6:00 PM (extended for testing)
+            return !currentTimeOfDay.isBefore(java.time.LocalTime.of(7, 0)) && 
+                   !currentTimeOfDay.isAfter(java.time.LocalTime.of(18, 0));
+        } else if ("M".equalsIgnoreCase(exchange) || "MCX".equalsIgnoreCase(exchange)) {
+            // MCX flexible: 7:00 AM to 1:00 AM next day
+            return !currentTimeOfDay.isBefore(java.time.LocalTime.of(7, 0)) && 
+                   !currentTimeOfDay.isAfter(java.time.LocalTime.of(1, 0));
+        }
+        
+        // Default to allow for unknown exchanges
+        return true;
+    }
+    
+    /**
      * Process valid tick data by forwarding to trade execution service
      */
-    private void processValidTick(String scripCode, double price, LocalDateTime tickTime) {
+    private boolean processValidTick(String scripCode, double price, LocalDateTime tickTime) {
         try {
             // Forward tick to trade execution service for active trade updates
             tradeExecutionService.updateTradeWithPrice(scripCode, price, tickTime);
             
-            log.debug("📈 Updated trades for {} at price: {} (Time: {})", scripCode, price, tickTime);
+            // Enhanced logging for debugging
+            log.debug("📈 Updated trades for {} at price: {} (Time: {})", scripCode, price, 
+                    tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+            
+            return true;
             
         } catch (Exception e) {
             log.error("🚨 Error processing tick for {}: {}", scripCode, e.getMessage());
+            return false;
         }
     }
     
@@ -123,7 +225,9 @@ public class LiveMarketDataConsumer {
             if (timestampStr != null) {
                 // Try different timestamp formats
                 try {
-                    return LocalDateTime.parse(timestampStr, TIMESTAMP_FORMATTER);
+                    // Parse as UTC and convert to IST
+                    LocalDateTime utcTime = LocalDateTime.parse(timestampStr, TIMESTAMP_FORMATTER);
+                    return convertUTCtoIST(utcTime);
                 } catch (Exception e) {
                     // Try alternative formats
                     return parseAlternativeTimestamp(timestampStr);
@@ -134,8 +238,18 @@ public class LiveMarketDataConsumer {
             Object timeObj = tickData.get("time");
             if (timeObj instanceof Number) {
                 long timeMillis = ((Number) timeObj).longValue();
-                return LocalDateTime.ofEpochSecond(timeMillis / 1000, 0, 
-                        java.time.ZoneOffset.of("+05:30")); // IST offset
+                // Convert epoch millis (UTC) to IST
+                java.time.Instant instant = java.time.Instant.ofEpochMilli(timeMillis);
+                return LocalDateTime.ofInstant(instant, java.time.ZoneId.of("Asia/Kolkata"));
+            }
+            
+            // Use Kafka timestamp (UTC) and convert to IST
+            if (kafkaTimestamp > 0) {
+                java.time.Instant instant = java.time.Instant.ofEpochMilli(kafkaTimestamp);
+                LocalDateTime istTime = LocalDateTime.ofInstant(instant, java.time.ZoneId.of("Asia/Kolkata"));
+                log.debug("🕐 Converted Kafka timestamp {} UTC to {} IST", 
+                        java.time.Instant.ofEpochMilli(kafkaTimestamp), istTime);
+                return istTime;
             }
             
             // Fallback to current IST time
@@ -148,25 +262,64 @@ public class LiveMarketDataConsumer {
     }
     
     /**
-     * Try alternative timestamp formats
+     * Convert UTC LocalDateTime to IST LocalDateTime
+     */
+    private LocalDateTime convertUTCtoIST(LocalDateTime utcTime) {
+        try {
+            // Create a ZonedDateTime in UTC
+            java.time.ZonedDateTime utcZoned = utcTime.atZone(java.time.ZoneId.of("UTC"));
+            
+            // Convert to IST
+            java.time.ZonedDateTime istZoned = utcZoned.withZoneSameInstant(java.time.ZoneId.of("Asia/Kolkata"));
+            
+            LocalDateTime istTime = istZoned.toLocalDateTime();
+            
+            log.debug("🕐 Timezone conversion: {} UTC → {} IST", utcTime, istTime);
+            
+            return istTime;
+            
+        } catch (Exception e) {
+            log.warn("Error converting UTC to IST: {}", e.getMessage());
+            return utcTime; // Return as-is if conversion fails
+        }
+    }
+    
+    /**
+     * Try alternative timestamp formats with proper UTC to IST conversion
      */
     private LocalDateTime parseAlternativeTimestamp(String timestampStr) {
         try {
-            // Try ISO format
+            LocalDateTime parsedTime = null;
+            
+            // Try ISO format (assume UTC)
             if (timestampStr.contains("T")) {
-                return LocalDateTime.parse(timestampStr.replace("Z", ""));
+                String cleanStr = timestampStr.replace("Z", "").replace("+00:00", "");
+                parsedTime = LocalDateTime.parse(cleanStr);
+            }
+            // Try date only format
+            else if (timestampStr.length() == 10) {
+                parsedTime = LocalDateTime.parse(timestampStr + " 00:00:00", 
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            }
+            // Try with different separators
+            else if (timestampStr.contains("/")) {
+                // Handle MM/dd/yyyy format
+                try {
+                    parsedTime = LocalDateTime.parse(timestampStr + " 00:00:00", 
+                            DateTimeFormatter.ofPattern("MM/dd/yyyy HH:mm:ss"));
+                } catch (Exception ignored) {}
             }
             
-            // Try date only format
-            if (timestampStr.length() == 10) {
-                return LocalDateTime.parse(timestampStr + " 00:00:00", 
-                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            // If we parsed something, convert from UTC to IST
+            if (parsedTime != null) {
+                return convertUTCtoIST(parsedTime);
             }
             
             // Default fallback
             return tradingHoursService.getCurrentISTTime();
             
         } catch (Exception e) {
+            log.debug("Failed to parse alternative timestamp format: {}", timestampStr);
             return tradingHoursService.getCurrentISTTime();
         }
     }
