@@ -17,6 +17,7 @@
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/TradeResult.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/TradeStateManager.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/RiskManager.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/TradeExecutionTestController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/ProfitLossCalculator.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/SignalValidationService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/KafkaConfig.java

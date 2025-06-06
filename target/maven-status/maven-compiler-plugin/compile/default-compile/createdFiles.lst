@@ -18,6 +18,7 @@ com/kotsin/execution/model/ActiveTrade$ActiveTradeBuilder.class
 com/kotsin/execution/controller/TradeMonitoringController.class
 com/kotsin/execution/service/TradingHoursService.class
 com/kotsin/execution/controller/ValidationTestController.class
+com/kotsin/execution/controller/TradeExecutionTestController.class
 com/kotsin/execution/service/TradeExecutionService.class
 com/kotsin/execution/config/KafkaConfig.class
 com/kotsin/execution/model/ActiveTrade$1.class

@@ -43,6 +43,7 @@ public class TradeExecutionService {
     /**
      * Process a new signal from strategy modules
      * NEW ARCHITECTURE: Store as pending signal for dynamic validation
+     * UPDATED: Process ALL signals - no "1 trade per script" restriction
      */
     public void processNewSignal(
             Map<String, Object> signalData,
@@ -58,17 +59,22 @@ public class TradeExecutionService {
             log.info("🎯 [TradeExecution] Processing NEW signal for {} from strategy: {} - STORING AS PENDING", 
                     scripCode, strategyName);
             
-            // Check for duplicate pending signals
+            // Validate trading hours based on exchange type
+            if (!isWithinTradingHours(exchange, signalTime)) {
+                log.warn("⏰ [TradeExecution] Signal received outside trading hours for exchange {}: {} - Skipping", 
+                        exchange, signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")));
+                return;
+            }
+            
+            // Check for duplicate pending signals (keep this to avoid spam)
             if (pendingSignalManager.hasPendingSignal(scripCode, strategyName)) {
                 log.warn("⚠️ [TradeExecution] Already have pending signal for {} with strategy {}, skipping", scripCode, strategyName);
                 return;
             }
             
-            // Check for active trades (don't add pending if already trading)
-            if (tradeStateManager.hasActiveTrade(scripCode, strategyName)) {
-                log.warn("⚠️ [TradeExecution] Already have active trade for {} with strategy {}, skipping signal", scripCode, strategyName);
-                return;
-            }
+            // REMOVED: Active trade checking - now allow multiple trades per script
+            // Process ALL signals regardless of existing active trades
+            log.info("📈 [TradeExecution] Processing signal for {} - Multiple trades per script ALLOWED", scripCode);
             
             // Create pending signal with expiry (15 minutes from signal time)
             String signalId = generateSignalId(scripCode, strategyName, signalTime);
@@ -95,6 +101,8 @@ public class TradeExecutionService {
             // Add metadata
             pendingSignal.addMetadata("originalSignal", signalData);
             pendingSignal.addMetadata("signalSource", strategyName);
+            pendingSignal.addMetadata("tradingHoursValidated", true);
+            pendingSignal.addMetadata("exchangeType", exchange);
             pendingSignal.addMetadata("signalTimeIndicators", indicatorDataService.getComprehensiveIndicators(scripCode));
             
             // Store as pending signal for dynamic validation
@@ -105,6 +113,64 @@ public class TradeExecutionService {
             
         } catch (Exception e) {
             log.error("🚨 [TradeExecution] Error processing new signal for {}: {}", scripCode, e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Validate trading hours based on exchange type
+     * Commodity (M): 9:00 AM to 11:30 PM
+     * NSE (N): 9:00 AM to 3:30 PM
+     */
+    private boolean isWithinTradingHours(String exchange, LocalDateTime signalTime) {
+        try {
+            int hour = signalTime.getHour();
+            int minute = signalTime.getMinute();
+            int timeInMinutes = hour * 60 + minute;
+            
+            // Convert to minutes from midnight for easier comparison
+            int startTime, endTime;
+            
+            if ("M".equalsIgnoreCase(exchange)) {
+                // Commodity: 9:00 AM (540 min) to 11:30 PM (1410 min)
+                startTime = 9 * 60;      // 540 minutes
+                endTime = 23 * 60 + 30;  // 1410 minutes
+                
+                log.debug("⏰ [TradingHours] Commodity validation: {} ({}:{:02d}) - Range: 09:00-23:30", 
+                         timeInMinutes, hour, minute);
+                
+            } else if ("N".equalsIgnoreCase(exchange)) {
+                // NSE: 9:00 AM (540 min) to 3:30 PM (930 min)
+                startTime = 9 * 60;      // 540 minutes
+                endTime = 15 * 60 + 30;  // 930 minutes
+                
+                log.debug("⏰ [TradingHours] NSE validation: {} ({}:{:02d}) - Range: 09:00-15:30", 
+                         timeInMinutes, hour, minute);
+                
+            } else {
+                // Unknown exchange - default to NSE hours
+                startTime = 9 * 60;
+                endTime = 15 * 60 + 30;
+                
+                log.warn("⚠️ [TradingHours] Unknown exchange '{}' - using NSE hours as default", exchange);
+            }
+            
+            boolean isValid = timeInMinutes >= startTime && timeInMinutes <= endTime;
+            
+            if (!isValid) {
+                log.warn("❌ [TradingHours] Signal outside trading hours: Exchange={}, Time={}:{:02d}, Valid Range: {}:{:02d}-{}:{:02d}", 
+                        exchange, hour, minute, 
+                        startTime / 60, startTime % 60,
+                        endTime / 60, endTime % 60);
+            } else {
+                log.debug("✅ [TradingHours] Signal within trading hours: Exchange={}, Time={}:{:02d}", 
+                         exchange, hour, minute);
+            }
+            
+            return isValid;
+            
+        } catch (Exception e) {
+            log.error("🚨 [TradingHours] Error validating trading hours: {}", e.getMessage(), e);
+            return false; // Conservative approach - reject if validation fails
         }
     }
     
@@ -857,6 +923,7 @@ public class TradeExecutionService {
     
     /**
      * Main entry point for executing strategy signals
+     * UPDATED: Enhanced exchange detection and no trade limit restrictions
      */
     public void executeStrategySignal(
             String scripCode,
@@ -875,6 +942,12 @@ public class TradeExecutionService {
                     signal, scripCode, entryPrice, strategyType, 
                     signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")));
             
+            // Determine exchange type based on script code or other logic
+            String exchange = determineExchange(scripCode);
+            String exchangeType = determineExchangeType(scripCode);
+            
+            log.info("📊 [TradeExecution] Detected Exchange: {} ({}) for script: {}", exchange, exchangeType, scripCode);
+            
             // Build signal data map with proper field mapping
             Map<String, Object> signalData = new HashMap<>();
             signalData.put("entryPrice", entryPrice);
@@ -885,6 +958,8 @@ public class TradeExecutionService {
             signalData.put("confidence", confidence);
             signalData.put("scripCode", scripCode);
             signalData.put("signalTime", signalTime.toString());
+            signalData.put("exchange", exchange);
+            signalData.put("exchangeType", exchangeType);
             
             // Extract additional signal data if available from metadata
             // For now, use reasonable defaults for missing SuperTrend data
@@ -897,23 +972,24 @@ public class TradeExecutionService {
             String signalType = determineSignalType(signal);
             
             // Log signal for tracking
-            tradeHistoryService.logSignal(scripCode, signal, strategyType, "Processing signal at IST: " + 
-                    signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")), true);
+            tradeHistoryService.logSignal(scripCode, signal, strategyType, 
+                    String.format("Processing signal at IST: %s (Exchange: %s)", 
+                    signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")), exchange), true);
             
-            // Process the signal using the main processing method
+            // Process the signal using the main processing method with enhanced exchange detection
             processNewSignal(
                     signalData,
                     signalTime, // Use IST time
                     strategyType,
                     signalType,
                     scripCode,
-                    extractCompanyName(scripCode), // TODO: Get actual company name
-                    "NSE", // Default exchange
-                    "EQUITY" // Default exchange type
+                    extractCompanyName(scripCode),
+                    exchange,     // Detected exchange
+                    exchangeType  // Detected exchange type
             );
             
-            log.info("✅ Strategy signal executed successfully: {} {} at IST {}", 
-                    signal, scripCode, signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")));
+            log.info("✅ Strategy signal executed successfully: {} {} at IST {} (Exchange: {})", 
+                    signal, scripCode, signalTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")), exchange);
             
         } catch (Exception e) {
             log.error("🚨 Error executing strategy signal for {}: {}", scripCode, e.getMessage(), e);
@@ -921,6 +997,81 @@ public class TradeExecutionService {
             // Log failed signal
             tradeHistoryService.logSignal(scripCode, signal, strategyType, 
                     "Execution failed: " + e.getMessage(), false);
+        }
+    }
+    
+    /**
+     * Determine exchange based on script code or other criteria
+     * Enhanced logic for commodity vs NSE detection
+     */
+    private String determineExchange(String scripCode) {
+        try {
+            // You can enhance this logic based on your script code patterns
+            // For now, using a simple approach - you may need to adjust based on your data
+            
+            // Check if it's a known commodity pattern
+            if (isLikelyCommodity(scripCode)) {
+                return "M"; // Commodity
+            }
+            
+            // Default to NSE for equity
+            return "N"; // NSE
+            
+        } catch (Exception e) {
+            log.warn("⚠️ Error determining exchange for {}, defaulting to NSE: {}", scripCode, e.getMessage());
+            return "N"; // Default to NSE
+        }
+    }
+    
+    /**
+     * Determine exchange type based on script code
+     */
+    private String determineExchangeType(String scripCode) {
+        String exchange = determineExchange(scripCode);
+        
+        if ("M".equals(exchange)) {
+            return "COMMODITY";
+        } else {
+            return "EQUITY";
+        }
+    }
+    
+    /**
+     * Check if script code likely represents a commodity
+     * You can enhance this logic based on your specific patterns
+     */
+    private boolean isLikelyCommodity(String scripCode) {
+        try {
+            // Enhanced commodity detection logic
+            // You may need to adjust these patterns based on your actual data
+            
+            // Check company name if available
+            String companyName = extractCompanyName(scripCode);
+            if (companyName != null) {
+                String upperName = companyName.toUpperCase();
+                
+                // Common commodity patterns in company names
+                if (upperName.contains("GOLD") || upperName.contains("SILVER") || 
+                    upperName.contains("CRUDE") || upperName.contains("NATGAS") ||
+                    upperName.contains("COPPER") || upperName.contains("ALUMINIUM") ||
+                    upperName.contains("ZINC") || upperName.contains("LEAD") ||
+                    upperName.contains("NICKEL") || upperName.contains("COTTON") ||
+                    upperName.contains("CASTOR") || upperName.contains("MENTHA") ||
+                    upperName.contains("CARDAMOM") || upperName.contains("PEPPER")) {
+                    
+                    log.debug("🏭 [ExchangeDetection] Detected commodity based on name: {} -> {}", scripCode, companyName);
+                    return true;
+                }
+            }
+            
+            // Script code patterns (if any specific patterns exist)
+            // You can add more patterns here based on your data
+            
+            return false; // Default to equity
+            
+        } catch (Exception e) {
+            log.debug("Error in commodity detection for {}: {}", scripCode, e.getMessage());
+            return false;
         }
     }
     
