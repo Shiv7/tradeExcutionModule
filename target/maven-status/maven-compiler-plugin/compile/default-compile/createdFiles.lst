@@ -1,7 +1,11 @@
 com/kotsin/execution/service/TradingHoursService.class
+com/kotsin/execution/controller/TestController.class
 com/kotsin/execution/service/TradeExecutionService.class
 com/kotsin/execution/config/KafkaConfig.class
+com/kotsin/execution/model/ActiveTrade$1.class
 com/kotsin/execution/consumer/StrategySignalConsumer.class
+com/kotsin/execution/service/TradeHistoryService.class
+com/kotsin/execution/config/OpenApiConfig.class
 com/kotsin/execution/consumer/LiveMarketDataConsumer.class
 com/kotsin/execution/service/ProfitLossCalculator.class
 com/kotsin/execution/TradeExecutionApplication.class
@@ -14,3 +18,4 @@ com/kotsin/execution/model/TradeResult$TradeResultBuilder.class
 com/kotsin/execution/model/ActiveTrade.class
 com/kotsin/execution/service/RiskManager.class
 com/kotsin/execution/model/ActiveTrade$ActiveTradeBuilder.class
+com/kotsin/execution/controller/TradeMonitoringController.class

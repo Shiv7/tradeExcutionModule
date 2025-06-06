@@ -142,9 +142,22 @@ public class TradeExecutionService {
                             String.format("%.2f", currentPnL), trade.getPositionSize());
                 });
             } else {
-                // Log occasionally for debugging when no trades found
-                if (System.currentTimeMillis() % 10000 < 1000) { // Log roughly every 10 seconds
-                    log.debug("📉 [TradeExecution] No active trades found for {} at price {}", scripCode, price);
+                // Enhanced debugging for no trades found
+                if (System.currentTimeMillis() % 30000 < 1000) { // Log every 30 seconds
+                    log.debug("📉 [TradeExecution] No active trades found for {} at price {} - Total active trades: {}", 
+                            scripCode, price, tradeStateManager.getAllActiveTrades().size());
+                    
+                    // Log what script codes we DO have active trades for
+                    Map<String, ActiveTrade> allTrades = tradeStateManager.getAllActiveTrades();
+                    if (!allTrades.isEmpty()) {
+                        String activeScripts = allTrades.values().stream()
+                                .map(ActiveTrade::getScripCode)
+                                .distinct()
+                                .limit(5)
+                                .reduce((a, b) -> a + ", " + b)
+                                .orElse("none");
+                        log.debug("📋 [TradeExecution] Current active scripts: {}", activeScripts);
+                    }
                 }
             }
             
@@ -165,7 +178,10 @@ public class TradeExecutionService {
                         log.info("🚀 [TradeExecution] TRADE ENTERED: {} at price {} (Previous signal price: {})", 
                                 trade.getTradeId(), price, extractPriceFromMetadata(trade));
                     } else {
-                        log.debug("⏳ [TradeExecution] Entry conditions NOT met for trade {} - still waiting", trade.getTradeId());
+                        // Enhanced debug logging for why entry wasn't triggered
+                        Double signalPrice = extractPriceFromMetadata(trade);
+                        String reason = getEntryRejectionReason(trade, price, signalPrice);
+                        log.info("⏳ [TradeExecution] Entry conditions NOT met for trade {} - {}", trade.getTradeId(), reason);
                     }
                 }
                 
@@ -717,5 +733,39 @@ public class TradeExecutionService {
         }
         
         return "UNKNOWN";
+    }
+    
+    /**
+     * Get detailed reason why entry was rejected (for debugging)
+     */
+    private String getEntryRejectionReason(ActiveTrade trade, double currentPrice, Double signalPrice) {
+        if (signalPrice == null) {
+            return "No signal price available";
+        }
+        
+        double priceDiff = trade.isBullish() ? (currentPrice - signalPrice) : (signalPrice - currentPrice);
+        double percentDiff = (priceDiff / signalPrice) * 100;
+        double absPercentDiff = Math.abs((currentPrice - signalPrice) / signalPrice) * 100;
+        
+        if (trade.isBullish()) {
+            if (currentPrice < signalPrice * 1.001 && absPercentDiff > 0.2) {
+                return String.format("BULLISH: Price %.2f is %.3f%% below required +0.1%% move (need %.2f+) and outside 0.2%% range", 
+                        currentPrice, percentDiff, signalPrice * 1.001);
+            } else if (absPercentDiff <= 0.2) {
+                return String.format("BULLISH: Price %.2f within 0.2%% range (%.3f%%) - should enter!", 
+                        currentPrice, absPercentDiff);
+            }
+        } else {
+            if (currentPrice > signalPrice * 0.999 && absPercentDiff > 0.2) {
+                return String.format("BEARISH: Price %.2f is %.3f%% above required -0.1%% move (need %.2f-) and outside 0.2%% range", 
+                        currentPrice, -percentDiff, signalPrice * 0.999);
+            } else if (absPercentDiff <= 0.2) {
+                return String.format("BEARISH: Price %.2f within 0.2%% range (%.3f%%) - should enter!", 
+                        currentPrice, absPercentDiff);
+            }
+        }
+        
+        return String.format("Unknown condition - Current: %.2f, Signal: %.2f, Diff: %.3f%%", 
+                currentPrice, signalPrice, percentDiff);
     }
 } 

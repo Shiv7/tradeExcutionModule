@@ -9,6 +9,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -23,6 +31,7 @@ import java.util.HashMap;
 @RequiredArgsConstructor
 @Slf4j
 @CrossOrigin(origins = "*") // Allow frontend access
+@Tag(name = "Trade Monitoring", description = "APIs for monitoring active trades, P&L, and trade history")
 public class TradeMonitoringController {
     
     private final TradeStateManager tradeStateManager;
@@ -33,6 +42,16 @@ public class TradeMonitoringController {
      * GET /api/v1/trades/active
      */
     @GetMapping("/active")
+    @Operation(
+        summary = "Get all active trades",
+        description = "Retrieves all currently active trades with real-time P&L calculations, trade status, and summary metrics"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved active trades",
+                    content = @Content(mediaType = "application/json", 
+                                     schema = @Schema(description = "Active trades response with summary metrics"))),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     public ResponseEntity<Map<String, Object>> getActiveTrades() {
         try {
             Map<String, ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
@@ -79,7 +98,17 @@ public class TradeMonitoringController {
      * GET /api/v1/trades/active/script/{scripCode}
      */
     @GetMapping("/active/script/{scripCode}")
-    public ResponseEntity<Map<String, Object>> getActiveTradesForScript(@PathVariable String scripCode) {
+    @Operation(
+        summary = "Get active trades for specific script",
+        description = "Retrieves all active trades for a specific script/instrument code"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved script trades"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<Map<String, Object>> getActiveTradesForScript(
+            @Parameter(description = "Script code (e.g., RELIANCE, 53213)", example = "53213")
+            @PathVariable String scripCode) {
         try {
             Map<String, ActiveTrade> trades = tradeStateManager.getActiveTradesForScript(scripCode);
             
@@ -103,6 +132,14 @@ public class TradeMonitoringController {
      * GET /api/v1/trades/history/today
      */
     @GetMapping("/history/today")
+    @Operation(
+        summary = "Get today's trade history",
+        description = "Retrieves all completed trades for today with performance metrics including P&L, win rate, and trade analysis"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved today's trade history"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     public ResponseEntity<Map<String, Object>> getTodaysTradeHistory() {
         try {
             LocalDate today = LocalDate.now();
@@ -153,6 +190,14 @@ public class TradeMonitoringController {
      * GET /api/v1/trades/signals/today
      */
     @GetMapping("/signals/today")
+    @Operation(
+        summary = "Get today's signal summary",
+        description = "Retrieves summary of all signals received today with execution status, rejection reasons, and strategy breakdown"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved signal summary"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     public ResponseEntity<Map<String, Object>> getTodaysSignals() {
         try {
             LocalDate today = LocalDate.now();
@@ -172,7 +217,18 @@ public class TradeMonitoringController {
      * GET /api/v1/trades/{tradeId}
      */
     @GetMapping("/{tradeId}")
-    public ResponseEntity<Map<String, Object>> getTradeDetails(@PathVariable String tradeId) {
+    @Operation(
+        summary = "Get trade details by ID",
+        description = "Retrieves detailed information for a specific trade including current status, P&L, and trade history"
+    )
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Successfully retrieved trade details"),
+        @ApiResponse(responseCode = "404", description = "Trade not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<Map<String, Object>> getTradeDetails(
+            @Parameter(description = "Unique trade identifier", example = "53213_3M_SUPERTREND_2025060613_c5108fdc")
+            @PathVariable String tradeId) {
         try {
             ActiveTrade activeTrade = tradeStateManager.getActiveTrade(tradeId);
             

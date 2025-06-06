@@ -10,6 +10,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.HashMap;
@@ -22,6 +30,7 @@ import java.util.HashMap;
 @RequiredArgsConstructor
 @Slf4j
 @CrossOrigin(origins = "*")
+@Tag(name = "Testing & Debug", description = "APIs for testing system functionality, debugging, and manual signal execution")
 public class TestController {
     
     private final TradeExecutionService tradeExecutionService;
@@ -34,6 +43,11 @@ public class TestController {
      * POST /api/v1/test/create-trade
      */
     @PostMapping("/create-trade")
+    @Operation(summary = "Create a test trade", description = "Manually create a test trade")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Trade created successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to create test trade", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
     public ResponseEntity<Map<String, Object>> createTestTrade(
             @RequestParam String scripCode,
             @RequestParam String signal,
@@ -75,6 +89,11 @@ public class TestController {
      * GET /api/v1/test/status
      */
     @GetMapping("/status")
+    @Operation(summary = "Get system status", description = "Retrieve the current status of the system")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "System status retrieved successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to get system status", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
     public ResponseEntity<Map<String, Object>> getSystemStatus() {
         try {
             Map<String, Object> status = new HashMap<>();
@@ -97,6 +116,11 @@ public class TestController {
      * GET /api/v1/test/trading-hours
      */
     @GetMapping("/trading-hours")
+    @Operation(summary = "Get trading hours status", description = "Retrieve the current trading hours status")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Trading hours status retrieved successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to get trading hours status", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
     public ResponseEntity<Map<String, Object>> getTradingHoursStatus() {
         try {
             Map<String, Object> status = new HashMap<>();
@@ -132,6 +156,11 @@ public class TestController {
      * GET /api/v1/test/active-trades-debug
      */
     @GetMapping("/active-trades-debug")
+    @Operation(summary = "Get active trades debug information", description = "Retrieve detailed information about active trades")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Active trades debug information retrieved successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to get active trades debug", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
     public ResponseEntity<Map<String, Object>> getActiveTradesDebug() {
         try {
             Map<String, ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
@@ -170,6 +199,11 @@ public class TestController {
      * POST /api/v1/test/simulate-price
      */
     @PostMapping("/simulate-price")
+    @Operation(summary = "Test market data simulation", description = "Simulate a price update for a given scrip code")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Price simulation executed successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to simulate price", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
     public ResponseEntity<Map<String, Object>> simulatePrice(
             @RequestParam String scripCode,
             @RequestParam Double price) {
@@ -201,6 +235,11 @@ public class TestController {
      * POST /api/v1/test/log-signal
      */
     @PostMapping("/log-signal")
+    @Operation(summary = "Test signal logging", description = "Log a test signal")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Signal logged successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to log signal", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
     public ResponseEntity<Map<String, Object>> logTestSignal(
             @RequestParam String scripCode,
             @RequestParam String signal,
@@ -229,6 +268,11 @@ public class TestController {
      * GET /api/v1/test/timezone-debug
      */
     @GetMapping("/timezone-debug")
+    @Operation(summary = "Test timezone conversion", description = "Convert UTC time to IST and check trading hours")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Timezone conversion information retrieved successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to get timezone debug info", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
     public ResponseEntity<Map<String, Object>> getTimezoneDebug(
             @RequestParam(required = false) String utcTime) {
         
@@ -291,6 +335,61 @@ public class TestController {
             log.error("🚨 Error in timezone debug: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError()
                     .body(Map.of("error", "Failed to get timezone debug info"));
+        }
+    }
+    
+    /**
+     * Debug market data and script matching
+     * GET /api/v1/test/market-data-debug
+     */
+    @GetMapping("/market-data-debug")
+    @Operation(summary = "Debug market data and script matching", description = "Check what script codes are in market data vs active trades")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Market data debug info retrieved successfully"),
+            @ApiResponse(responseCode = "500", description = "Failed to get market data debug info")
+    })
+    public ResponseEntity<Map<String, Object>> getMarketDataDebug() {
+        try {
+            Map<String, Object> response = new HashMap<>();
+            
+            // Get active trades
+            Map<String, ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Map<String, String> activeTradeInfo = new HashMap<>();
+            
+            activeTrades.values().forEach(trade -> {
+                activeTradeInfo.put(trade.getScripCode(), 
+                    String.format("%s - %s - %s", 
+                        trade.getTradeId().substring(0, Math.min(20, trade.getTradeId().length())), 
+                        trade.getSignalType(), 
+                        trade.getStatus()));
+            });
+            
+            response.put("activeTrades", activeTrades.size());
+            response.put("activeTradeDetails", activeTradeInfo);
+            response.put("activeScriptCodes", activeTrades.values().stream()
+                    .map(ActiveTrade::getScripCode)
+                    .distinct()
+                    .sorted()
+                    .toList());
+            
+            // Add debugging info about what we expect
+            response.put("expectedScripts", "Market data should contain: 134082, 105379, 10243, 145997");
+            response.put("marketDataProcessing", "Check LiveMarketDataConsumer logs for script code extraction");
+            
+            // Last update info
+            response.put("timestamp", java.time.LocalDateTime.now());
+            response.put("instructions", "Market data ticks should have 'companyName' field matching our script codes");
+            
+            log.info("🔍 Market data debug requested - {} active trades for scripts: {}", 
+                    activeTrades.size(), 
+                    activeTrades.values().stream().map(ActiveTrade::getScripCode).distinct().toList());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("🚨 Error in market data debug: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Failed to get market data debug info"));
         }
     }
 } 
