@@ -129,22 +129,22 @@ public class TradeExecutionService {
             
             // Enhanced logging for debugging
             if (!activeTrades.isEmpty()) {
-                log.info("💹 Price update for {}: {} at {} - Found {} active trades", 
+                log.info("💹 [TradeExecution] Price update for {}: {} at {} - Found {} active trades", 
                         scripCode, price, timestamp.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")), 
                         activeTrades.size());
                 
                 // Log current trade statuses
                 activeTrades.values().forEach(trade -> {
                     double currentPnL = trade.getCurrentPnL();
-                    log.info("📊 Trade {} - Status: {}, Entry: {}, Current P&L: {}, Position: {}", 
+                    log.info("📊 [TradeExecution] Trade {} - Status: {}, Entry: {}, Current P&L: {}, Position: {}", 
                             trade.getTradeId(), trade.getStatus(), 
-                            trade.getEntryTriggered() ? trade.getEntryPrice() : "Waiting",
-                            currentPnL, trade.getPositionSize());
+                            trade.getEntryTriggered() ? String.format("%.2f", trade.getEntryPrice()) : "Waiting",
+                            String.format("%.2f", currentPnL), trade.getPositionSize());
                 });
             } else {
                 // Log occasionally for debugging when no trades found
                 if (System.currentTimeMillis() % 10000 < 1000) { // Log roughly every 10 seconds
-                    log.debug("📉 No active trades found for {} at price {}", scripCode, price);
+                    log.debug("📉 [TradeExecution] No active trades found for {} at price {}", scripCode, price);
                 }
             }
             
@@ -158,12 +158,14 @@ public class TradeExecutionService {
                 
                 // Check entry conditions
                 if (!trade.getEntryTriggered()) {
-                    log.info("🎯 Checking entry conditions for trade {} at price {}", trade.getTradeId(), price);
+                    log.info("🎯 [TradeExecution] Checking entry conditions for trade {} at price {}", trade.getTradeId(), price);
                     checkEntryConditions(trade, price, timestamp);
                     
                     if (trade.getEntryTriggered()) {
-                        log.info("🚀 TRADE ENTERED: {} at price {} (Previous signal price: {})", 
+                        log.info("🚀 [TradeExecution] TRADE ENTERED: {} at price {} (Previous signal price: {})", 
                                 trade.getTradeId(), price, extractPriceFromMetadata(trade));
+                    } else {
+                        log.debug("⏳ [TradeExecution] Entry conditions NOT met for trade {} - still waiting", trade.getTradeId());
                     }
                 }
                 
@@ -173,7 +175,7 @@ public class TradeExecutionService {
                     
                     // Log P&L changes for active trades
                     if (previousPnL != null && Math.abs(currentPnL - previousPnL) > 10) {
-                        log.info("💰 P&L Update - Trade {}: {} → {} (Change: {})", 
+                        log.info("💰 [TradeExecution] P&L Update - Trade {}: {} → {} (Change: {})", 
                                 trade.getTradeId(), 
                                 String.format("%.2f", previousPnL),
                                 String.format("%.2f", currentPnL),
@@ -188,7 +190,7 @@ public class TradeExecutionService {
             }
             
         } catch (Exception e) {
-            log.error("🚨 Error updating trade with price for {}: {}", scripCode, e.getMessage(), e);
+            log.error("🚨 [TradeExecution] Error updating trade with price for {}: {}", scripCode, e.getMessage(), e);
         }
     }
     
@@ -198,20 +200,75 @@ public class TradeExecutionService {
     private void checkEntryConditions(ActiveTrade trade, double currentPrice, LocalDateTime timestamp) {
         // Entry logic based on KotsinBackTestBE patterns
         boolean shouldEnter = false;
+        String entryReason = "";
+        
+        Double signalPrice = extractPriceFromMetadata(trade);
+        
+        log.info("🔍 [EntryCheck] Entry Check for Trade {} - Current: {}, Signal: {}, Type: {}", 
+                trade.getTradeId(), currentPrice, signalPrice, trade.getSignalType());
         
         if (trade.isBullish()) {
-            // For bullish trades, enter if price moves up from signal
-            Double signalPrice = extractPriceFromMetadata(trade);
-            if (signalPrice != null && currentPrice >= signalPrice * 1.001) { // 0.1% buffer
+            log.debug("📈 [EntryCheck] Evaluating BULLISH entry conditions for {}", trade.getTradeId());
+            
+            // For bullish trades, enter if price moves up from signal or is very close
+            if (signalPrice != null) {
+                double priceDiff = currentPrice - signalPrice;
+                double percentDiff = (priceDiff / signalPrice) * 100;
+                
+                log.debug("🔍 [EntryCheck] Price analysis: Current={}, Signal={}, Diff={} ({:.3f}%)", 
+                        currentPrice, signalPrice, priceDiff, percentDiff);
+                
+                if (currentPrice >= signalPrice * 1.001) { // 0.1% buffer
+                    shouldEnter = true;
+                    entryReason = String.format("Price moved up %.3f%% from signal (threshold: 0.1%%)", percentDiff);
+                    log.info("✅ [EntryCheck] BULLISH condition met: {}", entryReason);
+                } else if (Math.abs(currentPrice - signalPrice) <= signalPrice * 0.002) { // Within 0.2%
+                    shouldEnter = true;
+                    entryReason = String.format("Price within %.3f%% of signal price (threshold: 0.2%%)", Math.abs(percentDiff));
+                    log.info("✅ [EntryCheck] BULLISH condition met: {}", entryReason);
+                } else {
+                    entryReason = String.format("Price %.3f%% from signal - waiting for 0.1%% move up or 0.2%% proximity", percentDiff);
+                    log.debug("⏳ [EntryCheck] BULLISH conditions NOT met: {}", entryReason);
+                }
+            } else {
+                // If no signal price available, enter immediately
                 shouldEnter = true;
+                entryReason = "No signal price available - immediate entry";
+                log.info("✅ [EntryCheck] BULLISH condition met: {}", entryReason);
             }
         } else {
-            // For bearish trades, enter if price moves down from signal
-            Double signalPrice = extractPriceFromMetadata(trade);
-            if (signalPrice != null && currentPrice <= signalPrice * 0.999) { // 0.1% buffer
+            log.debug("📉 [EntryCheck] Evaluating BEARISH entry conditions for {}", trade.getTradeId());
+            
+            // For bearish trades, enter if price moves down from signal or is very close
+            if (signalPrice != null) {
+                double priceDiff = signalPrice - currentPrice; // Positive when price moved down
+                double percentDiff = (priceDiff / signalPrice) * 100;
+                
+                log.debug("🔍 [EntryCheck] Price analysis: Current={}, Signal={}, Diff={} ({:.3f}%)", 
+                        currentPrice, signalPrice, priceDiff, percentDiff);
+                
+                if (currentPrice <= signalPrice * 0.999) { // 0.1% buffer
+                    shouldEnter = true;
+                    entryReason = String.format("Price moved down %.3f%% from signal (threshold: 0.1%%)", percentDiff);
+                    log.info("✅ [EntryCheck] BEARISH condition met: {}", entryReason);
+                } else if (Math.abs(currentPrice - signalPrice) <= signalPrice * 0.002) { // Within 0.2%
+                    shouldEnter = true;
+                    entryReason = String.format("Price within %.3f%% of signal price (threshold: 0.2%%)", Math.abs(percentDiff));
+                    log.info("✅ [EntryCheck] BEARISH condition met: {}", entryReason);
+                } else {
+                    entryReason = String.format("Price %.3f%% from signal - waiting for 0.1%% move down or 0.2%% proximity", -percentDiff);
+                    log.debug("⏳ [EntryCheck] BEARISH conditions NOT met: {}", entryReason);
+                }
+            } else {
+                // If no signal price available, enter immediately
                 shouldEnter = true;
+                entryReason = "No signal price available - immediate entry";
+                log.info("✅ [EntryCheck] BEARISH condition met: {}", entryReason);
             }
         }
+        
+        log.info("🎯 [EntryCheck] Entry Decision for {} - Should Enter: {} ({})", 
+                trade.getTradeId(), shouldEnter, entryReason);
         
         if (shouldEnter) {
             // Capture indicator state at entry time
@@ -227,11 +284,15 @@ public class TradeExecutionService {
             // Add entry time metadata
             trade.addMetadata("entryTimeIndicators", entryTimeIndicators);
             trade.addMetadata("entryConfirmed", true);
+            trade.addMetadata("entryReason", entryReason);
             
-            log.info("🚀 Trade {} entered at price: {} for {}", trade.getTradeId(), currentPrice, trade.getScripCode());
+            log.info("🚀 [EntryCheck] TRADE ENTERED: {} at price {} - {}", trade.getTradeId(), currentPrice, entryReason);
             
             // Log entry details with indicators
             logDetailedEntryInfo(trade, currentPrice, entryTimeIndicators);
+        } else {
+            // Log why entry was not triggered
+            log.debug("❌ [EntryCheck] Entry NOT triggered for {} - {}", trade.getTradeId(), entryReason);
         }
     }
     
@@ -346,13 +407,20 @@ public class TradeExecutionService {
                 break;
             case "SUPERTREND_BREAK":
             case "THREE_MINUTE_SUPERTREND":
+            case "3M_SUPERTREND":
                 trade.addMetadata("superTrendContext", extractSuperTrendContext(signalData));
                 break;
             case "FUDKII_STRATEGY":
                 trade.addMetadata("fudkiiContext", extractFudkiiContext(signalData));
                 break;
             default:
-                log.warn("⚠️ Unknown strategy type for context: {}", strategyName);
+                log.warn("⚠️ Unknown strategy type for context: {} - Adding generic context", strategyName);
+                // Add generic context for unknown strategies
+                Map<String, Object> genericContext = new HashMap<>();
+                genericContext.put("strategyName", strategyName);
+                genericContext.put("signalType", signalData.get("signal"));
+                genericContext.put("entryPrice", signalData.get("entryPrice"));
+                trade.addMetadata("genericContext", genericContext);
         }
     }
     

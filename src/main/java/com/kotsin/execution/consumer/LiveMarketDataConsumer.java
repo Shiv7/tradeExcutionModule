@@ -200,17 +200,16 @@ public class LiveMarketDataConsumer {
      */
     private boolean processValidTick(String scripCode, double price, LocalDateTime tickTime) {
         try {
+            log.debug("📈 [LiveMarketData] Processing tick for {} at price {} (Time: {})", 
+                    scripCode, price, tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+            
             // Forward tick to trade execution service for active trade updates
             tradeExecutionService.updateTradeWithPrice(scripCode, price, tickTime);
-            
-            // Enhanced logging for debugging
-            log.debug("📈 Updated trades for {} at price: {} (Time: {})", scripCode, price, 
-                    tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             
             return true;
             
         } catch (Exception e) {
-            log.error("🚨 Error processing tick for {}: {}", scripCode, e.getMessage());
+            log.error("🚨 [LiveMarketData] Error processing tick for {}: {}", scripCode, e.getMessage());
             return false;
         }
     }

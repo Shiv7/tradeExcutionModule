@@ -11,6 +11,7 @@ import java.util.Map;
 
 /**
  * Service to fetch current indicator data from Redis for trade decisions
+ * Redis Key Format: scripCode (e.g., "53213") contains IndicatorState with all timeframes
  */
 @Service
 @Slf4j
@@ -21,23 +22,123 @@ public class IndicatorDataService {
     private final ObjectMapper objectMapper;
     
     /**
-     * Fetch current indicators for a script code and timeframe
+     * Fetch current indicators for a script code and timeframe from IndicatorState
      */
     public Map<String, Object> getCurrentIndicators(String scripCode, String timeframe) {
         try {
-            String redisKey = String.format("indicator:%s:%s", scripCode, timeframe);
-            String indicatorJson = redisTemplate.opsForValue().get(redisKey);
+            log.debug("🔍 [IndicatorService] Fetching indicators for scripCode: {}, timeframe: {}", scripCode, timeframe);
             
-            if (indicatorJson != null) {
-                return objectMapper.readValue(indicatorJson, Map.class);
+            // Use scripCode as Redis key (same as indicatorAgg module)
+            String redisKey = scripCode;
+            String indicatorStateJson = redisTemplate.opsForValue().get(redisKey);
+            
+            if (indicatorStateJson != null) {
+                log.debug("📊 [IndicatorService] Found Redis data for {}, parsing IndicatorState...", scripCode);
+                
+                // Parse the IndicatorState JSON
+                Map<String, Object> indicatorState = objectMapper.readValue(indicatorStateJson, Map.class);
+                
+                // Extract the specific timeframe data
+                Map<String, Object> timeframeData = extractTimeframeData(indicatorState, timeframe);
+                
+                if (!timeframeData.isEmpty()) {
+                    log.info("✅ [IndicatorService] Found {} indicators for {}:{} - ST={}, BB=[{}-{}], Close={}", 
+                            timeframeData.size(), scripCode, timeframe,
+                            timeframeData.get("supertrend"),
+                            timeframeData.get("bbLower"), timeframeData.get("bbUpper"),
+                            timeframeData.get("closePrice"));
+                } else {
+                    log.warn("⚠️ [IndicatorService] No {} timeframe data found in IndicatorState for {}", timeframe, scripCode);
+                    log.debug("🔍 [IndicatorService] Available timeframes in state: {}", getAvailableTimeframes(indicatorState));
+                }
+                
+                return timeframeData;
             } else {
-                log.warn("No indicator data found in Redis for key: {}", redisKey);
+                log.warn("❌ [IndicatorService] No Redis data found for scripCode: {} (Key: {})", scripCode, redisKey);
+                log.debug("🔍 [IndicatorService] Checking if key exists in Redis...");
+                
+                boolean keyExists = redisTemplate.hasKey(redisKey);
+                log.debug("🔍 [IndicatorService] Redis key '{}' exists: {}", redisKey, keyExists);
+                
+                // Try to list some keys for debugging
+                var keys = redisTemplate.keys("*");
+                if (keys != null && !keys.isEmpty()) {
+                    log.debug("🔍 [IndicatorService] Sample Redis keys available: {}", 
+                            keys.stream().limit(5).toList());
+                } else {
+                    log.warn("⚠️ [IndicatorService] No Redis keys found at all - Redis connection issue?");
+                }
+                
                 return new HashMap<>();
             }
         } catch (Exception e) {
-            log.error("Error fetching indicators for {} ({}): {}", scripCode, timeframe, e.getMessage());
+            log.error("🚨 [IndicatorService] Error fetching indicators for {} ({}): {}", 
+                    scripCode, timeframe, e.getMessage(), e);
             return new HashMap<>();
         }
+    }
+    
+    /**
+     * Extract specific timeframe data from IndicatorState
+     */
+    private Map<String, Object> extractTimeframeData(Map<String, Object> indicatorState, String timeframe) {
+        try {
+            // Map timeframe to IndicatorState field names
+            String fieldName = mapTimeframeToField(timeframe);
+            
+            if (fieldName != null && indicatorState.containsKey(fieldName)) {
+                Object timeframeObj = indicatorState.get(fieldName);
+                if (timeframeObj instanceof Map) {
+                    return (Map<String, Object>) timeframeObj;
+                } else {
+                    log.warn("⚠️ [IndicatorService] Timeframe data for {} is not a Map: {}", 
+                            fieldName, timeframeObj != null ? timeframeObj.getClass() : "null");
+                }
+            } else {
+                log.debug("🔍 [IndicatorService] Field '{}' not found in IndicatorState for timeframe '{}'", 
+                        fieldName, timeframe);
+            }
+            
+            return new HashMap<>();
+        } catch (Exception e) {
+            log.error("🚨 [IndicatorService] Error extracting timeframe data for {}: {}", timeframe, e.getMessage());
+            return new HashMap<>();
+        }
+    }
+    
+    /**
+     * Map timeframe string to IndicatorState field names
+     */
+    private String mapTimeframeToField(String timeframe) {
+        return switch (timeframe.toLowerCase()) {
+            case "1m" -> "oneMinute";
+            case "2m" -> "twoMinute";
+            case "3m" -> "threeMinute";
+            case "5m" -> "fiveMinute";
+            case "15m" -> "fifteenMinute";
+            case "30m" -> "thirtyMinute";
+            default -> {
+                log.warn("⚠️ [IndicatorService] Unknown timeframe: {}", timeframe);
+                yield null;
+            }
+        };
+    }
+    
+    /**
+     * Get available timeframes from IndicatorState for debugging
+     */
+    private String getAvailableTimeframes(Map<String, Object> indicatorState) {
+        StringBuilder available = new StringBuilder();
+        String[] possibleFields = {"oneMinute", "twoMinute", "threeMinute", "fiveMinute", "fifteenMinute", "thirtyMinute"};
+        
+        for (String field : possibleFields) {
+            if (indicatorState.containsKey(field) && indicatorState.get(field) != null) {
+                if (available.length() > 0) available.append(", ");
+                available.append(field);
+            }
+        }
+        
+        return available.toString();
     }
     
     /**
@@ -46,13 +147,24 @@ public class IndicatorDataService {
     public Map<String, Object> getComprehensiveIndicators(String scripCode) {
         Map<String, Object> allIndicators = new HashMap<>();
         
+        log.debug("🔍 [IndicatorService] Fetching comprehensive indicators for {}", scripCode);
+        
         String[] timeframes = {"1m", "2m", "3m", "5m", "15m", "30m"};
+        int foundTimeframes = 0;
         
         for (String timeframe : timeframes) {
             Map<String, Object> indicators = getCurrentIndicators(scripCode, timeframe);
             if (!indicators.isEmpty()) {
                 allIndicators.put(timeframe, indicators);
+                foundTimeframes++;
             }
+        }
+        
+        log.info("📊 [IndicatorService] Comprehensive indicators for {}: Found {}/{} timeframes", 
+                scripCode, foundTimeframes, timeframes.length);
+        
+        if (foundTimeframes == 0) {
+            log.warn("❌ [IndicatorService] No indicator data found for ANY timeframe for scripCode: {}", scripCode);
         }
         
         return allIndicators;
@@ -123,7 +235,7 @@ public class IndicatorDataService {
             }
             
         } catch (Exception e) {
-            log.error("Error extracting key indicators: {}", e.getMessage());
+            log.error("🚨 [IndicatorService] Error extracting key indicators: {}", e.getMessage());
         }
         
         return keyIndicators;
