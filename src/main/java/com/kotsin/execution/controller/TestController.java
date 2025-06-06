@@ -5,6 +5,8 @@ import com.kotsin.execution.service.TradeStateManager;
 import com.kotsin.execution.service.TradeHistoryService;
 import com.kotsin.execution.service.TradingHoursService;
 import com.kotsin.execution.model.ActiveTrade;
+import com.kotsin.execution.service.CompanyNameService;
+import com.kotsin.execution.service.IndicatorDataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -34,9 +36,11 @@ import java.util.HashMap;
 public class TestController {
     
     private final TradeExecutionService tradeExecutionService;
+    private final IndicatorDataService indicatorDataService;
     private final TradeStateManager tradeStateManager;
     private final TradeHistoryService tradeHistoryService;
     private final TradingHoursService tradingHoursService;
+    private final CompanyNameService companyNameService;
     
     /**
      * Test endpoint to manually create a trade
@@ -390,6 +394,89 @@ public class TestController {
             log.error("🚨 Error in market data debug: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError()
                     .body(Map.of("error", "Failed to get market data debug info"));
+        }
+    }
+    
+    /**
+     * Check company name mappings
+     * GET /api/v1/test/company-mappings
+     */
+    @GetMapping("/company-mappings")
+    @Operation(summary = "Test company name mappings", description = "Check how script codes are mapped to company names")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Company mappings retrieved successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to get company mappings", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
+    public ResponseEntity<Map<String, Object>> getCompanyMappings(
+            @RequestParam(required = false) String scripCode) {
+        
+        Map<String, Object> response = new HashMap<>();
+        try {
+            if (scripCode != null && !scripCode.trim().isEmpty()) {
+                // Test specific script code
+                String companyName = companyNameService.getCompanyName(scripCode.trim());
+                response.put("scripCode", scripCode.trim());
+                response.put("companyName", companyName);
+                response.put("mappingType", companyName.startsWith("Company_") ? "fallback" : "resolved");
+            } else {
+                // Get all mappings
+                Map<String, String> allMappings = companyNameService.getAllMappings();
+                Map<String, Object> stats = companyNameService.getMappingStats();
+                
+                response.put("totalMappings", allMappings.size());
+                response.put("stats", stats);
+                response.put("sampleMappings", allMappings.entrySet().stream()
+                        .limit(10)
+                        .collect(java.util.stream.Collectors.toMap(
+                            Map.Entry::getKey,
+                            Map.Entry::getValue
+                        )));
+            }
+            
+            response.put("status", "success");
+            response.put("timestamp", java.time.LocalDateTime.now().toString());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Error checking company mappings: {}", e.getMessage(), e);
+            response.put("error", e.getMessage());
+            response.put("status", "error");
+            return ResponseEntity.status(500).body(response);
+        }
+    }
+    
+    /**
+     * Refresh company name cache
+     * POST /api/v1/test/refresh-company-cache
+     */
+    @PostMapping("/refresh-company-cache")
+    @Operation(summary = "Refresh company name cache", description = "Force refresh company name mappings from FNO API")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Cache refreshed successfully", content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "500", description = "Failed to refresh cache", content = @Content(schema = @Schema(implementation = Map.class)))
+    })
+    public ResponseEntity<Map<String, Object>> refreshCompanyCache() {
+        
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> beforeStats = companyNameService.getMappingStats();
+            companyNameService.refreshCache();
+            Map<String, Object> afterStats = companyNameService.getMappingStats();
+            
+            response.put("status", "success");
+            response.put("message", "Company name cache refreshed successfully");
+            response.put("beforeRefresh", beforeStats);
+            response.put("afterRefresh", afterStats);
+            response.put("timestamp", java.time.LocalDateTime.now().toString());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Error refreshing company cache: {}", e.getMessage(), e);
+            response.put("error", e.getMessage());
+            response.put("status", "error");
+            return ResponseEntity.status(500).body(response);
         }
     }
 } 

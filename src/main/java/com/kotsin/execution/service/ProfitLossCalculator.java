@@ -53,6 +53,8 @@ public class ProfitLossCalculator {
                     .highSinceEntry(trade.getHighSinceEntry())
                     .lowSinceEntry(trade.getLowSinceEntry())
                     .riskRewardRatios(trade.getRiskRewardRatios())
+                    .resultGeneratedTime(LocalDateTime.now())
+                    .systemVersion("TradeExecution-v1.0.0")
                     .build();
             
             // Calculate financial metrics

@@ -1,8 +1,10 @@
 package com.kotsin.execution.service;
 
 import com.kotsin.execution.model.ActiveTrade;
+import com.kotsin.execution.model.PendingSignal;
 import com.kotsin.execution.model.TradeResult;
 import com.kotsin.execution.producer.TradeResultProducer;
+import com.kotsin.execution.service.SignalValidationService.SignalValidationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -11,10 +13,16 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 import java.util.HashMap;
+import java.util.Collection;
 
 /**
- * Main trade execution service that processes new signals and manages trade lifecycle.
- * Integrates with Redis for indicators and Kafka for live market data.
+ * Main trade execution service with DYNAMIC VALIDATION architecture
+ * 
+ * NEW FLOW:
+ * 1. Receives signals from Strategy Module → Store as PENDING
+ * 2. With each websocket price update → Validate all pending signals 
+ * 3. When all kotsinBackTestBE conditions met → Execute trade immediately
+ * 4. Continuous validation until signal expires or executed
  */
 @Service
 @Slf4j
@@ -27,9 +35,14 @@ public class TradeExecutionService {
     private final TradeResultProducer tradeResultProducer;
     private final IndicatorDataService indicatorDataService;
     private final TradeHistoryService tradeHistoryService;
+    private final TradingHoursService tradingHoursService;
+    private final CompanyNameService companyNameService;
+    private final SignalValidationService signalValidationService;
+    private final PendingSignalManager pendingSignalManager; // NEW: Manage pending signals
     
     /**
      * Process a new signal from strategy modules
+     * NEW ARCHITECTURE: Store as pending signal for dynamic validation
      */
     public void processNewSignal(
             Map<String, Object> signalData,
@@ -42,31 +55,27 @@ public class TradeExecutionService {
             String exchangeType) {
         
         try {
-            log.info("🎯 Processing new {} signal for {} from strategy: {}", signalType, scripCode, strategyName);
+            log.info("🎯 [TradeExecution] Processing NEW signal for {} from strategy: {} - STORING AS PENDING", 
+                    scripCode, strategyName);
             
-            // Generate unique trade ID
-            String tradeId = generateTradeId(scripCode, strategyName, signalTime);
+            // Check for duplicate pending signals
+            if (pendingSignalManager.hasPendingSignal(scripCode, strategyName)) {
+                log.warn("⚠️ [TradeExecution] Already have pending signal for {} with strategy {}, skipping", scripCode, strategyName);
+                return;
+            }
             
-            // Check if we already have an active trade for this script+strategy combination
+            // Check for active trades (don't add pending if already trading)
             if (tradeStateManager.hasActiveTrade(scripCode, strategyName)) {
-                log.warn("⚠️ Already have active trade for {} with strategy {}, skipping signal", scripCode, strategyName);
+                log.warn("⚠️ [TradeExecution] Already have active trade for {} with strategy {}, skipping signal", scripCode, strategyName);
                 return;
             }
             
-            // Calculate risk parameters and trade levels
-            Map<String, Double> tradeLevels = riskManager.calculateTradeLevels(signalData, signalType);
+            // Create pending signal with expiry (15 minutes from signal time)
+            String signalId = generateSignalId(scripCode, strategyName, signalTime);
+            LocalDateTime expiryTime = signalTime.plusMinutes(15); // 15-minute expiry
             
-            if (tradeLevels == null || tradeLevels.isEmpty()) {
-                log.warn("⚠️ Could not calculate trade levels for signal: {}", signalData);
-                return;
-            }
-            
-            // Capture current indicator state at signal time
-            Map<String, Object> signalTimeIndicators = indicatorDataService.getComprehensiveIndicators(scripCode);
-            
-            // Create active trade object
-            ActiveTrade trade = ActiveTrade.builder()
-                    .tradeId(tradeId)
+            PendingSignal pendingSignal = PendingSignal.builder()
+                    .signalId(signalId)
                     .scripCode(scripCode)
                     .companyName(companyName)
                     .exchange(exchange)
@@ -74,56 +83,260 @@ public class TradeExecutionService {
                     .strategyName(strategyName)
                     .signalType(signalType)
                     .signalTime(signalTime)
-                    .originalSignalId(extractStringValue(signalData, "signalId"))
-                    .status(ActiveTrade.TradeStatus.WAITING_FOR_ENTRY)
-                    .entryTriggered(false)
-                    .target1Hit(false)
-                    .target2Hit(false)
-                    .useTrailingStop(true)
-                    .stopLoss(tradeLevels.get("stopLoss"))
-                    .target1(tradeLevels.get("target1"))
-                    .target2(tradeLevels.get("target2"))
-                    .target3(tradeLevels.get("target3"))
-                    .target4(tradeLevels.get("target4"))
-                    .riskAmount(tradeLevels.get("riskAmount"))
-                    .riskPerShare(tradeLevels.get("riskPerShare"))
-                    .positionSize(tradeLevels.get("positionSize").intValue())
-                    .maxHoldingTime(signalTime.plusDays(5)) // 5-day max holding
-                    .daysHeld(0)
+                    .expiryTime(expiryTime)
+                    .stopLoss(extractDoubleValue(signalData, "stopLoss"))
+                    .target1(extractDoubleValue(signalData, "target1"))
+                    .target2(extractDoubleValue(signalData, "target2"))
+                    .target3(extractDoubleValue(signalData, "target3"))
+                    .originalSignalData(signalData)
+                    .validationAttempts(0)
                     .build();
             
-            // Add comprehensive metadata from signal
-            trade.addMetadata("originalSignal", signalData);
-            trade.addMetadata("signalSource", strategyName);
-            trade.addMetadata("signalTimeIndicators", signalTimeIndicators);
-            trade.addMetadata("tradeLevels", tradeLevels);
+            // Add metadata
+            pendingSignal.addMetadata("originalSignal", signalData);
+            pendingSignal.addMetadata("signalSource", strategyName);
+            pendingSignal.addMetadata("signalTimeIndicators", indicatorDataService.getComprehensiveIndicators(scripCode));
             
-            // Add strategy-specific context
-            addStrategyContext(trade, signalData, strategyName);
+            // Store as pending signal for dynamic validation
+            pendingSignalManager.addPendingSignal(pendingSignal);
             
-            // Store the trade for monitoring
-            tradeStateManager.addActiveTrade(trade);
-            
-            log.info("✅ Created new trade: {} for {} at stop: {}, targets: [{}, {}, {}, {}]", 
-                    tradeId, scripCode, 
-                    trade.getStopLoss(), 
-                    trade.getTarget1(), 
-                    trade.getTarget2(), 
-                    trade.getTarget3(), 
-                    trade.getTarget4());
-            
-            // Log detailed signal information
-            logDetailedSignalInfo(trade, signalData, signalTimeIndicators);
+            log.info("📋 [TradeExecution] Signal stored as PENDING: {} - Will validate with each price update until expiry: {}", 
+                    pendingSignal.getSummary(), expiryTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")));
             
         } catch (Exception e) {
-            log.error("🚨 Error processing new signal for {}: {}", scripCode, e.getMessage(), e);
+            log.error("🚨 [TradeExecution] Error processing new signal for {}: {}", scripCode, e.getMessage(), e);
         }
     }
     
     /**
-     * Update trade with new market price (called by LiveMarketDataConsumer)
+     * DYNAMIC VALIDATION: Update trade with new market price + validate pending signals
+     * This is called continuously with each websocket price update
      */
     public void updateTradeWithPrice(String scripCode, double price, LocalDateTime timestamp) {
+        try {
+            // STEP 1: Validate pending signals with new market price
+            validatePendingSignalsWithPrice(scripCode, price, timestamp);
+            
+            // STEP 2: Update existing active trades
+            updateActiveTradesWithPrice(scripCode, price, timestamp);
+            
+        } catch (Exception e) {
+            log.error("🚨 [TradeExecution] Error updating trade with price for {}: {}", scripCode, e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * DYNAMIC VALIDATION: Check all pending signals for this script with live price
+     */
+    private void validatePendingSignalsWithPrice(String scripCode, double currentPrice, LocalDateTime timestamp) {
+        Collection<PendingSignal> pendingSignals = pendingSignalManager.getPendingSignalsForScript(scripCode);
+        
+        if (pendingSignals.isEmpty()) {
+            return; // No pending signals for this script
+        }
+        
+        log.debug("🔍 [DynamicValidation] Checking {} pending signals for {} at price {}", 
+                pendingSignals.size(), scripCode, currentPrice);
+        
+        for (PendingSignal pendingSignal : pendingSignals) {
+            try {
+                // Check if signal has expired
+                if (pendingSignal.isExpired()) {
+                    log.warn("⏰ [DynamicValidation] Signal expired: {} - Removing", pendingSignal.getSummary());
+                    pendingSignalManager.removePendingSignal(pendingSignal.getSignalId());
+                    continue;
+                }
+                
+                // Perform dynamic validation with current market price
+                SignalValidationResult validationResult = signalValidationService
+                        .validateSignalWithLivePrice(pendingSignal.getOriginalSignalData(), currentPrice);
+                
+                if (validationResult.isApproved()) {
+                    // ALL CONDITIONS MET! Execute trade immediately
+                    log.info("✅ [DynamicValidation] Signal PASSED all validations at price {}: {} - EXECUTING TRADE!", 
+                            currentPrice, pendingSignal.getSummary());
+                    
+                    // Create and execute trade immediately
+                    executeValidatedSignal(pendingSignal, currentPrice, timestamp, validationResult);
+                    
+                    // Remove from pending (trade is now active)
+                    pendingSignalManager.removePendingSignal(pendingSignal.getSignalId());
+                    
+                } else {
+                    // Validation failed - record attempt and continue waiting
+                    pendingSignal.recordValidationAttempt(validationResult.getReason());
+                    
+                    // Log every 10th attempt to avoid spam
+                    if (pendingSignal.getValidationAttempts() % 10 == 0) {
+                        log.debug("⏳ [DynamicValidation] Signal still pending validation #{}: {} - Reason: {}", 
+                                pendingSignal.getValidationAttempts(), pendingSignal.getSummary(), validationResult.getReason());
+                    }
+                }
+                
+            } catch (Exception e) {
+                log.error("🚨 [DynamicValidation] Error validating pending signal {}: {}", 
+                        pendingSignal.getSignalId(), e.getMessage(), e);
+            }
+        }
+        
+        // Cleanup expired signals periodically (every 100 price updates)
+        if (System.currentTimeMillis() % 10000 < 100) { // Roughly every 10 seconds
+            pendingSignalManager.cleanupExpiredSignals();
+        }
+    }
+    
+    /**
+     * Execute a validated signal immediately (all kotsinBackTestBE conditions met)
+     */
+    private void executeValidatedSignal(PendingSignal pendingSignal, double entryPrice, 
+                                      LocalDateTime entryTime, SignalValidationResult validationResult) {
+        try {
+            log.info("🚀 [TradeExecution] EXECUTING VALIDATED SIGNAL: {} at price {}", 
+                    pendingSignal.getSummary(), entryPrice);
+            
+            // Generate trade ID
+            String tradeId = generateTradeId(pendingSignal.getScripCode(), pendingSignal.getStrategyName(), entryTime);
+            
+            // Extract trade levels from pending signal (Strategy Module's pivot-based calculations)
+            Map<String, Double> tradeLevels = extractTradeLevelsFromPendingSignal(pendingSignal, entryPrice);
+            
+            // Create active trade with immediate entry
+            ActiveTrade trade = ActiveTrade.builder()
+                    .tradeId(tradeId)
+                    .scripCode(pendingSignal.getScripCode())
+                    .companyName(pendingSignal.getCompanyName())
+                    .exchange(pendingSignal.getExchange())
+                    .exchangeType(pendingSignal.getExchangeType())
+                    .strategyName(pendingSignal.getStrategyName())
+                    .signalType(pendingSignal.getSignalType())
+                    .signalTime(pendingSignal.getSignalTime())
+                    .originalSignalId(pendingSignal.getSignalId())
+                    .status(ActiveTrade.TradeStatus.ACTIVE) // IMMEDIATE ACTIVE STATUS
+                    .entryTriggered(true) // IMMEDIATE ENTRY
+                    .entryPrice(entryPrice)
+                    .entryTime(entryTime)
+                    .target1Hit(false)
+                    .target2Hit(false)
+                    .useTrailingStop(true)
+                    .stopLoss(pendingSignal.getStopLoss())
+                    .target1(pendingSignal.getTarget1())
+                    .target2(pendingSignal.getTarget2())
+                    .target3(pendingSignal.getTarget3())
+                    .target4(tradeLevels.get("target4"))
+                    .riskAmount(tradeLevels.get("riskAmount"))
+                    .riskPerShare(tradeLevels.get("riskPerShare"))
+                    .positionSize(tradeLevels.get("positionSize").intValue())
+                    .maxHoldingTime(entryTime.plusDays(5)) // 5-day max holding
+                    .daysHeld(0)
+                    .highSinceEntry(entryPrice)
+                    .lowSinceEntry(entryPrice)
+                    .build();
+            
+            // Add comprehensive metadata
+            trade.addMetadata("pendingSignalData", pendingSignal);
+            trade.addMetadata("validationAttempts", pendingSignal.getValidationAttempts());
+            trade.addMetadata("kotsinValidation", validationResult);
+            trade.addMetadata("validationApproved", true);
+            trade.addMetadata("dynamicValidation", true);
+            trade.addMetadata("validatedRiskReward", validationResult.getRiskReward());
+            trade.addMetadata("entryReason", "Dynamic validation with live price: " + entryPrice);
+            trade.addMetadata("entryTimeIndicators", indicatorDataService.getComprehensiveIndicators(pendingSignal.getScripCode()));
+            
+            // Store active trade
+            tradeStateManager.addActiveTrade(trade);
+            
+            log.info("✅ [TradeExecution] TRADE EXECUTED IMMEDIATELY: {} at entry {} with R:R: {:.2f} after {} validation attempts", 
+                    tradeId, entryPrice, validationResult.getRiskReward(), pendingSignal.getValidationAttempts());
+            
+            // Log detailed execution info
+            logDetailedExecutionInfo(trade, pendingSignal, validationResult);
+            
+        } catch (Exception e) {
+            log.error("🚨 [TradeExecution] Error executing validated signal: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Extract trade levels from strategy signal (no recalculation - use Strategy Module's pivot-based targets)
+     */
+    private Map<String, Double> extractTargetsFromSignal(Map<String, Object> signalData) {
+        Map<String, Double> tradeLevels = new HashMap<>();
+        
+        try {
+            // Extract all values calculated by Strategy Module
+            Double entryPrice = extractDoubleValue(signalData, "entryPrice");
+            Double stopLoss = extractDoubleValue(signalData, "stopLoss");
+            Double target1 = extractDoubleValue(signalData, "target1");
+            Double target2 = extractDoubleValue(signalData, "target2");
+            Double target3 = extractDoubleValue(signalData, "target3");
+            
+            // Fallbacks for missing fields
+            if (entryPrice == null) {
+                entryPrice = extractDoubleValue(signalData, "closePrice");
+            }
+            
+            if (entryPrice == null || stopLoss == null || target1 == null) {
+                log.error("❌ [TradeExecution] Missing essential price data in signal: entry={}, stop={}, target1={}", 
+                         entryPrice, stopLoss, target1);
+                return null;
+            }
+            
+            // Calculate derived values
+            double riskPerShare = Math.abs(entryPrice - stopLoss);
+            int positionSize = calculatePositionSizeFromRisk(entryPrice, riskPerShare);
+            double riskAmount = riskPerShare * positionSize;
+            
+            // Store all levels
+            tradeLevels.put("entryPrice", entryPrice);
+            tradeLevels.put("stopLoss", stopLoss);
+            tradeLevels.put("target1", target1);
+            tradeLevels.put("target2", target2 != null ? target2 : calculateFallbackTarget(entryPrice, riskPerShare, 2.5, target1 > entryPrice));
+            tradeLevels.put("target3", target3 != null ? target3 : calculateFallbackTarget(entryPrice, riskPerShare, 4.0, target1 > entryPrice));
+            tradeLevels.put("target4", calculateFallbackTarget(entryPrice, riskPerShare, 6.0, target1 > entryPrice));
+            tradeLevels.put("riskPerShare", riskPerShare);
+            tradeLevels.put("riskAmount", riskAmount);
+            tradeLevels.put("positionSize", (double) positionSize);
+            
+            log.debug("📊 [TradeExecution] Extracted trade levels from strategy signal: Entry={}, SL={}, T1={}, T2={}, T3={}", 
+                     entryPrice, stopLoss, target1, tradeLevels.get("target2"), tradeLevels.get("target3"));
+            
+            return tradeLevels;
+            
+        } catch (Exception e) {
+            log.error("🚨 [TradeExecution] Error extracting targets from signal: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+    
+    /**
+     * Calculate fallback target using risk-based multiplier
+     */
+    private double calculateFallbackTarget(double entryPrice, double riskPerShare, double multiplier, boolean isBullish) {
+        double rewardPerShare = riskPerShare * multiplier;
+        return isBullish ? entryPrice + rewardPerShare : entryPrice - rewardPerShare;
+    }
+    
+    /**
+     * Calculate position size based on risk management (simplified version)
+     */
+    private int calculatePositionSizeFromRisk(double entryPrice, double riskPerShare) {
+        double investment = 100000; // 1 lakh investment
+        double maxRiskPerTrade = 1.0; // 1% max risk
+        double maxRiskAmount = investment * (maxRiskPerTrade / 100.0);
+        
+        int calculatedSize = (int) (maxRiskAmount / riskPerShare);
+        
+        // Apply constraints
+        calculatedSize = Math.max(calculatedSize, 1); // Minimum 1 unit
+        calculatedSize = Math.min(calculatedSize, 10000); // Maximum 10k units
+        
+        return calculatedSize;
+    }
+    
+    /**
+     * Update existing active trades with new market price (original logic)
+     */
+    private void updateActiveTradesWithPrice(String scripCode, double price, LocalDateTime timestamp) {
         try {
             Map<String, ActiveTrade> activeTrades = tradeStateManager.getActiveTradesForScript(scripCode);
             
@@ -206,7 +419,7 @@ public class TradeExecutionService {
             }
             
         } catch (Exception e) {
-            log.error("🚨 [TradeExecution] Error updating trade with price for {}: {}", scripCode, e.getMessage(), e);
+            log.error("🚨 [TradeExecution] Error updating active trades with price for {}: {}", scripCode, e.getMessage(), e);
         }
     }
     
@@ -715,8 +928,8 @@ public class TradeExecutionService {
      * Extract company name from script code (placeholder implementation)
      */
     private String extractCompanyName(String scripCode) {
-        // TODO: Implement proper company name lookup
-        return "Company_" + scripCode;
+        // Use the integrated CompanyNameService for proper company name mapping
+        return companyNameService.getCompanyName(scripCode);
     }
     
     /**
@@ -767,5 +980,93 @@ public class TradeExecutionService {
         
         return String.format("Unknown condition - Current: %.2f, Signal: %.2f, Diff: %.3f%%", 
                 currentPrice, signalPrice, percentDiff);
+    }
+    
+    /**
+     * Extract trade levels from pending signal for trade creation
+     */
+    private Map<String, Double> extractTradeLevelsFromPendingSignal(PendingSignal pendingSignal, double currentPrice) {
+        Map<String, Double> tradeLevels = new HashMap<>();
+        
+        try {
+            double entryPrice = currentPrice;
+            double stopLoss = pendingSignal.getStopLoss();
+            double target1 = pendingSignal.getTarget1();
+            
+            // Calculate derived values
+            double riskPerShare = Math.abs(entryPrice - stopLoss);
+            int positionSize = calculatePositionSizeFromRisk(entryPrice, riskPerShare);
+            double riskAmount = riskPerShare * positionSize;
+            
+            // Store all levels
+            tradeLevels.put("entryPrice", entryPrice);
+            tradeLevels.put("stopLoss", stopLoss);
+            tradeLevels.put("target1", target1);
+            tradeLevels.put("target2", pendingSignal.getTarget2() != null ? pendingSignal.getTarget2() : 
+                          calculateFallbackTarget(entryPrice, riskPerShare, 2.5, target1 > entryPrice));
+            tradeLevels.put("target3", pendingSignal.getTarget3() != null ? pendingSignal.getTarget3() : 
+                          calculateFallbackTarget(entryPrice, riskPerShare, 4.0, target1 > entryPrice));
+            tradeLevels.put("target4", calculateFallbackTarget(entryPrice, riskPerShare, 6.0, target1 > entryPrice));
+            tradeLevels.put("riskPerShare", riskPerShare);
+            tradeLevels.put("riskAmount", riskAmount);
+            tradeLevels.put("positionSize", (double) positionSize);
+            
+            log.debug("📊 [TradeExecution] Extracted trade levels from pending signal: Entry={}, SL={}, T1={}, T2={}, T3={}", 
+                     entryPrice, stopLoss, target1, tradeLevels.get("target2"), tradeLevels.get("target3"));
+            
+            return tradeLevels;
+            
+        } catch (Exception e) {
+            log.error("🚨 [TradeExecution] Error extracting trade levels from pending signal: {}", e.getMessage(), e);
+            return new HashMap<>();
+        }
+    }
+    
+    /**
+     * Generate unique signal ID
+     */
+    private String generateSignalId(String scripCode, String strategyName, LocalDateTime signalTime) {
+        return String.format("SIG_%s_%s_%s_%s", 
+                scripCode, 
+                strategyName, 
+                signalTime.toString().replaceAll("[^0-9]", "").substring(0, 10),
+                UUID.randomUUID().toString().substring(0, 6));
+    }
+    
+    /**
+     * Log detailed execution information
+     */
+    private void logDetailedExecutionInfo(ActiveTrade trade, PendingSignal pendingSignal, 
+                                        SignalValidationResult validationResult) {
+        String executionSummary = String.format(
+            "\n🚀 === DYNAMIC TRADE EXECUTION ===\n" +
+            "🆔 Trade ID: %s\n" +
+            "📊 Script: %s (%s)\n" +
+            "🎯 Strategy: %s\n" +
+            "📈 Signal Type: %s\n" +
+            "⏰ Signal Time: %s\n" +
+            "🚀 Entry Time: %s\n" +
+            "💰 Entry Price: %.2f\n" +
+            "🛡️ Stop Loss: %.2f\n" +
+            "🎯 Targets: [%.2f, %.2f, %.2f, %.2f]\n" +
+            "📊 Risk-Reward: %.2f\n" +
+            "🔄 Validation Attempts: %d\n" +
+            "⏱️ Signal Age: %d minutes\n" +
+            "===============================",
+            trade.getTradeId(),
+            trade.getCompanyName(), trade.getScripCode(),
+            trade.getStrategyName(),
+            trade.getSignalType(),
+            pendingSignal.getSignalTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
+            trade.getEntryTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
+            trade.getEntryPrice(),
+            trade.getStopLoss(),
+            trade.getTarget1(), trade.getTarget2(), trade.getTarget3(), trade.getTarget4(),
+            validationResult.getRiskReward(),
+            pendingSignal.getValidationAttempts(),
+            java.time.Duration.between(pendingSignal.getSignalTime(), trade.getEntryTime()).toMinutes()
+        );
+        
+        log.info(executionSummary);
     }
 } 
