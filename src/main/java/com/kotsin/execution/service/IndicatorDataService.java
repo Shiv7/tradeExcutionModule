@@ -25,18 +25,38 @@ public class IndicatorDataService {
      * Fetch current indicators for a script code and timeframe from IndicatorState
      */
     public Map<String, Object> getCurrentIndicators(String scripCode, String timeframe) {
+        String indicatorStateJson = null; // Declare outside try block for error handling
         try {
             log.debug("🔍 [IndicatorService] Fetching indicators for scripCode: {}, timeframe: {}", scripCode, timeframe);
             
             // Use scripCode as Redis key (same as indicatorAgg module)
             String redisKey = scripCode;
-            String indicatorStateJson = redisTemplate.opsForValue().get(redisKey);
+            indicatorStateJson = redisTemplate.opsForValue().get(redisKey);
             
             if (indicatorStateJson != null) {
                 log.debug("📊 [IndicatorService] Found Redis data for {}, parsing IndicatorState...", scripCode);
                 
-                // Parse the IndicatorState JSON
-                Map<String, Object> indicatorState = objectMapper.readValue(indicatorStateJson, Map.class);
+                // FIXED: Handle potential double-encoded JSON from Gson storage
+                Map<String, Object> indicatorState;
+                try {
+                    // First, try to parse directly (for proper JSON objects)
+                    indicatorState = objectMapper.readValue(indicatorStateJson, Map.class);
+                } catch (Exception e) {
+                    // If that fails, check if it's double-encoded JSON (JSON string containing JSON)
+                    log.debug("🔧 [IndicatorService] Direct parse failed, checking for double-encoded JSON...");
+                    
+                    // Check if the string starts and ends with quotes (indicating double encoding)
+                    if (indicatorStateJson.startsWith("\"") && indicatorStateJson.endsWith("\"")) {
+                        // Remove the outer quotes and unescape
+                        String unescapedJson = indicatorStateJson.substring(1, indicatorStateJson.length() - 1)
+                                .replace("\\\"", "\"")
+                                .replace("\\\\", "\\");
+                        indicatorState = objectMapper.readValue(unescapedJson, Map.class);
+                        log.debug("✅ [IndicatorService] Successfully parsed double-encoded JSON for {}", scripCode);
+                    } else {
+                        throw e; // Re-throw if it's not the double-encoding issue
+                    }
+                }
                 
                 // Extract the specific timeframe data
                 Map<String, Object> timeframeData = extractTimeframeData(indicatorState, timeframe);
@@ -73,7 +93,15 @@ public class IndicatorDataService {
             }
         } catch (Exception e) {
             log.error("🚨 [IndicatorService] Error fetching indicators for {} ({}): {}", 
-                    scripCode, timeframe, e.getMessage(), e);
+                    scripCode, timeframe, e.getMessage());
+            
+            // Log additional debugging information for JSON parsing errors
+            if (e instanceof com.fasterxml.jackson.databind.exc.MismatchedInputException) {
+                log.error("💥 [IndicatorService] Jackson deserialization error - likely double-encoded JSON issue");
+                log.debug("🔍 [IndicatorService] Raw Redis value preview (first 200 chars): {}", 
+                        indicatorStateJson != null ? indicatorStateJson.substring(0, Math.min(200, indicatorStateJson.length())) : "null");
+            }
+            
             return new HashMap<>();
         }
     }

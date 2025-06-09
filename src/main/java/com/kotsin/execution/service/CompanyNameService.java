@@ -24,7 +24,7 @@ public class CompanyNameService {
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     
-    @Value("${company.mapping.api.base.url:http://13.126.14.119:8081}")
+    @Value("${company.mapping.api.base.url:http://13.126.14.119:8102}")
     private String scripFinderApiUrl;
     
     // Cache for company name mappings
@@ -60,6 +60,7 @@ public class CompanyNameService {
         staticMappings.put("19234", "HCL TECH");
         
         log.info("🏢 Initialized {} static company name mappings", staticMappings.size());
+        log.info("🔗 ScripFinder API configured at: {}", scripFinderApiUrl);
         
         // Try to refresh from API on startup
         try {
@@ -112,9 +113,10 @@ public class CompanyNameService {
      */
     public void refreshCompanyMappingsFromFnoApi() {
         try {
-            log.info("🔄 Refreshing company name mappings from FNO API...");
+            log.info("🔄 Refreshing company name mappings from ScripFinder API...");
             
             String apiUrl = scripFinderApiUrl + "/getAllNiftyGroupsData?requestId=tradeExecution";
+            log.debug("📡 Calling ScripFinder API: {}", apiUrl);
             
             // Call the same API that other modules use
             @SuppressWarnings("unchecked")
@@ -149,11 +151,14 @@ public class CompanyNameService {
                     }
                 }
                 
-                log.info("✅ Successfully loaded {} company mappings from FNO API", mappingsAdded);
+                log.info("✅ Successfully loaded {} company mappings from ScripFinder API (port 8102)", mappingsAdded);
+            } else {
+                log.warn("⚠️ Empty or invalid response from ScripFinder API");
             }
             
         } catch (Exception e) {
-            log.warn("⚠️ Failed to refresh company mappings from FNO API: {}", e.getMessage());
+            log.error("🚨 Failed to refresh company mappings from ScripFinder API: {}", e.getMessage());
+            log.error("🔍 API URL was: {}/getAllNiftyGroupsData?requestId=tradeExecution", scripFinderApiUrl);
         }
     }
     
@@ -184,7 +189,9 @@ public class CompanyNameService {
         stats.put("totalMappings", companyNameCache.size() + staticMappings.size());
         stats.put("cachedMappings", companyNameCache.size());
         stats.put("staticMappings", staticMappings.size());
-        stats.put("apiUrl", scripFinderApiUrl + "/getAllNiftyGroupsData");
+        stats.put("scripFinderApiUrl", scripFinderApiUrl + "/getAllNiftyGroupsData");
+        stats.put("apiPort", "8102");
+        stats.put("apiModule", "ScripFinder");
         return stats;
     }
     
@@ -194,7 +201,7 @@ public class CompanyNameService {
     public void refreshCache() {
         companyNameCache.clear();
         refreshCompanyMappingsFromFnoApi();
-        log.info("🔄 Company name cache refreshed. Total mappings: {}", 
+        log.info("🔄 Company name cache refreshed from ScripFinder API. Total mappings: {}", 
                 companyNameCache.size() + staticMappings.size());
     }
 } 

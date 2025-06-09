@@ -23,6 +23,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.HashMap;
+import java.time.LocalDateTime;
 
 /**
  * Test controller for validating trade execution APIs
@@ -477,6 +478,83 @@ public class TestController {
             response.put("error", e.getMessage());
             response.put("status", "error");
             return ResponseEntity.status(500).body(response);
+        }
+    }
+    
+    /**
+     * Test pivot-based trade execution integration
+     * POST /api/v1/test/pivot-trade
+     */
+    @PostMapping("/pivot-trade")
+    public ResponseEntity<Map<String, Object>> testPivotBasedTrade(
+            @RequestParam String scripCode,
+            @RequestParam String signalType, // BUY/SELL
+            @RequestParam double currentPrice,
+            @RequestParam(defaultValue = "TEST_PIVOT_STRATEGY") String strategy) {
+        
+        try {
+            log.info("🧪 Creating pivot-based test trade: {} {} @ {} with strategy {}", 
+                    signalType, scripCode, currentPrice, strategy);
+            
+            // Create a mock signal data with basic information
+            Map<String, Object> signalData = new HashMap<>();
+            signalData.put("closePrice", currentPrice);
+            signalData.put("signal", signalType);
+            signalData.put("timestamp", LocalDateTime.now().toString());
+            signalData.put("confidence", "HIGH");
+            signalData.put("source", "PIVOT_TEST");
+            
+            // Process the signal through the trade execution service
+            // This will trigger the pivot-based target calculation automatically
+            tradeExecutionService.processNewSignal(
+                    signalData,
+                    LocalDateTime.now(),
+                    strategy,
+                    signalType.equalsIgnoreCase("BUY") ? "BULLISH" : "BEARISH",
+                    scripCode,
+                    "Test Company (" + scripCode + ")",
+                    "N", // NSE
+                    "C"  // Cash
+            );
+            
+            // Simulate price update to trigger validation and execution
+            // Use a slight price movement to trigger entry conditions
+            double adjustedPrice = signalType.equalsIgnoreCase("BUY") ? 
+                    currentPrice * 1.001 : currentPrice * 0.999; // 0.1% movement
+            
+            tradeExecutionService.updateTradeWithPrice(scripCode, adjustedPrice, LocalDateTime.now());
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Pivot-based test trade initiated successfully");
+            response.put("scripCode", scripCode);
+            response.put("signalType", signalType);
+            response.put("currentPrice", currentPrice);
+            response.put("adjustedPrice", adjustedPrice);
+            response.put("strategy", strategy);
+            response.put("note", "Trade will use pivot-based targets and stop loss calculation");
+            response.put("description", "This trade uses comprehensive pivot analysis with daily, weekly, monthly, and previous timeframes");
+            response.put("expectedFeatures", Map.of(
+                "targetCalculation", "PIVOT_BASED (66 pivot levels analyzed)",
+                "stopLossCalculation", "CONFLUENCE_BASED with support/resistance levels",
+                "riskManagement", "Dynamic position sizing based on pivot distance",
+                "timeframes", "Daily, Weekly, Previous Daily, Previous Weekly, Monthly, Previous Monthly",
+                "fallbackStrategy", "Mathematical calculation if pivot API fails"
+            ));
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("🚨 Error creating pivot-based test trade: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Failed to create pivot-based test trade", 
+                                "message", e.getMessage(),
+                                "troubleshooting", Map.of(
+                                    "step1", "Ensure Strategy Module is running on port 8112",
+                                    "step2", "Verify pivot calculation API is accessible",
+                                    "step3", "Check that option metadata module is running for pivot data",
+                                    "step4", "Verify websocket price updates are functioning"
+                                )));
         }
     }
 } 

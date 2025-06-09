@@ -8,6 +8,8 @@ import com.kotsin.execution.service.SignalValidationService.SignalValidationResu
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -16,13 +18,14 @@ import java.util.HashMap;
 import java.util.Collection;
 
 /**
- * Main trade execution service with DYNAMIC VALIDATION architecture
+ * Main trade execution service with DYNAMIC VALIDATION architecture and PIVOT-BASED targeting
  * 
  * NEW FLOW:
  * 1. Receives signals from Strategy Module → Store as PENDING
  * 2. With each websocket price update → Validate all pending signals 
- * 3. When all kotsinBackTestBE conditions met → Execute trade immediately
- * 4. Continuous validation until signal expires or executed
+ * 3. When all kotsinBackTestBE conditions met → Calculate PIVOT-BASED targets and stop loss
+ * 4. Execute trade immediately with comprehensive pivot analysis
+ * 5. Continuous validation until signal expires or executed
  */
 @Service
 @Slf4j
@@ -39,6 +42,10 @@ public class TradeExecutionService {
     private final CompanyNameService companyNameService;
     private final SignalValidationService signalValidationService;
     private final PendingSignalManager pendingSignalManager; // NEW: Manage pending signals
+    
+    // NEW: RestTemplate for calling Strategy Module's pivot calculation API
+    private final RestTemplate restTemplate = new RestTemplate();
+    private static final String PIVOT_CALCULATION_API_URL = "http://localhost:8112/api/pivots/calculate-targets";
     
     /**
      * Process a new signal from strategy modules
@@ -252,21 +259,26 @@ public class TradeExecutionService {
     }
     
     /**
-     * Execute a validated signal immediately (all kotsinBackTestBE conditions met)
+     * Execute validated signal with PIVOT-BASED targets and comprehensive analysis
      */
     private void executeValidatedSignal(PendingSignal pendingSignal, double entryPrice, 
                                       LocalDateTime entryTime, SignalValidationResult validationResult) {
         try {
-            log.info("🚀 [TradeExecution] EXECUTING VALIDATED SIGNAL: {} at price {}", 
+            log.info("🚀 [TradeExecution] EXECUTING VALIDATED SIGNAL WITH PIVOT-BASED TARGETING: {} at price {}", 
                     pendingSignal.getSummary(), entryPrice);
             
             // Generate trade ID
             String tradeId = generateTradeId(pendingSignal.getScripCode(), pendingSignal.getStrategyName(), entryTime);
             
-            // Extract trade levels from pending signal (Strategy Module's pivot-based calculations)
-            Map<String, Double> tradeLevels = extractTradeLevelsFromPendingSignal(pendingSignal, entryPrice);
+            // ⚡ NEW: Calculate PIVOT-BASED targets and stop loss
+            log.info("🎯 [TradeExecution] STEP 1: Calculating pivot-based targets for {}", pendingSignal.getScripCode());
+            Map<String, Object> pivotBasedLevels = calculatePivotBasedTargetsAndStopLoss(
+                    pendingSignal.getScripCode(), entryPrice, pendingSignal.getSignalType());
             
-            // Create active trade with immediate entry
+            // Extract trade levels (prioritize pivot-based, fallback to pending signal)
+            Map<String, Double> tradeLevels = extractTradeLevelsFromPivotAnalysis(pendingSignal, entryPrice, pivotBasedLevels);
+            
+            // Create active trade with pivot-based levels
             ActiveTrade trade = ActiveTrade.builder()
                     .tradeId(tradeId)
                     .scripCode(pendingSignal.getScripCode())
@@ -284,10 +296,10 @@ public class TradeExecutionService {
                     .target1Hit(false)
                     .target2Hit(false)
                     .useTrailingStop(true)
-                    .stopLoss(pendingSignal.getStopLoss())
-                    .target1(pendingSignal.getTarget1())
-                    .target2(pendingSignal.getTarget2())
-                    .target3(pendingSignal.getTarget3())
+                    .stopLoss(tradeLevels.get("stopLoss"))
+                    .target1(tradeLevels.get("target1"))
+                    .target2(tradeLevels.get("target2"))
+                    .target3(tradeLevels.get("target3"))
                     .target4(tradeLevels.get("target4"))
                     .riskAmount(tradeLevels.get("riskAmount"))
                     .riskPerShare(tradeLevels.get("riskPerShare"))
@@ -298,7 +310,7 @@ public class TradeExecutionService {
                     .lowSinceEntry(entryPrice)
                     .build();
             
-            // Add comprehensive metadata
+            // Add comprehensive metadata including pivot analysis
             trade.addMetadata("pendingSignalData", pendingSignal);
             trade.addMetadata("validationAttempts", pendingSignal.getValidationAttempts());
             trade.addMetadata("kotsinValidation", validationResult);
@@ -308,17 +320,119 @@ public class TradeExecutionService {
             trade.addMetadata("entryReason", "Dynamic validation with live price: " + entryPrice);
             trade.addMetadata("entryTimeIndicators", indicatorDataService.getComprehensiveIndicators(pendingSignal.getScripCode()));
             
+            // ⚡ NEW: Add comprehensive pivot analysis metadata
+            trade.addMetadata("pivotAnalysis", pivotBasedLevels);
+            trade.addMetadata("pivotAnalysisType", pivotBasedLevels.get("analysisType"));
+            trade.addMetadata("allPivots", pivotBasedLevels.get("allPivots"));
+            trade.addMetadata("stopLossExplanation", pivotBasedLevels.get("stopLossExplanation"));
+            trade.addMetadata("target1Explanation", pivotBasedLevels.get("target1Explanation"));
+            trade.addMetadata("target2Explanation", pivotBasedLevels.get("target2Explanation"));
+            trade.addMetadata("target3Explanation", pivotBasedLevels.get("target3Explanation"));
+            trade.addMetadata("targetsStrategy", pivotBasedLevels.get("strategy"));
+            trade.addMetadata("targetCalculationSource", pivotBasedLevels.get("source"));
+            
             // Store active trade
             tradeStateManager.addActiveTrade(trade);
             
-            log.info("✅ [TradeExecution] TRADE EXECUTED IMMEDIATELY: {} at entry {} with R:R: {:.2f} after {} validation attempts", 
+            log.info("✅ [TradeExecution] TRADE EXECUTED WITH PIVOT-BASED LEVELS: {} at entry {} with R:R: {:.2f} after {} validation attempts", 
                     tradeId, entryPrice, validationResult.getRiskReward(), pendingSignal.getValidationAttempts());
             
-            // Log detailed execution info
-            logDetailedExecutionInfo(trade, pendingSignal, validationResult);
+            // Log detailed execution info with pivot analysis
+            logDetailedExecutionInfoWithPivots(trade, pendingSignal, validationResult, pivotBasedLevels);
             
         } catch (Exception e) {
-            log.error("🚨 [TradeExecution] Error executing validated signal: {}", e.getMessage(), e);
+            log.error("🚨 [TradeExecution] Error executing validated signal with pivot-based targeting: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Extract trade levels from pivot analysis, with fallback to pending signal
+     */
+    private Map<String, Double> extractTradeLevelsFromPivotAnalysis(PendingSignal pendingSignal, double entryPrice, 
+                                                                  Map<String, Object> pivotBasedLevels) {
+        Map<String, Double> tradeLevels = new HashMap<>();
+        
+        try {
+            // Priority 1: Use pivot-based calculations
+            if (pivotBasedLevels.get("stopLoss") != null) {
+                tradeLevels.put("stopLoss", (Double) pivotBasedLevels.get("stopLoss"));
+            } else {
+                tradeLevels.put("stopLoss", pendingSignal.getStopLoss());
+            }
+            
+            if (pivotBasedLevels.get("target1") != null) {
+                tradeLevels.put("target1", (Double) pivotBasedLevels.get("target1"));
+            } else {
+                tradeLevels.put("target1", pendingSignal.getTarget1());
+            }
+            
+            if (pivotBasedLevels.get("target2") != null) {
+                tradeLevels.put("target2", (Double) pivotBasedLevels.get("target2"));
+            } else {
+                tradeLevels.put("target2", pendingSignal.getTarget2());
+            }
+            
+            if (pivotBasedLevels.get("target3") != null) {
+                tradeLevels.put("target3", (Double) pivotBasedLevels.get("target3"));
+            } else {
+                tradeLevels.put("target3", pendingSignal.getTarget3());
+            }
+            
+            if (pivotBasedLevels.get("target4") != null) {
+                tradeLevels.put("target4", (Double) pivotBasedLevels.get("target4"));
+            } else {
+                // Calculate fallback target4
+                double riskPerShare = Math.abs(entryPrice - tradeLevels.get("stopLoss"));
+                tradeLevels.put("target4", calculateFallbackTarget(entryPrice, riskPerShare, 6.0, 
+                        pendingSignal.getTarget1() > entryPrice));
+            }
+            
+            // Extract risk management data
+            if (pivotBasedLevels.get("riskPerShare") != null) {
+                tradeLevels.put("riskPerShare", (Double) pivotBasedLevels.get("riskPerShare"));
+                tradeLevels.put("riskAmount", (Double) pivotBasedLevels.get("riskAmount"));
+                tradeLevels.put("positionSize", (Double) pivotBasedLevels.get("positionSize"));
+            } else {
+                // Calculate from stop loss
+                double riskPerShare = Math.abs(entryPrice - tradeLevels.get("stopLoss"));
+                int positionSize = calculatePositionSizeFromRisk(entryPrice, riskPerShare);
+                double riskAmount = riskPerShare * positionSize;
+                
+                tradeLevels.put("riskPerShare", riskPerShare);
+                tradeLevels.put("riskAmount", riskAmount);
+                tradeLevels.put("positionSize", (double) positionSize);
+            }
+            
+            log.info("📊 [TradeExecution] Final trade levels extracted from pivot analysis:");
+            log.info("📊 [TradeExecution] - Entry: {}, Stop Loss: {}", entryPrice, tradeLevels.get("stopLoss"));
+            log.info("📊 [TradeExecution] - Targets: {} | {} | {} | {}", 
+                    tradeLevels.get("target1"), tradeLevels.get("target2"), 
+                    tradeLevels.get("target3"), tradeLevels.get("target4"));
+            log.info("📊 [TradeExecution] - Risk: {} per share, Position: {}, Total Risk: {}", 
+                    tradeLevels.get("riskPerShare"), tradeLevels.get("positionSize"), tradeLevels.get("riskAmount"));
+            
+            return tradeLevels;
+            
+        } catch (Exception e) {
+            log.error("🚨 [TradeExecution] Error extracting trade levels from pivot analysis: {}", e.getMessage(), e);
+            
+            // Fallback to pending signal data
+            Map<String, Double> fallbackLevels = new HashMap<>();
+            fallbackLevels.put("stopLoss", pendingSignal.getStopLoss());
+            fallbackLevels.put("target1", pendingSignal.getTarget1());
+            fallbackLevels.put("target2", pendingSignal.getTarget2());
+            fallbackLevels.put("target3", pendingSignal.getTarget3());
+            
+            double riskPerShare = Math.abs(entryPrice - pendingSignal.getStopLoss());
+            int positionSize = calculatePositionSizeFromRisk(entryPrice, riskPerShare);
+            
+            fallbackLevels.put("target4", calculateFallbackTarget(entryPrice, riskPerShare, 6.0, 
+                    pendingSignal.getTarget1() > entryPrice));
+            fallbackLevels.put("riskPerShare", riskPerShare);
+            fallbackLevels.put("riskAmount", riskPerShare * positionSize);
+            fallbackLevels.put("positionSize", (double) positionSize);
+            
+            return fallbackLevels;
         }
     }
     
@@ -1134,43 +1248,232 @@ public class TradeExecutionService {
     }
     
     /**
-     * Extract trade levels from pending signal for trade creation
+     * Enhanced detailed execution logging with pivot analysis
      */
-    private Map<String, Double> extractTradeLevelsFromPendingSignal(PendingSignal pendingSignal, double currentPrice) {
-        Map<String, Double> tradeLevels = new HashMap<>();
-        
+    private void logDetailedExecutionInfoWithPivots(ActiveTrade trade, PendingSignal pendingSignal, 
+                                               SignalValidationResult validationResult, Map<String, Object> pivotAnalysis) {
         try {
-            double entryPrice = currentPrice;
-            double stopLoss = pendingSignal.getStopLoss();
-            double target1 = pendingSignal.getTarget1();
+            log.info("🎯 [TradeExecution] ================================");
+            log.info("🎯 [TradeExecution] DETAILED EXECUTION INFO WITH PIVOT ANALYSIS");
+            log.info("🎯 [TradeExecution] ================================");
+            log.info("🎯 [TradeExecution] Trade ID: {}", trade.getTradeId());
+            log.info("🎯 [TradeExecution] Script: {} ({})", trade.getScripCode(), trade.getCompanyName());
+            log.info("🎯 [TradeExecution] Strategy: {}", trade.getStrategyName());
+            log.info("🎯 [TradeExecution] Signal Type: {}", trade.getSignalType());
+            log.info("🎯 [TradeExecution] Entry Price: {}", trade.getEntryPrice());
+            log.info("🎯 [TradeExecution] Position Size: {}", trade.getPositionSize());
             
-            // Calculate derived values
-            double riskPerShare = Math.abs(entryPrice - stopLoss);
-            int positionSize = calculatePositionSizeFromRisk(entryPrice, riskPerShare);
-            double riskAmount = riskPerShare * positionSize;
+            log.info("🎯 [TradeExecution] ================================");
+            log.info("🎯 [TradeExecution] PIVOT-BASED TARGET ANALYSIS");
+            log.info("🎯 [TradeExecution] ================================");
+            log.info("🎯 [TradeExecution] Target Calculation Source: {}", pivotAnalysis.get("source"));
+            log.info("🎯 [TradeExecution] Strategy Used: {}", pivotAnalysis.get("strategy"));
+            log.info("🎯 [TradeExecution] Stop Loss: {} ({})", trade.getStopLoss(), pivotAnalysis.get("stopLossExplanation"));
+            log.info("🎯 [TradeExecution] Target 1: {} ({})", trade.getTarget1(), pivotAnalysis.get("target1Explanation"));
+            log.info("🎯 [TradeExecution] Target 2: {} ({})", trade.getTarget2(), pivotAnalysis.get("target2Explanation"));
+            log.info("🎯 [TradeExecution] Target 3: {} ({})", trade.getTarget3(), pivotAnalysis.get("target3Explanation"));
             
-            // Store all levels
-            tradeLevels.put("entryPrice", entryPrice);
-            tradeLevels.put("stopLoss", stopLoss);
-            tradeLevels.put("target1", target1);
-            tradeLevels.put("target2", pendingSignal.getTarget2() != null ? pendingSignal.getTarget2() : 
-                          calculateFallbackTarget(entryPrice, riskPerShare, 2.5, target1 > entryPrice));
-            tradeLevels.put("target3", pendingSignal.getTarget3() != null ? pendingSignal.getTarget3() : 
-                          calculateFallbackTarget(entryPrice, riskPerShare, 4.0, target1 > entryPrice));
-            tradeLevels.put("target4", calculateFallbackTarget(entryPrice, riskPerShare, 6.0, target1 > entryPrice));
-            tradeLevels.put("riskPerShare", riskPerShare);
-            tradeLevels.put("riskAmount", riskAmount);
-            tradeLevels.put("positionSize", (double) positionSize);
+            // Log risk-reward ratios if available
+            if (pivotAnalysis.get("target1RiskReward") != null) {
+                log.info("🎯 [TradeExecution] Risk-Reward Ratios - T1: {}, T2: {}, T3: {}", 
+                        pivotAnalysis.get("target1RiskReward"), 
+                        pivotAnalysis.get("target2RiskReward"),
+                        pivotAnalysis.get("target3RiskReward"));
+            }
             
-            log.debug("📊 [TradeExecution] Extracted trade levels from pending signal: Entry={}, SL={}, T1={}, T2={}, T3={}", 
-                     entryPrice, stopLoss, target1, tradeLevels.get("target2"), tradeLevels.get("target3"));
+            log.info("🎯 [TradeExecution] ================================");
+            log.info("🎯 [TradeExecution] RISK MANAGEMENT");
+            log.info("🎯 [TradeExecution] ================================");
+            log.info("🎯 [TradeExecution] Risk Per Share: {}", trade.getRiskPerShare());
+            log.info("🎯 [TradeExecution] Total Risk Amount: {}", trade.getRiskAmount());
+            log.info("🎯 [TradeExecution] Validation Risk-Reward: {}", validationResult.getRiskReward());
+            log.info("🎯 [TradeExecution] Validation Attempts: {}", pendingSignal.getValidationAttempts());
             
-            return tradeLevels;
+            log.info("🎯 [TradeExecution] ================================");
+            log.info("🎯 [TradeExecution] EXECUTION COMPLETED SUCCESSFULLY");
+            log.info("🎯 [TradeExecution] ================================");
             
         } catch (Exception e) {
-            log.error("🚨 [TradeExecution] Error extracting trade levels from pending signal: {}", e.getMessage(), e);
-            return new HashMap<>();
+            log.error("🚨 [TradeExecution] Error in detailed execution logging: {}", e.getMessage());
         }
+    }
+    
+    /**
+     * ⚡ NEW: Calculate PIVOT-BASED targets and stop loss using Strategy Module's comprehensive pivot analysis
+     * This replaces simple risk-based calculations with intelligent pivot-level targeting
+     */
+    private Map<String, Object> calculatePivotBasedTargetsAndStopLoss(String scripCode, double currentPrice, String signalType) {
+        try {
+            log.info("🎯 [PivotIntegration] ENHANCED - Calculating pivot-based targets for {} at price {} with signal {}", 
+                    scripCode, currentPrice, signalType);
+            
+            // Call Strategy Module's pivot calculation API
+            String apiUrl = String.format("%s/%s?currentPrice=%.2f&signalType=%s", 
+                    PIVOT_CALCULATION_API_URL, scripCode, currentPrice, signalType);
+            
+            log.info("🌐 [PivotIntegration] Calling Strategy Module API: {}", apiUrl);
+            java.time.LocalDateTime apiCallStart = java.time.LocalDateTime.now();
+            
+            Map<String, Object> pivotResponse = restTemplate.getForObject(apiUrl, Map.class);
+            
+            java.time.LocalDateTime apiCallEnd = java.time.LocalDateTime.now();
+            long apiDuration = java.time.Duration.between(apiCallStart, apiCallEnd).toMillis();
+            log.info("⏰ [PivotIntegration] Pivot API call completed in {}ms", apiDuration);
+            
+            if (pivotResponse == null) {
+                log.error("🚨 [PivotIntegration] Null response from pivot calculation API");
+                return createFallbackTargets(currentPrice, signalType);
+            }
+            
+            String status = (String) pivotResponse.get("status");
+            if (!"SUCCESS".equals(status)) {
+                log.error("🚨 [PivotIntegration] Pivot API returned error status: {}", status);
+                return createFallbackTargets(currentPrice, signalType);
+            }
+            
+            // Extract pivot-based trading levels
+            Map<String, Object> tradingLevels = (Map<String, Object>) pivotResponse.get("tradingLevels");
+            if (tradingLevels == null) {
+                log.error("🚨 [PivotIntegration] No trading levels in pivot response");
+                return createFallbackTargets(currentPrice, signalType);
+            }
+            
+            Map<String, Object> targets = (Map<String, Object>) tradingLevels.get("targets");
+            Map<String, Object> stopLossData = (Map<String, Object>) tradingLevels.get("stopLoss");
+            
+            if (targets == null || stopLossData == null) {
+                log.error("🚨 [PivotIntegration] Missing targets or stopLoss in trading levels");
+                return createFallbackTargets(currentPrice, signalType);
+            }
+            
+            // Extract targets with detailed explanations
+            Map<String, Object> result = new HashMap<>();
+            
+            // Get stop loss level
+            Double stopLossLevel = extractLevelFromTarget(stopLossData);
+            result.put("stopLoss", stopLossLevel);
+            result.put("stopLossExplanation", stopLossData.get("explanation"));
+            result.put("stopLossMethod", stopLossData.get("method"));
+            
+            // Get target levels
+            Map<String, Object> target1Info = (Map<String, Object>) targets.get("target1");
+            Map<String, Object> target2Info = (Map<String, Object>) targets.get("target2");
+            Map<String, Object> target3Info = (Map<String, Object>) targets.get("target3");
+            
+            if (target1Info != null) {
+                result.put("target1", extractLevelFromTarget(target1Info));
+                result.put("target1Explanation", target1Info.get("explanation"));
+                result.put("target1RiskReward", target1Info.get("riskReward"));
+            }
+            
+            if (target2Info != null) {
+                result.put("target2", extractLevelFromTarget(target2Info));
+                result.put("target2Explanation", target2Info.get("explanation"));
+                result.put("target2RiskReward", target2Info.get("riskReward"));
+            }
+            
+            if (target3Info != null) {
+                result.put("target3", extractLevelFromTarget(target3Info));
+                result.put("target3Explanation", target3Info.get("explanation"));
+                result.put("target3RiskReward", target3Info.get("riskReward"));
+            }
+            
+            // Add comprehensive metadata from pivot analysis
+            result.put("pivotAnalysisType", pivotResponse.get("analysisType"));
+            result.put("allPivots", pivotResponse.get("allPivots"));
+            result.put("calculationTimestamp", pivotResponse.get("timestamp"));
+            result.put("strategy", tradingLevels.get("strategy"));
+            result.put("source", "PIVOT_BASED_CALCULATION");
+            result.put("apiDurationMs", apiDuration);
+            
+            // Calculate position sizing and risk metrics
+            if (stopLossLevel != null) {
+                double riskPerShare = Math.abs(currentPrice - stopLossLevel);
+                int positionSize = calculatePositionSizeFromRisk(currentPrice, riskPerShare);
+                double riskAmount = riskPerShare * positionSize;
+                
+                result.put("riskPerShare", riskPerShare);
+                result.put("riskAmount", riskAmount);
+                result.put("positionSize", positionSize);
+                
+                // Calculate additional targets if needed
+                if (!result.containsKey("target4")) {
+                    result.put("target4", calculateFallbackTarget(currentPrice, riskPerShare, 6.0, 
+                            signalType.equalsIgnoreCase("BUY") || signalType.equalsIgnoreCase("BULLISH")));
+                }
+            }
+            
+            log.info("✅ [PivotIntegration] Successfully calculated pivot-based targets:");
+            log.info("✅ [PivotIntegration] - Stop Loss: {} ({})", result.get("stopLoss"), result.get("stopLossExplanation"));
+            log.info("✅ [PivotIntegration] - Target 1: {} ({})", result.get("target1"), result.get("target1Explanation"));
+            log.info("✅ [PivotIntegration] - Target 2: {} ({})", result.get("target2"), result.get("target2Explanation"));
+            log.info("✅ [PivotIntegration] - Target 3: {} ({})", result.get("target3"), result.get("target3Explanation"));
+            log.info("✅ [PivotIntegration] - Strategy: {}", result.get("strategy"));
+            
+            return result;
+            
+        } catch (RestClientException e) {
+            log.error("🚨 [PivotIntegration] REST API error calling pivot calculation: {}", e.getMessage());
+            return createFallbackTargets(currentPrice, signalType);
+        } catch (Exception e) {
+            log.error("🚨 [PivotIntegration] Unexpected error in pivot-based calculation: {}", e.getMessage(), e);
+            return createFallbackTargets(currentPrice, signalType);
+        }
+    }
+    
+    /**
+     * Extract level value from target info object
+     */
+    private Double extractLevelFromTarget(Map<String, Object> targetInfo) {
+        if (targetInfo == null) return null;
+        
+        Object level = targetInfo.get("level");
+        if (level instanceof Number) {
+            return ((Number) level).doubleValue();
+        }
+        return null;
+    }
+    
+    /**
+     * Create fallback targets using simple risk-based calculation when pivot analysis fails
+     */
+    private Map<String, Object> createFallbackTargets(double currentPrice, String signalType) {
+        log.warn("⚠️ [PivotIntegration] Creating fallback targets using simple risk-based calculation");
+        
+        boolean isBullish = signalType.equalsIgnoreCase("BUY") || signalType.equalsIgnoreCase("BULLISH");
+        double riskPercent = 0.015; // 1.5% risk
+        double riskPerShare = currentPrice * riskPercent;
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        if (isBullish) {
+            result.put("stopLoss", currentPrice - riskPerShare);
+            result.put("target1", currentPrice + (riskPerShare * 1.5));
+            result.put("target2", currentPrice + (riskPerShare * 2.5));
+            result.put("target3", currentPrice + (riskPerShare * 4.0));
+            result.put("target4", currentPrice + (riskPerShare * 6.0));
+            result.put("strategy", "Fallback Bullish: 1.5% risk, 1.5-6x reward targets");
+        } else {
+            result.put("stopLoss", currentPrice + riskPerShare);
+            result.put("target1", currentPrice - (riskPerShare * 1.5));
+            result.put("target2", currentPrice - (riskPerShare * 2.5));
+            result.put("target3", currentPrice - (riskPerShare * 4.0));
+            result.put("target4", currentPrice - (riskPerShare * 6.0));
+            result.put("strategy", "Fallback Bearish: 1.5% risk, 1.5-6x reward targets");
+        }
+        
+        // Add risk management data
+        int positionSize = calculatePositionSizeFromRisk(currentPrice, riskPerShare);
+        result.put("riskPerShare", riskPerShare);
+        result.put("riskAmount", riskPerShare * positionSize);
+        result.put("positionSize", positionSize);
+        result.put("source", "FALLBACK_CALCULATION");
+        result.put("stopLossExplanation", "Mathematical stop loss (" + (riskPercent * 100) + "% risk)");
+        result.put("target1Explanation", "Mathematical target (1.5x risk reward)");
+        result.put("target2Explanation", "Mathematical target (2.5x risk reward)");
+        result.put("target3Explanation", "Mathematical target (4.0x risk reward)");
+        
+        return result;
     }
     
     /**
@@ -1182,42 +1485,5 @@ public class TradeExecutionService {
                 strategyName, 
                 signalTime.toString().replaceAll("[^0-9]", "").substring(0, 10),
                 UUID.randomUUID().toString().substring(0, 6));
-    }
-    
-    /**
-     * Log detailed execution information
-     */
-    private void logDetailedExecutionInfo(ActiveTrade trade, PendingSignal pendingSignal, 
-                                        SignalValidationResult validationResult) {
-        String executionSummary = String.format(
-            "\n🚀 === DYNAMIC TRADE EXECUTION ===\n" +
-            "🆔 Trade ID: %s\n" +
-            "📊 Script: %s (%s)\n" +
-            "🎯 Strategy: %s\n" +
-            "📈 Signal Type: %s\n" +
-            "⏰ Signal Time: %s\n" +
-            "🚀 Entry Time: %s\n" +
-            "💰 Entry Price: %.2f\n" +
-            "🛡️ Stop Loss: %.2f\n" +
-            "🎯 Targets: [%.2f, %.2f, %.2f, %.2f]\n" +
-            "📊 Risk-Reward: %.2f\n" +
-            "🔄 Validation Attempts: %d\n" +
-            "⏱️ Signal Age: %d minutes\n" +
-            "===============================",
-            trade.getTradeId(),
-            trade.getCompanyName(), trade.getScripCode(),
-            trade.getStrategyName(),
-            trade.getSignalType(),
-            pendingSignal.getSignalTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
-            trade.getEntryTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
-            trade.getEntryPrice(),
-            trade.getStopLoss(),
-            trade.getTarget1(), trade.getTarget2(), trade.getTarget3(), trade.getTarget4(),
-            validationResult.getRiskReward(),
-            pendingSignal.getValidationAttempts(),
-            java.time.Duration.between(pendingSignal.getSignalTime(), trade.getEntryTime()).toMinutes()
-        );
-        
-        log.info(executionSummary);
     }
 } 
