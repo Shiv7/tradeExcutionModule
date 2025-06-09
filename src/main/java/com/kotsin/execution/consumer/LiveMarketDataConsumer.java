@@ -63,14 +63,14 @@ public class LiveMarketDataConsumer {
             // Enhanced debugging every 500 ticks to see what script codes we're getting
             if (processedTicks.get() % 500 == 0) {
                 log.info("🔍 [MarketData-Debug] Sample tick data fields: {}", tickData.keySet());
-                log.info("🔍 [MarketData-Debug] Extracted: scripCode={}, exchange={}, price={}, companyName={}, token={}", 
+                log.info("🔍 [MarketData-Debug] Extracted: scripCode={}, exchange={}, price={}, companyName={}, Token={}", 
                         scripCode, exchange, lastRate, 
-                        tickData.get("companyName"), tickData.get("token"));
+                        tickData.get("companyName"), tickData.get("Token"));
                 
                 // Log all possible script code fields
-                log.info("🔍 [MarketData-Debug] All potential script fields: companyName={}, scripCode={}, token={}, instrument_token={}, symbol={}", 
+                log.info("🔍 [MarketData-Debug] All potential script fields: companyName={}, scripCode={}, Token={}, token={}, instrument_token={}, symbol={}", 
                         tickData.get("companyName"), tickData.get("scripCode"), 
-                        tickData.get("token"), tickData.get("instrument_token"), tickData.get("symbol"));
+                        tickData.get("Token"), tickData.get("token"), tickData.get("instrument_token"), tickData.get("symbol"));
             }
             
             // Enhanced logging for debugging
@@ -129,22 +129,17 @@ public class LiveMarketDataConsumer {
      */
     private String extractScripCode(Map<String, Object> tickData) {
         // Primary: Try Token field first (this contains the actual script code)
-        String scripCode = extractStringValue(tickData, "Token");
-        if (scripCode != null && !scripCode.isEmpty()) {
-            log.debug("🔍 [ScriptCode] Extracted from Token: {}", scripCode);
-            return scripCode.trim();
-        }
-        
-        // Fallback: Try numeric token field
         Object tokenObj = tickData.get("Token");
-        if (tokenObj instanceof Number) {
-            String tokenStr = String.valueOf(tokenObj);
-            log.debug("🔍 [ScriptCode] Extracted from numeric Token: {}", tokenStr);
-            return tokenStr;
+        if (tokenObj != null) {
+            String scripCode = tokenObj.toString().trim();
+            if (!scripCode.isEmpty() && !scripCode.equals("null")) {
+                log.debug("🔍 [ScriptCode] Extracted from Token: {} (type: {})", scripCode, tokenObj.getClass().getSimpleName());
+                return scripCode;
+            }
         }
         
         // Try other possible fields as fallbacks
-        scripCode = extractStringValue(tickData, "companyName");
+        String scripCode = extractStringValue(tickData, "companyName");
         if (scripCode != null && !scripCode.isEmpty()) {
             log.debug("🔍 [ScriptCode] Fallback to companyName: {}", scripCode);
             return scripCode.trim();
