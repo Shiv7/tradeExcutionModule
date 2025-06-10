@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -238,5 +239,55 @@ public class TradeExecutionTestController {
             testResult.put("error", e.getMessage());
             return testResult;
         }
+    }
+
+    @PostMapping("/test-pivot-api")
+    public ResponseEntity<Map<String, Object>> testPivotApiConnectivity(
+            @RequestParam(defaultValue = "10726") String scripCode,
+            @RequestParam(defaultValue = "2405.1") double currentPrice,
+            @RequestParam(defaultValue = "BUY") String signalType) {
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            log.info("🧪 [PivotAPITest] Testing pivot API connectivity for script: {}", scripCode);
+            
+            // Test the pivot calculation API
+            String apiUrl = String.format("http://localhost:8112/api/pivots/calculate-targets/%s?currentPrice=%.2f&signalType=%s", 
+                    scripCode, currentPrice, signalType);
+            
+            log.info("🧪 [PivotAPITest] API URL: {}", apiUrl);
+            
+            // Make API call using RestTemplate
+            RestTemplate restTemplate = new RestTemplate();
+            Map<String, Object> pivotResponse = restTemplate.getForObject(apiUrl, Map.class);
+            
+            if (pivotResponse != null) {
+                result.put("status", "SUCCESS");
+                result.put("message", "✅ Pivot API connection successful");
+                result.put("apiUrl", apiUrl);
+                result.put("pivotResponse", pivotResponse);
+                result.put("responseStatus", pivotResponse.get("status"));
+            } else {
+                result.put("status", "ERROR");
+                result.put("message", "❌ Pivot API returned null response");
+                result.put("apiUrl", apiUrl);
+            }
+            
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            log.error("🚨 [PivotAPITest] Connection error: {}", e.getMessage());
+            result.put("status", "CONNECTION_ERROR");
+            result.put("message", "❌ Cannot connect to Strategy Module API");
+            result.put("error", e.getMessage());
+            result.put("suggestion", "Check if Strategy Module is running on port 8112");
+            
+        } catch (Exception e) {
+            log.error("🚨 [PivotAPITest] API test error: {}", e.getMessage());
+            result.put("status", "ERROR");
+            result.put("message", "❌ Error testing pivot API");
+            result.put("error", e.getMessage());
+        }
+        
+        return ResponseEntity.ok(result);
     }
 } 

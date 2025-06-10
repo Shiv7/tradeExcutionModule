@@ -79,9 +79,13 @@ public class TradeExecutionService {
                 return;
             }
             
-            // REMOVED: Active trade checking - now allow multiple trades per script
-            // Process ALL signals regardless of existing active trades
-            log.info("📈 [TradeExecution] Processing signal for {} - Multiple trades per script ALLOWED", scripCode);
+            // Check for existing active trades for same script+strategy (ONE TRADE ONE TIME logic)
+            if (tradeStateManager.hasActiveTrade(scripCode, strategyName)) {
+                log.warn("⚠️ [TradeExecution] Already have active trade for {} with strategy {}, skipping", scripCode, strategyName);
+                return;
+            }
+            
+            log.info("📈 [TradeExecution] Processing signal for {} - ONE TRADE ONE TIME logic enforced", scripCode);
             
             // Create pending signal with expiry (15 minutes from signal time)
             String signalId = generateSignalId(scripCode, strategyName, signalTime);
@@ -271,9 +275,15 @@ public class TradeExecutionService {
             String tradeId = generateTradeId(pendingSignal.getScripCode(), pendingSignal.getStrategyName(), entryTime);
             
             // ⚡ NEW: Calculate PIVOT-BASED targets and stop loss
-            log.info("🎯 [TradeExecution] STEP 1: Calculating pivot-based targets for {}", pendingSignal.getScripCode());
+            log.info("🎯 [TradeExecution] STEP 1: Starting pivot-based target calculation for script: {}", pendingSignal.getScripCode());
+            log.info("🎯 [TradeExecution] STEP 1: Entry Price: {}, Signal Type: {}, Strategy: {}", 
+                    entryPrice, pendingSignal.getSignalType(), pendingSignal.getStrategyName());
+            
             Map<String, Object> pivotBasedLevels = calculatePivotBasedTargetsAndStopLoss(
                     pendingSignal.getScripCode(), entryPrice, pendingSignal.getSignalType());
+            
+            log.info("🎯 [TradeExecution] STEP 1: Pivot calculation completed for {}, source: {}", 
+                    pendingSignal.getScripCode(), pivotBasedLevels.get("source"));
             
             // Extract trade levels (prioritize pivot-based, fallback to pending signal)
             Map<String, Double> tradeLevels = extractTradeLevelsFromPivotAnalysis(pendingSignal, entryPrice, pivotBasedLevels);
@@ -1304,14 +1314,16 @@ public class TradeExecutionService {
      */
     private Map<String, Object> calculatePivotBasedTargetsAndStopLoss(String scripCode, double currentPrice, String signalType) {
         try {
-            log.info("🎯 [PivotIntegration] ENHANCED - Calculating pivot-based targets for {} at price {} with signal {}", 
-                    scripCode, currentPrice, signalType);
+            log.info("🎯 [PivotIntegration] ENHANCED - Starting pivot calculation for script: {}", scripCode);
+            log.info("🎯 [PivotIntegration] Input Parameters - Price: {}, Signal: {}", currentPrice, signalType);
+            log.info("🎯 [PivotIntegration] Strategy Module API URL Base: {}", PIVOT_CALCULATION_API_URL);
             
             // Call Strategy Module's pivot calculation API
             String apiUrl = String.format("%s/%s?currentPrice=%.2f&signalType=%s", 
                     PIVOT_CALCULATION_API_URL, scripCode, currentPrice, signalType);
             
-            log.info("🌐 [PivotIntegration] Calling Strategy Module API: {}", apiUrl);
+            log.info("🌐 [PivotIntegration] Full API URL: {}", apiUrl);
+            log.info("🌐 [PivotIntegration] Making REST call to Strategy Module...");
             java.time.LocalDateTime apiCallStart = java.time.LocalDateTime.now();
             
             Map<String, Object> pivotResponse = restTemplate.getForObject(apiUrl, Map.class);
@@ -1321,9 +1333,13 @@ public class TradeExecutionService {
             log.info("⏰ [PivotIntegration] Pivot API call completed in {}ms", apiDuration);
             
             if (pivotResponse == null) {
-                log.error("🚨 [PivotIntegration] Null response from pivot calculation API");
+                log.error("🚨 [PivotIntegration] Null response from pivot calculation API for script: {}", scripCode);
+                log.error("🚨 [PivotIntegration] API URL that returned null: {}", apiUrl);
                 return createFallbackTargets(currentPrice, signalType);
             }
+            
+            log.info("✅ [PivotIntegration] Received response from Strategy Module for script: {}", scripCode);
+            log.debug("📄 [PivotIntegration] Full API Response: {}", pivotResponse);
             
             String status = (String) pivotResponse.get("status");
             if (!"SUCCESS".equals(status)) {
@@ -1412,11 +1428,26 @@ public class TradeExecutionService {
             
             return result;
             
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            log.error("🚨 [PivotIntegration] Connection error to Strategy Module API for script: {}", scripCode);
+            log.error("🚨 [PivotIntegration] API URL: {}", PIVOT_CALCULATION_API_URL);
+            log.error("🚨 [PivotIntegration] Connection error details: {}", e.getMessage());
+            log.warn("⚠️ [PivotIntegration] Falling back to mathematical targets for script: {}", scripCode);
+            return createFallbackTargets(currentPrice, signalType);
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            log.error("🚨 [PivotIntegration] HTTP {} error from Strategy Module API for script: {}", e.getStatusCode(), scripCode);
+            log.error("🚨 [PivotIntegration] Error response body: {}", e.getResponseBodyAsString());
+            log.warn("⚠️ [PivotIntegration] Falling back to mathematical targets for script: {}", scripCode);
+            return createFallbackTargets(currentPrice, signalType);
         } catch (RestClientException e) {
-            log.error("🚨 [PivotIntegration] REST API error calling pivot calculation: {}", e.getMessage());
+            log.error("🚨 [PivotIntegration] REST API error calling pivot calculation for script: {}", scripCode);
+            log.error("🚨 [PivotIntegration] REST error details: {}", e.getMessage());
+            log.warn("⚠️ [PivotIntegration] Falling back to mathematical targets for script: {}", scripCode);
             return createFallbackTargets(currentPrice, signalType);
         } catch (Exception e) {
-            log.error("🚨 [PivotIntegration] Unexpected error in pivot-based calculation: {}", e.getMessage(), e);
+            log.error("🚨 [PivotIntegration] Unexpected error in pivot-based calculation for script: {}", scripCode);
+            log.error("🚨 [PivotIntegration] Error details: {}", e.getMessage(), e);
+            log.warn("⚠️ [PivotIntegration] Falling back to mathematical targets for script: {}", scripCode);
             return createFallbackTargets(currentPrice, signalType);
         }
     }
@@ -1438,11 +1469,15 @@ public class TradeExecutionService {
      * Create fallback targets using simple risk-based calculation when pivot analysis fails
      */
     private Map<String, Object> createFallbackTargets(double currentPrice, String signalType) {
-        log.warn("⚠️ [PivotIntegration] Creating fallback targets using simple risk-based calculation");
+        log.warn("⚠️ [PivotIntegration] Creating fallback targets using mathematical calculation");
+        log.info("🔢 [FallbackTargets] Input - Price: {}, Signal: {}", currentPrice, signalType);
         
         boolean isBullish = signalType.equalsIgnoreCase("BUY") || signalType.equalsIgnoreCase("BULLISH");
         double riskPercent = 0.015; // 1.5% risk
         double riskPerShare = currentPrice * riskPercent;
+        
+        log.info("🔢 [FallbackTargets] Signal Direction: {}, Risk %: {}%, Risk per Share: {}", 
+                isBullish ? "BULLISH" : "BEARISH", riskPercent * 100, riskPerShare);
         
         Map<String, Object> result = new HashMap<>();
         
@@ -1472,6 +1507,13 @@ public class TradeExecutionService {
         result.put("target1Explanation", "Mathematical target (1.5x risk reward)");
         result.put("target2Explanation", "Mathematical target (2.5x risk reward)");
         result.put("target3Explanation", "Mathematical target (4.0x risk reward)");
+        
+        log.info("✅ [FallbackTargets] Mathematical targets calculated:");
+        log.info("✅ [FallbackTargets] - Stop Loss: {} ({}% risk)", result.get("stopLoss"), riskPercent * 100);
+        log.info("✅ [FallbackTargets] - Target 1: {} (1.5x R:R)", result.get("target1"));
+        log.info("✅ [FallbackTargets] - Target 2: {} (2.5x R:R)", result.get("target2"));
+        log.info("✅ [FallbackTargets] - Target 3: {} (4.0x R:R)", result.get("target3"));
+        log.info("✅ [FallbackTargets] - Position Size: {}", result.get("positionSize"));
         
         return result;
     }
