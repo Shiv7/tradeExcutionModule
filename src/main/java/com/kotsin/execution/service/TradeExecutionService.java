@@ -253,6 +253,9 @@ public class TradeExecutionService {
                     continue;
                 }
                 
+                // ⚡ ENHANCED: Log detailed validation analysis for each pending signal
+                logDetailedValidationAnalysis(pendingSignal, currentPrice);
+                
                 // Perform dynamic validation with current market price
                 log.info("🔍 [DynamicValidation] Validating signal: {} at market price: {}", 
                         pendingSignal.getSummary(), currentPrice);
@@ -294,6 +297,106 @@ public class TradeExecutionService {
         // Cleanup expired signals periodically (every 100 price updates)
         if (System.currentTimeMillis() % 10000 < 100) { // Roughly every 10 seconds
             pendingSignalManager.cleanupExpiredSignals();
+        }
+    }
+    
+    /**
+     * ⚡ NEW: Log detailed validation analysis showing pivot levels, distances, and rules
+     */
+    private void logDetailedValidationAnalysis(PendingSignal pendingSignal, double currentPrice) {
+        try {
+            Map<String, Object> signalData = pendingSignal.getOriginalSignalData();
+            
+            // Extract signal data
+            Double stopLoss = extractDoubleValue(signalData, "stopLoss");
+            Double target1 = extractDoubleValue(signalData, "target1");
+            Double target2 = extractDoubleValue(signalData, "target2");
+            Double target3 = extractDoubleValue(signalData, "target3");
+            String signalType = extractStringValue(signalData, "signal");
+            boolean isBullish = "BUY".equalsIgnoreCase(signalType);
+            
+            log.info("📈 [ValidationAnalysis] ===== DETAILED VALIDATION ANALYSIS =====");
+            log.info("📈 [ValidationAnalysis] Script: {} | Strategy: {} | Signal: {} | Current Price: {}", 
+                    pendingSignal.getScripCode(), pendingSignal.getStrategyName(), signalType, currentPrice);
+            
+            // Show all pivot levels
+            log.info("🎯 [ValidationAnalysis] PIVOT LEVELS:");
+            log.info("🎯 [ValidationAnalysis]   Stop Loss: {} ({})", 
+                    stopLoss != null ? String.format("%.2f", stopLoss) : "N/A",
+                    stopLoss != null ? (isBullish ? "Support" : "Resistance") : "N/A");
+            log.info("🎯 [ValidationAnalysis]   Target 1:  {} (Primary Target)", 
+                    target1 != null ? String.format("%.2f", target1) : "N/A");
+            log.info("🎯 [ValidationAnalysis]   Target 2:  {} (Secondary Target)", 
+                    target2 != null ? String.format("%.2f", target2) : "N/A");
+            log.info("🎯 [ValidationAnalysis]   Target 3:  {} (Extension Target)", 
+                    target3 != null ? String.format("%.2f", target3) : "N/A");
+            
+            // Calculate and log distances
+            if (stopLoss != null) {
+                double stopDistance = Math.abs(currentPrice - stopLoss);
+                double stopDistancePercent = (stopDistance / currentPrice) * 100;
+                boolean stopValid = stopDistancePercent <= 2.0; // 2% max rule
+                
+                log.info("📏 [ValidationAnalysis] STOP LOSS DISTANCE:");
+                log.info("📏 [ValidationAnalysis]   Distance: {:.4f} ({:.2f}%)", stopDistance, stopDistancePercent);
+                log.info("📏 [ValidationAnalysis]   Rule: Max 2.0% allowed | Status: {}", 
+                        stopValid ? "✅ PASS" : "❌ FAIL (TOO FAR)");
+            }
+            
+            if (target1 != null) {
+                double target1Distance = Math.abs(target1 - currentPrice);
+                double target1DistancePercent = (target1Distance / currentPrice) * 100;
+                boolean target1Valid = target1DistancePercent >= 2.0; // 2% min rule
+                
+                log.info("📐 [ValidationAnalysis] TARGET 1 DISTANCE:");
+                log.info("📐 [ValidationAnalysis]   Distance: {:.4f} ({:.2f}%)", target1Distance, target1DistancePercent);
+                log.info("📐 [ValidationAnalysis]   Rule: Min 2.0% required | Status: {}", 
+                        target1Valid ? "✅ PASS" : "❌ FAIL (TOO CLOSE)");
+            }
+            
+            // Calculate and log risk-reward ratio
+            if (stopLoss != null && target1 != null) {
+                double riskAmount = Math.abs(currentPrice - stopLoss);
+                double rewardAmount = Math.abs(target1 - currentPrice);
+                double riskReward = riskAmount > 0 ? rewardAmount / riskAmount : 0.0;
+                boolean rrValid = riskReward >= 1.5; // 1.5:1 min rule
+                
+                log.info("💰 [ValidationAnalysis] RISK-REWARD RATIO:");
+                log.info("💰 [ValidationAnalysis]   Risk Amount:   {:.4f} (Current to Stop)", riskAmount);
+                log.info("💰 [ValidationAnalysis]   Reward Amount: {:.4f} (Current to Target1)", rewardAmount);
+                log.info("💰 [ValidationAnalysis]   Ratio: {:.2f}:1", riskReward);
+                log.info("💰 [ValidationAnalysis]   Rule: Min 1.5:1 required | Status: {}", 
+                        rrValid ? "✅ PASS" : "❌ FAIL (POOR RATIO)");
+            }
+            
+            // Show directional analysis
+            log.info("🧭 [ValidationAnalysis] DIRECTIONAL ANALYSIS:");
+            if (isBullish) {
+                log.info("🧭 [ValidationAnalysis]   Direction: 📈 BULLISH (BUY Signal)");
+                if (stopLoss != null) {
+                    log.info("🧭 [ValidationAnalysis]   Stop Loss: {} current (Support Level)", 
+                            stopLoss < currentPrice ? "Below" : "Above");
+                }
+                if (target1 != null) {
+                    log.info("🧭 [ValidationAnalysis]   Target 1:  {} current (Resistance Level)", 
+                            target1 > currentPrice ? "Above" : "Below");
+                }
+            } else {
+                log.info("🧭 [ValidationAnalysis]   Direction: 📉 BEARISH (SELL Signal)");
+                if (stopLoss != null) {
+                    log.info("🧭 [ValidationAnalysis]   Stop Loss: {} current (Resistance Level)", 
+                            stopLoss > currentPrice ? "Above" : "Below");
+                }
+                if (target1 != null) {
+                    log.info("🧭 [ValidationAnalysis]   Target 1:  {} current (Support Level)", 
+                            target1 < currentPrice ? "Below" : "Above");
+                }
+            }
+            
+            log.info("📈 [ValidationAnalysis] ============================================");
+            
+        } catch (Exception e) {
+            log.error("🚨 [ValidationAnalysis] Error logging detailed analysis: {}", e.getMessage(), e);
         }
     }
     

@@ -1,3 +1,4 @@
+com/kotsin/execution/config/WebConfig.class
 com/kotsin/execution/service/PendingSignalManager.class
 com/kotsin/execution/service/CompanyNameService.class
 com/kotsin/execution/controller/TestController.class
