@@ -191,6 +191,22 @@ public class TradeExecutionService {
      */
     public void updateTradeWithPrice(String scripCode, double price, LocalDateTime timestamp) {
         try {
+            // Log every price update with pending signal check
+            Collection<PendingSignal> allPendingSignals = pendingSignalManager.getAllPendingSignals();
+            if (!allPendingSignals.isEmpty()) {
+                log.info("💹 [PriceUpdate] Script: {}, Price: {}, Pending Signals: {} total", 
+                        scripCode, price, allPendingSignals.size());
+                
+                // Check if this price update matches any pending signal
+                Collection<PendingSignal> matchingSignals = pendingSignalManager.getPendingSignalsForScript(scripCode);
+                if (!matchingSignals.isEmpty()) {
+                    log.info("🎯 [PriceUpdate] ⚡ MATCH FOUND! Script {} has {} pending signals - STARTING VALIDATION", 
+                            scripCode, matchingSignals.size());
+                } else {
+                    log.debug("🔍 [PriceUpdate] No pending signals for script {} (waiting for other scripts)", scripCode);
+                }
+            }
+            
             // STEP 1: Validate pending signals with new market price
             validatePendingSignalsWithPrice(scripCode, price, timestamp);
             
@@ -208,12 +224,25 @@ public class TradeExecutionService {
     private void validatePendingSignalsWithPrice(String scripCode, double currentPrice, LocalDateTime timestamp) {
         Collection<PendingSignal> pendingSignals = pendingSignalManager.getPendingSignalsForScript(scripCode);
         
+        // Debug logging for pending signals
+        Collection<PendingSignal> allPendingSignals = pendingSignalManager.getAllPendingSignals();
+        if (!allPendingSignals.isEmpty() && System.currentTimeMillis() % 30000 < 1000) { // Every 30 seconds
+            log.info("🔍 [PendingSignals-Debug] Total pending signals: {}", allPendingSignals.size());
+            for (PendingSignal signal : allPendingSignals) {
+                log.info("🔍 [PendingSignals-Debug] Waiting for: {} (Strategy: {}, Age: {} min)", 
+                        signal.getScripCode(), signal.getStrategyName(),
+                        java.time.Duration.between(signal.getSignalTime(), timestamp).toMinutes());
+            }
+            log.info("🔍 [PendingSignals-Debug] Current market data: script={}, price={}", scripCode, currentPrice);
+        }
+        
         if (pendingSignals.isEmpty()) {
             return; // No pending signals for this script
         }
         
-        log.debug("🔍 [DynamicValidation] Checking {} pending signals for {} at price {}", 
+        log.info("🔍 [DynamicValidation] FOUND {} pending signals for script {} at price {}", 
                 pendingSignals.size(), scripCode, currentPrice);
+        log.info("🔍 [DynamicValidation] ⚡ STARTING VALIDATION PROCESS for script: {}", scripCode);
         
         for (PendingSignal pendingSignal : pendingSignals) {
             try {
@@ -225,8 +254,16 @@ public class TradeExecutionService {
                 }
                 
                 // Perform dynamic validation with current market price
+                log.info("🔍 [DynamicValidation] Validating signal: {} at market price: {}", 
+                        pendingSignal.getSummary(), currentPrice);
+                
                 SignalValidationResult validationResult = signalValidationService
                         .validateSignalWithLivePrice(pendingSignal.getOriginalSignalData(), currentPrice);
+                
+                log.info("📊 [DynamicValidation] Validation result for {}: {} (R:R: {})", 
+                        pendingSignal.getScripCode(), 
+                        validationResult.isApproved() ? "✅ APPROVED" : "❌ REJECTED", 
+                        validationResult.getRiskReward());
                 
                 if (validationResult.isApproved()) {
                     // ALL CONDITIONS MET! Execute trade immediately
@@ -243,11 +280,9 @@ public class TradeExecutionService {
                     // Validation failed - record attempt and continue waiting
                     pendingSignal.recordValidationAttempt(validationResult.getReason());
                     
-                    // Log every 10th attempt to avoid spam
-                    if (pendingSignal.getValidationAttempts() % 10 == 0) {
-                        log.debug("⏳ [DynamicValidation] Signal still pending validation #{}: {} - Reason: {}", 
-                                pendingSignal.getValidationAttempts(), pendingSignal.getSummary(), validationResult.getReason());
-                    }
+                    // Log every attempt for better visibility
+                    log.info("⏳ [DynamicValidation] Signal validation attempt #{}: {} - Reason: {}", 
+                            pendingSignal.getValidationAttempts(), pendingSignal.getSummary(), validationResult.getReason());
                 }
                 
             } catch (Exception e) {

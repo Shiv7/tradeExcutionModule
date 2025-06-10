@@ -1,5 +1,6 @@
 package com.kotsin.execution.controller;
 
+import com.kotsin.execution.model.PendingSignal;
 import com.kotsin.execution.service.TradeExecutionService;
 import com.kotsin.execution.service.PendingSignalManager;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +10,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -286,6 +289,54 @@ public class TradeExecutionTestController {
             result.put("status", "ERROR");
             result.put("message", "❌ Error testing pivot API");
             result.put("error", e.getMessage());
+        }
+        
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/test-validation")
+    public ResponseEntity<Map<String, Object>> testSignalValidation(
+            @RequestParam String scripCode,
+            @RequestParam double currentPrice) {
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            log.info("🧪 [ValidationTest] Manual validation test for script: {} at price: {}", scripCode, currentPrice);
+            
+            // Get current pending signals
+            Collection<PendingSignal> allPendingSignals = pendingSignalManager.getAllPendingSignals();
+            Collection<PendingSignal> matchingSignals = pendingSignalManager.getPendingSignalsForScript(scripCode);
+            
+            result.put("totalPendingSignals", allPendingSignals.size());
+            result.put("matchingSignals", matchingSignals.size());
+            result.put("testScript", scripCode);
+            result.put("testPrice", currentPrice);
+            
+            if (matchingSignals.isEmpty()) {
+                result.put("status", "NO_PENDING_SIGNALS");
+                result.put("message", "No pending signals found for script: " + scripCode);
+                
+                // Show what signals are actually pending
+                List<String> pendingScripts = allPendingSignals.stream()
+                        .map(signal -> signal.getScripCode() + " (" + signal.getStrategyName() + ")")
+                        .collect(java.util.stream.Collectors.toList());
+                result.put("actualPendingSignals", pendingScripts);
+            } else {
+                result.put("status", "FOUND_SIGNALS");
+                result.put("message", "Found " + matchingSignals.size() + " pending signals - triggering validation");
+                
+                // Manually trigger validation
+                LocalDateTime now = LocalDateTime.now();
+                tradeExecutionService.updateTradeWithPrice(scripCode, currentPrice, now);
+                
+                result.put("validationTriggered", true);
+            }
+            
+        } catch (Exception e) {
+            log.error("🚨 [ValidationTest] Error in validation test: {}", e.getMessage());
+            result.put("status", "ERROR");
+            result.put("message", "Error: " + e.getMessage());
         }
         
         return ResponseEntity.ok(result);
