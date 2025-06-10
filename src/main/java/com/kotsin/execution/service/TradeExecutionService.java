@@ -335,22 +335,24 @@ public class TradeExecutionService {
             if (stopLoss != null) {
                 double stopDistance = Math.abs(currentPrice - stopLoss);
                 double stopDistancePercent = (stopDistance / currentPrice) * 100;
-                boolean stopValid = stopDistancePercent <= 2.0; // 2% max rule
+                boolean stopValid = stopDistancePercent >= 0.5; // 0.5% min rule (changed from 2% max)
                 
                 log.info("📏 [ValidationAnalysis] STOP LOSS DISTANCE:");
-                log.info("📏 [ValidationAnalysis]   Distance: {:.4f} ({:.2f}%)", stopDistance, stopDistancePercent);
-                log.info("📏 [ValidationAnalysis]   Rule: Max 2.0% allowed | Status: {}", 
-                        stopValid ? "✅ PASS" : "❌ FAIL (TOO FAR)");
+                log.info("📏 [ValidationAnalysis]   Distance: {} ({}%)", 
+                        String.format("%.4f", stopDistance), String.format("%.2f", stopDistancePercent));
+                log.info("📏 [ValidationAnalysis]   Rule: Min 0.5% required | Status: {}", 
+                        stopValid ? "✅ PASS" : "❌ FAIL (TOO CLOSE)");
             }
             
             if (target1 != null) {
                 double target1Distance = Math.abs(target1 - currentPrice);
                 double target1DistancePercent = (target1Distance / currentPrice) * 100;
-                boolean target1Valid = target1DistancePercent >= 2.0; // 2% min rule
+                boolean target1Valid = target1DistancePercent >= 0.5; // 0.5% min rule (reduced from 2%)
                 
                 log.info("📐 [ValidationAnalysis] TARGET 1 DISTANCE:");
-                log.info("📐 [ValidationAnalysis]   Distance: {:.4f} ({:.2f}%)", target1Distance, target1DistancePercent);
-                log.info("📐 [ValidationAnalysis]   Rule: Min 2.0% required | Status: {}", 
+                log.info("📐 [ValidationAnalysis]   Distance: {} ({}%)", 
+                        String.format("%.4f", target1Distance), String.format("%.2f", target1DistancePercent));
+                log.info("📐 [ValidationAnalysis]   Rule: Min 0.5% required | Status: {}", 
                         target1Valid ? "✅ PASS" : "❌ FAIL (TOO CLOSE)");
             }
             
@@ -359,13 +361,15 @@ public class TradeExecutionService {
                 double riskAmount = Math.abs(currentPrice - stopLoss);
                 double rewardAmount = Math.abs(target1 - currentPrice);
                 double riskReward = riskAmount > 0 ? rewardAmount / riskAmount : 0.0;
-                boolean rrValid = riskReward >= 1.5; // 1.5:1 min rule
+                boolean rrValid = riskReward >= 0.1; // 0.1:1 min rule (optional - very low)
                 
                 log.info("💰 [ValidationAnalysis] RISK-REWARD RATIO:");
-                log.info("💰 [ValidationAnalysis]   Risk Amount:   {:.4f} (Current to Stop)", riskAmount);
-                log.info("💰 [ValidationAnalysis]   Reward Amount: {:.4f} (Current to Target1)", rewardAmount);
-                log.info("💰 [ValidationAnalysis]   Ratio: {:.2f}:1", riskReward);
-                log.info("💰 [ValidationAnalysis]   Rule: Min 1.5:1 required | Status: {}", 
+                log.info("💰 [ValidationAnalysis]   Risk Amount:   {} (Current to Stop)", 
+                        String.format("%.4f", riskAmount));
+                log.info("💰 [ValidationAnalysis]   Reward Amount: {} (Current to Target1)", 
+                        String.format("%.4f", rewardAmount));
+                log.info("💰 [ValidationAnalysis]   Ratio: {}:1", String.format("%.2f", riskReward));
+                log.info("💰 [ValidationAnalysis]   Rule: Min 0.1:1 required (OPTIONAL) | Status: {}", 
                         rrValid ? "✅ PASS" : "❌ FAIL (POOR RATIO)");
             }
             

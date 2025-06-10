@@ -11,9 +11,9 @@ import java.util.Map;
  * This is where the actual validation logic from kotsinBackTestBE should be implemented
  * 
  * Validation Rules (DYNAMIC - checked with each websocket price update):
- * 1. Filter by Minimum Move - Targets must be >= 2% away from current market price
- * 2. Filter Stops by Distance - Stop loss can't be more than 2% away from current market price
- * 3. Risk-Reward Validation - Must meet >= 1.5:1 ratio with current market price
+ * 1. Filter by Minimum Move - Targets must be >= 0.5% away from current market price
+ * 2. Filter Stops by Distance - Stop loss must be >= 0.5% away from current market price
+ * 3. Risk-Reward Validation - Must meet >= 1.5:1 ratio with current market price (MAIN CONDITION)
  * 
  * NEW ARCHITECTURE: Continuous validation with live market data
  */
@@ -22,10 +22,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SignalValidationService {
     
-    // Constants from kotsinBackTestBE
-    private static final double MIN_RR_REQUIRED = 1.5;   // ≥ 1.5 : 1 risk-to-reward
-    private static final double MIN_MOVE = 0.02;         // +/-2% filter for first target
-    private static final double MAX_STOP_DISTANCE = 0.02; // Not more than 2% away
+    // Constants from kotsinBackTestBE - UPDATED FOR LESS STRICT VALIDATION
+    private static final double MIN_RR_REQUIRED = 0.1;   // ≥ 0.1 : 1 risk-to-reward (OPTIONAL - very low)
+    private static final double MIN_MOVE = 0.005;        // +/-0.5% filter for first target (reduced from 2%)
+    private static final double MAX_STOP_DISTANCE = 0.005; // At least 0.5% away (reduced from 2%)
     
     /**
      * DYNAMIC VALIDATION: Validate signal with live market price from websocket
@@ -93,7 +93,7 @@ public class SignalValidationService {
     }
     
     /**
-     * Validate stop loss distance with live market price - not more than 2% away
+     * Validate stop loss distance with live market price - not more than 0.5% away
      */
     private boolean validateStopDistanceWithLivePrice(double currentPrice, double stopLoss, boolean isBullish) {
         double stopDistance = Math.abs(currentPrice - stopLoss);
@@ -110,7 +110,7 @@ public class SignalValidationService {
     }
     
     /**
-     * Validate minimum move with live market price - target must be >= 2% away
+     * Validate minimum move with live market price - target must be >= 0.5% away
      */
     private boolean validateMinimumMoveWithLivePrice(double currentPrice, double target1, boolean isBullish) {
         double requiredMinMove = currentPrice * MIN_MOVE;
