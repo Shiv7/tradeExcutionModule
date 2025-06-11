@@ -87,6 +87,57 @@ public class PendingSignal {
         return this.metadata.get(key);
     }
     
+    // Additional getter methods for compatibility with TradeExecutionService
+    
+    /**
+     * Get signal ID
+     */
+    public String getSignalId() {
+        return this.signalId;
+    }
+    
+    /**
+     * Get script code
+     */
+    public String getScripCode() {
+        return this.scripCode;
+    }
+    
+    /**
+     * Get strategy name
+     */
+    public String getStrategyName() {
+        return this.strategyName;
+    }
+    
+    /**
+     * Get signal time
+     */
+    public LocalDateTime getSignalTime() {
+        return this.signalTime;
+    }
+    
+    /**
+     * Get signal type
+     */
+    public String getSignalType() {
+        return this.signalType;
+    }
+    
+    /**
+     * Get original signal data
+     */
+    public Map<String, Object> getOriginalSignalData() {
+        return this.originalSignalData;
+    }
+    
+    /**
+     * Get validation attempts count
+     */
+    public int getValidationAttempts() {
+        return this.validationAttempts;
+    }
+    
     /**
      * Get signal summary for logging
      */

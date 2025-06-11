@@ -62,7 +62,7 @@ public class PortfolioManagementService {
                     .sum();
             
             // Calculate unrealized P&L from active trades
-            double totalUnrealizedPnL = tradeStateManager.getAllActiveTrades().stream()
+            double totalUnrealizedPnL = tradeStateManager.getAllActiveTradesAsCollection().stream()
                     .mapToDouble(this::calculateUnrealizedPnL)
                     .sum();
             
@@ -84,7 +84,7 @@ public class PortfolioManagementService {
      */
     public double calculateTotalExposure() {
         try {
-            return tradeStateManager.getAllActiveTrades().stream()
+            return tradeStateManager.getAllActiveTradesAsCollection().stream()
                     .mapToDouble(trade -> {
                         if (trade.getRiskAmount() != null) {
                             return trade.getRiskAmount();
@@ -109,7 +109,7 @@ public class PortfolioManagementService {
      */
     public PortfolioSummary getPortfolioSummary() {
         try {
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             List<TradeResult> completedTrades = tradeHistoryService.getAllTradeResults();
             
             // Basic portfolio metrics
@@ -172,7 +172,7 @@ public class PortfolioManagementService {
      */
     public PortfolioInsights getPortfolioInsights() {
         try {
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             List<TradeResult> completedTrades = tradeHistoryService.getAllTradeResults();
             
             List<String> insights = new ArrayList<>();
@@ -198,49 +198,36 @@ public class PortfolioManagementService {
                     .max().orElse(0.0);
             
             if (maxSinglePosition > maxSinglePositionPercent) {
-                warnings.add(String.format("Concentrated position detected: %.2f%% in single script", maxSinglePosition));
-                recommendations.add("Diversify portfolio to reduce concentration risk");
+                warnings.add(String.format("Large single position detected: %.2f%% (max recommended: %.2f%%)", 
+                           maxSinglePosition, maxSinglePositionPercent));
+                recommendations.add("Consider reducing largest position size for better diversification");
             }
             
-            // Performance insights
+            // Win rate analysis
             if (!completedTrades.isEmpty()) {
-                double avgProfitPerTrade = completedTrades.stream()
-                        .mapToDouble(trade -> trade.getProfitLoss() != null ? trade.getProfitLoss() : 0.0)
-                        .average().orElse(0.0);
-                        
-                insights.add(String.format("Average profit per trade: ₹%.2f", avgProfitPerTrade));
+                long winners = completedTrades.stream().filter(t -> t.getProfitLoss() != null && t.getProfitLoss() > 0).count();
+                double winRate = (winners * 100.0) / completedTrades.size();
                 
-                long winningTrades = completedTrades.stream()
-                        .mapToInt(trade -> (trade.getProfitLoss() != null && trade.getProfitLoss() > 0) ? 1 : 0)
-                        .sum();
-                        
-                double winRate = (winningTrades * 100.0) / completedTrades.size();
-                insights.add(String.format("Win rate: %.2f%% (%d/%d trades)", winRate, winningTrades, completedTrades.size()));
-                
-                if (winRate < 50) {
-                    warnings.add("Win rate below 50% - review strategy effectiveness");
-                    recommendations.add("Analyze losing trades to identify improvement opportunities");
+                if (winRate < 40) {
+                    warnings.add(String.format("Low win rate: %.2f%% (below 40%%)", winRate));
+                    recommendations.add("Review trading strategies and risk management rules");
+                } else if (winRate > 70) {
+                    insights.add(String.format("Excellent win rate: %.2f%%", winRate));
                 }
-            }
-            
-            // Active trades analysis
-            if (activeTrades.size() > 8) {
-                warnings.add(String.format("High number of active trades: %d", activeTrades.size()));
-                recommendations.add("Consider reducing simultaneous positions for better risk management");
             }
             
             // Drawdown analysis
             double currentDrawdown = calculateCurrentDrawdown();
             if (currentDrawdown > 10) {
-                warnings.add(String.format("Significant drawdown: %.2f%%", currentDrawdown));
-                recommendations.add("Consider defensive measures or position size reduction");
+                warnings.add(String.format("High drawdown: %.2f%% (monitor closely)", currentDrawdown));
+                recommendations.add("Consider reducing position sizes during drawdown periods");
             }
             
-            // Strategy distribution insights
-            Map<String, Double> exposureByStrategy = getExposureByStrategy();
-            if (exposureByStrategy.size() == 1) {
-                warnings.add("Portfolio depends on single strategy");
-                recommendations.add("Consider diversifying across multiple strategies");
+            // Active trades analysis
+            int activeCount = activeTrades.size();
+            if (activeCount > 10) {
+                warnings.add(String.format("High number of active trades: %d (consider focusing)", activeCount));
+                recommendations.add("Focus on fewer, higher-quality setups");
             }
             
             return PortfolioInsights.builder()
@@ -260,23 +247,22 @@ public class PortfolioManagementService {
     }
     
     /**
-     * Calculate unrealized P&L for active trade
+     * Calculate unrealized P&L for an active trade
      */
     private double calculateUnrealizedPnL(ActiveTrade trade) {
         try {
-            if (trade.getEntryPrice() == null || trade.getPositionSize() == null) {
+            if (trade.getCurrentPrice() == null || trade.getEntryPrice() == null || trade.getPositionSize() == null) {
                 return 0.0;
             }
             
-            // Use current price if available, otherwise assume no change
-            double currentPrice = trade.getEntryPrice(); // Fallback - should be updated with live price
+            double priceChange = trade.getCurrentPrice() - trade.getEntryPrice();
             
-            boolean isBullish = "BULLISH".equalsIgnoreCase(trade.getSignalType());
-            double pnl = isBullish ? 
-                (currentPrice - trade.getEntryPrice()) * trade.getPositionSize() :
-                (trade.getEntryPrice() - currentPrice) * trade.getPositionSize();
-                
-            return pnl;
+            // Adjust for trade direction (long vs short)
+            if (trade.getSignalType() != null && trade.getSignalType().toLowerCase().contains("short")) {
+                priceChange = -priceChange; // Invert for short positions
+            }
+            
+            return priceChange * trade.getPositionSize();
             
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating unrealized P&L for trade {}: {}", 
@@ -290,15 +276,19 @@ public class PortfolioManagementService {
      */
     private Map<String, Double> getPositionsByScript() {
         Map<String, Double> positions = new HashMap<>();
-        double portfolioValue = getPortfolioValue();
         
-        for (ActiveTrade trade : tradeStateManager.getAllActiveTrades()) {
+        for (ActiveTrade trade : tradeStateManager.getAllActiveTradesAsCollection()) {
+            String scripCode = trade.getScripCode();
             if (trade.getEntryPrice() != null && trade.getPositionSize() != null) {
                 double positionValue = trade.getEntryPrice() * trade.getPositionSize();
-                double positionPercentage = (positionValue / portfolioValue) * 100;
-                
-                positions.merge(trade.getScripCode(), positionPercentage, Double::sum);
+                positions.put(scripCode, positions.getOrDefault(scripCode, 0.0) + positionValue);
             }
+        }
+        
+        // Convert to percentages
+        double portfolioValue = getPortfolioValue();
+        if (portfolioValue > 0) {
+            positions.replaceAll((k, v) -> (v / portfolioValue) * 100);
         }
         
         return positions;
@@ -308,45 +298,45 @@ public class PortfolioManagementService {
      * Get exposure by strategy
      */
     private Map<String, Double> getExposureByStrategy() {
-        Map<String, Double> exposureByStrategy = new HashMap<>();
+        Map<String, Double> exposure = new HashMap<>();
         
-        for (ActiveTrade trade : tradeStateManager.getAllActiveTrades()) {
-            double exposure = trade.getRiskAmount() != null ? trade.getRiskAmount() : 0.0;
-            exposureByStrategy.merge(trade.getStrategyName(), exposure, Double::sum);
+        for (ActiveTrade trade : tradeStateManager.getAllActiveTradesAsCollection()) {
+            String strategy = trade.getStrategyName();
+            if (trade.getRiskAmount() != null) {
+                exposure.put(strategy, exposure.getOrDefault(strategy, 0.0) + trade.getRiskAmount());
+            }
         }
         
-        return exposureByStrategy;
+        return exposure;
     }
     
     /**
-     * Calculate maximum drawdown
+     * Calculate maximum drawdown from historical data
      */
     private double calculateMaxDrawdown() {
         try {
             List<TradeResult> allTrades = tradeHistoryService.getAllTradeResults();
-            
             if (allTrades.isEmpty()) {
                 return 0.0;
             }
             
-            double runningBalance = initialCapital;
-            double peakBalance = initialCapital;
-            double maxDrawdown = 0.0;
+            // Sort trades by exit time
+            allTrades.sort((t1, t2) -> t1.getExitTime().compareTo(t2.getExitTime()));
             
-            // Sort trades by completion time
-            allTrades.sort(Comparator.comparing(TradeResult::getExitTime, 
-                          Comparator.nullsLast(Comparator.naturalOrder())));
+            double peak = initialCapital;
+            double maxDrawdown = 0.0;
+            double currentValue = initialCapital;
             
             for (TradeResult trade : allTrades) {
-                if (trade.getProfitLoss() != null) {
-                    runningBalance += trade.getProfitLoss();
-                    
-                    if (runningBalance > peakBalance) {
-                        peakBalance = runningBalance;
-                    }
-                    
-                    double currentDrawdown = ((peakBalance - runningBalance) / peakBalance) * 100;
-                    maxDrawdown = Math.max(maxDrawdown, currentDrawdown);
+                currentValue += (trade.getProfitLoss() != null ? trade.getProfitLoss() : 0.0);
+                
+                if (currentValue > peak) {
+                    peak = currentValue;
+                }
+                
+                double drawdown = ((peak - currentValue) / peak) * 100;
+                if (drawdown > maxDrawdown) {
+                    maxDrawdown = drawdown;
                 }
             }
             
@@ -359,18 +349,18 @@ public class PortfolioManagementService {
     }
     
     /**
-     * Calculate current drawdown from peak
+     * Calculate current drawdown percentage
      */
     private double calculateCurrentDrawdown() {
         try {
+            double peak = calculatePortfolioPeak();
             double currentValue = getPortfolioValue();
-            double peakValue = calculatePortfolioPeak();
             
-            if (peakValue <= currentValue) {
-                return 0.0; // No drawdown - at new high
+            if (peak <= currentValue) {
+                return 0.0; // No drawdown, portfolio at new high
             }
             
-            return ((peakValue - currentValue) / peakValue) * 100;
+            return ((peak - currentValue) / peak) * 100;
             
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating current drawdown: {}", e.getMessage(), e);
@@ -379,28 +369,34 @@ public class PortfolioManagementService {
     }
     
     /**
-     * Calculate portfolio peak value
+     * Calculate portfolio peak (highest value reached)
      */
     private double calculatePortfolioPeak() {
         try {
             List<TradeResult> allTrades = tradeHistoryService.getAllTradeResults();
             
-            double runningBalance = initialCapital;
-            double peakBalance = initialCapital;
+            double peak = initialCapital;
+            double currentValue = initialCapital;
             
+            // Calculate peak value through trade history
             for (TradeResult trade : allTrades) {
-                if (trade.getProfitLoss() != null) {
-                    runningBalance += trade.getProfitLoss();
-                    peakBalance = Math.max(peakBalance, runningBalance);
+                currentValue += (trade.getProfitLoss() != null ? trade.getProfitLoss() : 0.0);
+                if (currentValue > peak) {
+                    peak = currentValue;
                 }
             }
             
-            // Include current unrealized P&L
-            double currentUnrealized = tradeStateManager.getAllActiveTrades().stream()
+            // Consider current portfolio value including unrealized P&L
+            double totalUnrealizedPnL = tradeStateManager.getAllActiveTradesAsCollection().stream()
                     .mapToDouble(this::calculateUnrealizedPnL)
                     .sum();
-                    
-            return Math.max(peakBalance, runningBalance + currentUnrealized);
+            
+            double currentTotalValue = currentValue + totalUnrealizedPnL;
+            if (currentTotalValue > peak) {
+                peak = currentTotalValue;
+            }
+            
+            return peak;
             
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating portfolio peak: {}", e.getMessage(), e);
@@ -409,36 +405,30 @@ public class PortfolioManagementService {
     }
     
     /**
-     * Calculate Sharpe ratio
+     * Calculate Sharpe ratio (simplified)
      */
     private double calculateSharpeRatio() {
         try {
             List<TradeResult> allTrades = tradeHistoryService.getAllTradeResults();
-            
-            if (allTrades.size() < 10) {
-                return 0.0; // Need sufficient trades for meaningful calculation
+            if (allTrades.size() < 2) {
+                return 0.0;
             }
             
             // Calculate daily returns
             List<Double> returns = allTrades.stream()
-                    .filter(trade -> trade.getProfitLoss() != null && trade.getExitTime() != null)
-                    .map(trade -> {
-                        double investedAmount = trade.getEntryPrice() * trade.getPositionSize();
-                        return (trade.getProfitLoss() / investedAmount) * 100; // Return percentage
-                    })
+                    .mapToDouble(trade -> (trade.getProfitLoss() != null ? trade.getProfitLoss() : 0.0))
+                    .boxed()
                     .collect(Collectors.toList());
-                    
-            if (returns.isEmpty()) {
+            
+            double meanReturn = returns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            double stdDev = calculateStandardDeviation(returns, meanReturn);
+            
+            if (stdDev == 0) {
                 return 0.0;
             }
             
-            double avgReturn = returns.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-            double stdDev = calculateStandardDeviation(returns, avgReturn);
-            
-            // Risk-free rate assumed as 6% annually (~0.02% daily)
-            double riskFreeRate = 0.02;
-            
-            return stdDev > 0 ? (avgReturn - riskFreeRate) / stdDev : 0.0;
+            // Simplified Sharpe ratio (assuming risk-free rate = 0)
+            return meanReturn / stdDev;
             
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating Sharpe ratio: {}", e.getMessage(), e);
@@ -447,13 +437,12 @@ public class PortfolioManagementService {
     }
     
     /**
-     * Calculate standard deviation
+     * Calculate standard deviation of returns
      */
     private double calculateStandardDeviation(List<Double> values, double mean) {
         double sumSquaredDiffs = values.stream()
                 .mapToDouble(value -> Math.pow(value - mean, 2))
                 .sum();
-        
         return Math.sqrt(sumSquaredDiffs / values.size());
     }
     
@@ -462,51 +451,86 @@ public class PortfolioManagementService {
      */
     private int calculateRiskScore() {
         try {
-            int riskScore = 0;
+            int score = 0;
             
-            // Exposure risk (0-30 points)
+            // Factor 1: Portfolio exposure (max 30 points)
             double exposurePercentage = (calculateTotalExposure() / getPortfolioValue()) * 100;
-            riskScore += Math.min(30, (int)(exposurePercentage * 2));
+            score += Math.min((int)(exposurePercentage * 2), 30);
             
-            // Concentration risk (0-25 points)
+            // Factor 2: Drawdown (max 25 points)
+            double drawdown = calculateCurrentDrawdown();
+            score += Math.min((int)(drawdown * 1.5), 25);
+            
+            // Factor 3: Concentration risk (max 20 points)
             Map<String, Double> positions = getPositionsByScript();
             double maxPosition = positions.values().stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
-            riskScore += Math.min(25, (int)(maxPosition * 2.5));
+            score += Math.min((int)(maxPosition), 20);
             
-            // Drawdown risk (0-25 points)
-            double currentDrawdown = calculateCurrentDrawdown();
-            riskScore += Math.min(25, (int)(currentDrawdown * 2.5));
+            // Factor 4: Active trades count (max 15 points)
+            int activeCount = tradeStateManager.getAllActiveTradesAsCollection().size();
+            score += Math.min(activeCount, 15);
             
-            // Active trades risk (0-20 points)
-            int activeTrades = tradeStateManager.getAllActiveTrades().size();
-            riskScore += Math.min(20, activeTrades * 2);
+            // Factor 5: Win rate factor (max 10 points, inverted)
+            List<TradeResult> trades = tradeHistoryService.getAllTradeResults();
+            if (!trades.isEmpty()) {
+                long winners = trades.stream().filter(t -> t.getProfitLoss() != null && t.getProfitLoss() > 0).count();
+                double winRate = (winners * 100.0) / trades.size();
+                score += Math.max(0, (int)(60 - winRate) / 6); // Lower win rate increases risk
+            }
             
-            return Math.min(100, riskScore);
+            return Math.min(score, 100);
             
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating risk score: {}", e.getMessage(), e);
-            return 50; // Medium risk as fallback
+            return 50; // Default medium risk
         }
     }
     
     /**
-     * Calculate performance grade (A-F)
+     * Calculate performance grade (A+ to F)
      */
     private String calculatePerformanceGrade() {
         try {
             double totalReturn = ((getPortfolioValue() - initialCapital) / initialCapital) * 100;
+            double maxDrawdown = calculateMaxDrawdown();
+            double sharpeRatio = calculateSharpeRatio();
             
-            if (totalReturn >= 20) return "A+";
-            if (totalReturn >= 15) return "A";
-            if (totalReturn >= 10) return "B+";
-            if (totalReturn >= 5) return "B";
-            if (totalReturn >= 0) return "C";
-            if (totalReturn >= -5) return "D";
-            return "F";
+            // Weighted scoring
+            double score = 0;
+            
+            // Return component (40% weight)
+            if (totalReturn >= 50) score += 40;
+            else if (totalReturn >= 25) score += 30;
+            else if (totalReturn >= 10) score += 20;
+            else if (totalReturn >= 0) score += 10;
+            // Negative returns get 0 points
+            
+            // Drawdown component (30% weight)
+            if (maxDrawdown <= 5) score += 30;
+            else if (maxDrawdown <= 10) score += 20;
+            else if (maxDrawdown <= 15) score += 10;
+            // Higher drawdown gets 0 points
+            
+            // Sharpe ratio component (30% weight)
+            if (sharpeRatio >= 2.0) score += 30;
+            else if (sharpeRatio >= 1.5) score += 25;
+            else if (sharpeRatio >= 1.0) score += 20;
+            else if (sharpeRatio >= 0.5) score += 10;
+            // Lower Sharpe gets 0 points
+            
+            // Convert to letter grade
+            if (score >= 90) return "A+";
+            else if (score >= 80) return "A";
+            else if (score >= 70) return "B+";
+            else if (score >= 60) return "B";
+            else if (score >= 50) return "C+";
+            else if (score >= 40) return "C";
+            else if (score >= 30) return "D";
+            else return "F";
             
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating performance grade: {}", e.getMessage(), e);
-            return "C";
+            return "N/A";
         }
     }
     
@@ -518,21 +542,24 @@ public class PortfolioManagementService {
             Map<String, Double> positions = getPositionsByScript();
             
             if (positions.isEmpty()) {
-                return 0;
+                return 100; // No positions = perfectly diversified
             }
             
-            // Calculate concentration using Herfindahl-Hirschman Index
+            // Calculate concentration index (Herfindahl-Hirschman Index)
             double hhi = positions.values().stream()
-                    .mapToDouble(percentage -> Math.pow(percentage / 100, 2))
+                    .mapToDouble(percentage -> Math.pow(percentage / 100.0, 2))
                     .sum();
             
-            // Convert HHI to diversification score (inverted and scaled)
-            double diversificationIndex = 1 - hhi;
-            return (int)(diversificationIndex * 100);
+            // Convert HHI to diversification score (0-100)
+            // HHI of 1.0 (100% concentration) = 0 diversification
+            // HHI of 0.1 (many small positions) = 90+ diversification
+            int score = (int)((1.0 - hhi) * 100);
+            
+            return Math.max(0, Math.min(100, score));
             
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating diversification score: {}", e.getMessage(), e);
-            return 50;
+            return 50; // Default medium diversification
         }
     }
     
@@ -564,13 +591,55 @@ public class PortfolioManagementService {
      */
     private PortfolioInsights createEmptyPortfolioInsights() {
         return PortfolioInsights.builder()
-                .insights(Arrays.asList("Portfolio data unavailable"))
-                .recommendations(Arrays.asList("Check system connectivity"))
-                .warnings(Arrays.asList("Portfolio analysis incomplete"))
+                .insights(Arrays.asList("Portfolio analysis unavailable"))
+                .recommendations(Arrays.asList("Review system configuration"))
+                .warnings(Arrays.asList("Portfolio analysis failed"))
                 .riskScore(50)
-                .performanceGrade("C")
+                .performanceGrade("N/A")
                 .diversificationScore(50)
                 .generatedAt(LocalDateTime.now())
                 .build();
+    }
+    
+    /**
+     * Get maximum risk amount per single trade
+     */
+    public double getMaxRiskPerTrade() {
+        try {
+            double portfolioValue = getPortfolioValue();
+            // Risk 2% of portfolio per trade
+            return portfolioValue * 0.02;
+        } catch (Exception e) {
+            log.error("🚨 [Portfolio] Error calculating max risk per trade: {}", e.getMessage(), e);
+            return 20000.0; // Default fallback: 20K per trade
+        }
+    }
+    
+    /**
+     * Get current portfolio value (alias for external services)
+     */
+    public double getCurrentPortfolioValue() {
+        return getPortfolioValue();
+    }
+    
+    /**
+     * Get today's realized P&L
+     */
+    public double getTodayPnL() {
+        try {
+            LocalDate today = LocalDate.now();
+            List<TradeResult> todayTrades = tradeHistoryService.getAllTradeResults().stream()
+                    .filter(trade -> trade.getExitTime() != null && 
+                            trade.getExitTime().toLocalDate().equals(today))
+                    .collect(Collectors.toList());
+            
+            return todayTrades.stream()
+                    .mapToDouble(trade -> trade.getProfitLoss() != null ? trade.getProfitLoss() : 0.0)
+                    .sum();
+                    
+        } catch (Exception e) {
+            log.error("🚨 [Portfolio] Error calculating today's P&L: {}", e.getMessage(), e);
+            return 0.0;
+        }
     }
 } 

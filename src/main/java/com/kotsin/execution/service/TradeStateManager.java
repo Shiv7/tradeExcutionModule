@@ -182,4 +182,11 @@ public class TradeStateManager {
             return false;
         }
     }
+    
+    /**
+     * Get all active trades as Collection (for services expecting Collection)
+     */
+    public java.util.Collection<ActiveTrade> getAllActiveTradesAsCollection() {
+        return activeTrades.values();
+    }
 } 

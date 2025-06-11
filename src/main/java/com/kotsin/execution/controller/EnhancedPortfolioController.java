@@ -1,355 +1,264 @@
 package com.kotsin.execution.controller;
 
+import com.kotsin.execution.service.PortfolioManagementService;
 import com.kotsin.execution.service.EnhancedRiskManagementService;
+import com.kotsin.execution.service.EnhancedRiskManagementService.RiskValidationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * 💰 ENHANCED PORTFOLIO CONTROLLER
+ * 🎯 ENHANCED PORTFOLIO CONTROLLER
  * 
- * ADDRESSES CRITICAL MISSING FEATURES:
- * ✅ Portfolio Risk Management
- * ✅ Position Insights & Analytics
- * ✅ Risk Assessment Tools
- * ✅ Emergency Controls
- * ✅ Performance Monitoring
- * 
- * FIXES CRITICAL ISSUES:
- * ❌ No Portfolio Management → ✅ Comprehensive Portfolio Tools
- * ❌ Weak Risk Controls → ✅ Strict Risk Management
- * ❌ Missing Insights → ✅ Real-time Analytics
+ * COMPREHENSIVE PORTFOLIO MANAGEMENT ENDPOINTS:
+ * 1. 📊 Portfolio Dashboard
+ * 2. ⚠️ Risk Assessment  
+ * 3. 🧪 Signal Testing
+ * 4. 🚨 Emergency Controls
+ * 5. 📈 Performance Analytics
+ * 6. 🔍 System Status
  */
 @RestController
 @RequestMapping("/api/enhanced-portfolio")
-@RequiredArgsConstructor
 @Slf4j
+@RequiredArgsConstructor
 public class EnhancedPortfolioController {
     
+    private final PortfolioManagementService portfolioManagementService;
     private final EnhancedRiskManagementService riskManagementService;
     
     /**
-     * 📊 GET PORTFOLIO DASHBOARD
-     * Complete portfolio overview with key metrics
+     * Get comprehensive portfolio dashboard
      */
     @GetMapping("/dashboard")
     public ResponseEntity<Map<String, Object>> getPortfolioDashboard() {
         try {
-            log.info("📊 [EnhancedPortfolio] Generating portfolio dashboard...");
+            log.info("📊 [Dashboard] Generating comprehensive portfolio dashboard");
             
             Map<String, Object> dashboard = new HashMap<>();
             
-            // Risk management statistics
-            Map<String, Object> riskStats = riskManagementService.getRiskManagementStats();
-            dashboard.put("riskManagement", riskStats);
+            // Portfolio overview
+            dashboard.put("portfolioSummary", portfolioManagementService.getPortfolioSummary());
+            dashboard.put("portfolioInsights", portfolioManagementService.getPortfolioInsights());
+            dashboard.put("riskManagement", riskManagementService.getRiskManagementStats());
             
-            // Portfolio health indicators
-            Map<String, Object> healthIndicators = new HashMap<>();
-            healthIndicators.put("riskControlsActive", true);
-            healthIndicators.put("minRiskRewardEnforced", riskStats.get("currentMinRiskReward"));
-            healthIndicators.put("positionSizeLimitsActive", true);
-            healthIndicators.put("lastHealthCheck", LocalDateTime.now());
-            dashboard.put("healthIndicators", healthIndicators);
+            // Performance metrics
+            dashboard.put("currentValue", portfolioManagementService.getCurrentPortfolioValue());
+            dashboard.put("todayPnL", portfolioManagementService.getTodayPnL());
             
-            // System improvements summary
-            Map<String, Object> improvements = new HashMap<>();
-            improvements.put("weakSignalsBlocked", riskStats.get("weakSignalsRejected"));
-            improvements.put("riskViolationsPrevented", riskStats.get("riskViolationsBlocked"));
-            improvements.put("oversizedPositionsReduced", riskStats.get("oversizedPositionsReduced"));
-            dashboard.put("systemImprovements", improvements);
+            dashboard.put("timestamp", LocalDateTime.now());
+            dashboard.put("status", "success");
             
-            // Current risk parameters
-            Map<String, Object> riskParams = new HashMap<>();
-            riskParams.put("minRiskReward", riskStats.get("currentMinRiskReward"));
-            riskParams.put("maxPositionRisk", riskStats.get("maxPositionRisk"));
-            riskParams.put("maxPortfolioRisk", riskStats.get("maxPortfolioRisk"));
-            riskParams.put("maxPositionSize", riskStats.get("maxPositionSize"));
-            dashboard.put("riskParameters", riskParams);
-            
-            dashboard.put("status", "healthy");
-            dashboard.put("generatedAt", LocalDateTime.now());
-            
-            log.info("✅ [EnhancedPortfolio] Portfolio dashboard generated successfully");
+            log.info("✅ [Dashboard] Portfolio dashboard generated successfully");
             return ResponseEntity.ok(dashboard);
             
         } catch (Exception e) {
-            log.error("🚨 [EnhancedPortfolio] Error generating dashboard: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(
-                Map.of("error", "Failed to generate portfolio dashboard",
-                       "message", e.getMessage())
-            );
+            log.error("🚨 [Dashboard] Error generating portfolio dashboard: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to generate portfolio dashboard");
+            errorResponse.put("message", e.getMessage());
+            errorResponse.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.internalServerError().body(errorResponse);
         }
     }
     
     /**
-     * 🛡️ GET RISK ASSESSMENT
-     * Comprehensive risk analysis and recommendations
+     * Get detailed risk assessment
      */
     @GetMapping("/risk-assessment")
     public ResponseEntity<Map<String, Object>> getRiskAssessment() {
         try {
-            log.info("🛡️ [EnhancedPortfolio] Performing risk assessment...");
+            log.info("⚠️ [RiskAssessment] Generating detailed risk assessment");
             
             Map<String, Object> assessment = new HashMap<>();
             
-            // Get risk management stats
-            Map<String, Object> riskStats = riskManagementService.getRiskManagementStats();
+            // Portfolio insights with risk analysis
+            assessment.put("insights", portfolioManagementService.getPortfolioInsights());
+            assessment.put("riskStats", riskManagementService.getRiskManagementStats());
+            assessment.put("riskConfiguration", riskManagementService.getRiskConfiguration());
             
-            // Risk control effectiveness
-            int weakSignalsRejected = (Integer) riskStats.get("weakSignalsRejected");
-            int riskViolationsBlocked = (Integer) riskStats.get("riskViolationsBlocked");
+            // Current metrics
+            double portfolioValue = portfolioManagementService.getCurrentPortfolioValue();
+            double maxRiskPerTrade = portfolioManagementService.getMaxRiskPerTrade();
+            double todayPnL = portfolioManagementService.getTodayPnL();
             
-            Map<String, Object> effectiveness = new HashMap<>();
-            effectiveness.put("totalRiskEventsBlocked", weakSignalsRejected + riskViolationsBlocked);
-            effectiveness.put("weakSignalsRejected", weakSignalsRejected);
-            effectiveness.put("riskViolationsBlocked", riskViolationsBlocked);
-            effectiveness.put("riskControlEffectiveness", "HIGH");
-            assessment.put("riskControlEffectiveness", effectiveness);
+            assessment.put("portfolioValue", portfolioValue);
+            assessment.put("maxRiskPerTrade", maxRiskPerTrade);
+            assessment.put("dailyPnL", todayPnL);
+            assessment.put("riskUtilization", (maxRiskPerTrade / portfolioValue) * 100);
             
-            // Risk parameter analysis
-            double currentMinRR = (Double) riskStats.get("currentMinRiskReward");
-            Map<String, Object> paramAnalysis = new HashMap<>();
-            paramAnalysis.put("minRiskRewardStatus", currentMinRR >= 1.5 ? "SAFE" : "NEEDS_IMPROVEMENT");
-            paramAnalysis.put("currentMinRiskReward", currentMinRR);
-            paramAnalysis.put("recommendation", currentMinRR >= 1.5 ? 
-                "Risk-reward requirements are adequate" : 
-                "Consider increasing minimum risk-reward to 1.5:1");
-            assessment.put("riskParameterAnalysis", paramAnalysis);
+            assessment.put("timestamp", LocalDateTime.now());
+            assessment.put("status", "success");
             
-            // System health
-            Map<String, Object> systemHealth = new HashMap<>();
-            systemHealth.put("overallRiskLevel", "LOW");
-            systemHealth.put("riskControlsActive", true);
-            systemHealth.put("positionLimitsEnforced", true);
-            systemHealth.put("healthScore", 95); // Out of 100
-            assessment.put("systemHealth", systemHealth);
-            
-            // Recommendations
-            List<String> recommendations = new ArrayList<>();
-            if (currentMinRR < 1.5) {
-                recommendations.add("Increase minimum risk-reward ratio to 1.5:1");
-            }
-            if (weakSignalsRejected < 5) {
-                recommendations.add("Risk controls working well - maintain current parameters");
-            } else {
-                recommendations.add("High number of weak signals detected - review signal sources");
-            }
-            recommendations.add("Continue monitoring risk metrics regularly");
-            assessment.put("recommendations", recommendations);
-            
-            assessment.put("assessmentTime", LocalDateTime.now());
-            
-            log.info("✅ [EnhancedPortfolio] Risk assessment completed");
+            log.info("✅ [RiskAssessment] Risk assessment completed successfully");
             return ResponseEntity.ok(assessment);
             
         } catch (Exception e) {
-            log.error("🚨 [EnhancedPortfolio] Error in risk assessment: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(
-                Map.of("error", "Failed to perform risk assessment",
-                       "message", e.getMessage())
-            );
+            log.error("🚨 [RiskAssessment] Error generating risk assessment: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to generate risk assessment");
+            errorResponse.put("message", e.getMessage());
+            errorResponse.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.internalServerError().body(errorResponse);
         }
     }
     
     /**
-     * 🎯 TEST SIGNAL VALIDATION
      * Test signal validation with current risk parameters
      */
     @PostMapping("/test-signal-validation")
-    public ResponseEntity<Map<String, Object>> testSignalValidation(
-            @RequestBody Map<String, Object> testSignal) {
+    public ResponseEntity<Map<String, Object>> testSignalValidation(@RequestBody Map<String, Object> signalData) {
         try {
-            log.info("🎯 [EnhancedPortfolio] Testing signal validation...");
+            log.info("🧪 [SignalTest] Testing signal validation: {}", signalData.get("scripCode"));
             
             // Extract test parameters
-            double currentPrice = ((Number) testSignal.getOrDefault("currentPrice", 100.0)).doubleValue();
+            double currentPrice = ((Number) signalData.getOrDefault("currentPrice", 100.0)).doubleValue();
             
-            // Validate signal using enhanced risk management
-            EnhancedRiskManagementService.SignalValidationResult result = 
-                riskManagementService.validateSignalWithStrictRiskControls(testSignal, currentPrice);
+            // Validate signal using strict risk controls
+            RiskValidationResult validationResult = riskManagementService.validateSignalWithStrictRiskControls(signalData, currentPrice);
             
-            Map<String, Object> response = new HashMap<>();
-            response.put("validationResult", result.isApproved() ? "APPROVED" : "REJECTED");
-            response.put("reason", result.getReason());
-            response.put("riskReward", result.getRiskReward());
-            response.put("testSignal", testSignal);
-            response.put("testedAt", LocalDateTime.now());
+            Map<String, Object> testResult = new HashMap<>();
+            testResult.put("signalData", signalData);
+            testResult.put("validationResult", validationResult);
+            testResult.put("isValid", validationResult.isValid());
+            testResult.put("message", validationResult.getMessage());
             
-            if (result.isApproved()) {
-                // Calculate position size if approved
-                double stopLoss = ((Number) testSignal.getOrDefault("stopLoss", currentPrice * 0.95)).doubleValue();
-                int positionSize = riskManagementService.calculateSafePositionSize(currentPrice, stopLoss, 1000000);
-                response.put("recommendedPositionSize", positionSize);
+            if (validationResult.isValid()) {
+                // Calculate position size and targets
+                double entryPrice = currentPrice;
+                double stopLoss = ((Number) signalData.getOrDefault("stopLoss", entryPrice * 0.98)).doubleValue();
+                boolean isBullish = "BULLISH".equalsIgnoreCase((String) signalData.get("signalType"));
                 
-                // Calculate targets
-                boolean isBullish = "BUY".equalsIgnoreCase((String) testSignal.get("signal"));
-                Map<String, Double> targets = riskManagementService.calculateSimpleTargets(currentPrice, stopLoss, isBullish);
-                response.put("calculatedTargets", targets);
+                double recommendedPositionSize = validationResult.getRecommendedPositionSize();
+                int safePositionSize = (int) Math.floor(recommendedPositionSize);
+                
+                testResult.put("recommendedPositionSize", safePositionSize);
+                testResult.put("riskRewardRatio", validationResult.getRiskRewardRatio());
+                testResult.put("calculatedTargets", riskManagementService.calculateSimpleTargets(entryPrice, stopLoss, isBullish));
             }
             
-            log.info("✅ [EnhancedPortfolio] Signal validation test completed: {}", 
-                    result.isApproved() ? "APPROVED" : "REJECTED");
-            return ResponseEntity.ok(response);
+            testResult.put("timestamp", LocalDateTime.now());
+            testResult.put("status", "success");
+            
+            log.info("✅ [SignalTest] Signal validation test completed: Valid={}", validationResult.isValid());
+            return ResponseEntity.ok(testResult);
             
         } catch (Exception e) {
-            log.error("🚨 [EnhancedPortfolio] Error testing signal validation: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(
-                Map.of("error", "Failed to test signal validation",
-                       "message", e.getMessage())
-            );
+            log.error("🚨 [SignalTest] Error testing signal validation: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to test signal validation");
+            errorResponse.put("message", e.getMessage());
+            errorResponse.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.internalServerError().body(errorResponse);
         }
     }
     
     /**
-     * ⚡ EMERGENCY: Reset to safe risk parameters
-     * Emergency endpoint to reset risk controls to safe defaults
+     * Emergency risk reset
      */
     @PostMapping("/emergency-reset-risk")
     public ResponseEntity<Map<String, Object>> emergencyResetRisk() {
         try {
-            log.warn("⚡ [EnhancedPortfolio] EMERGENCY RISK RESET triggered!");
+            log.warn("🚨 [EmergencyReset] Emergency risk parameter reset initiated");
             
-            riskManagementService.resetToSafeRiskParameters();
+            Map<String, Object> resetResult = riskManagementService.resetToSafeRiskParameters();
+            resetResult.put("portfolioSnapshot", portfolioManagementService.getPortfolioSummary());
+            resetResult.put("updatedRiskStats", riskManagementService.getRiskManagementStats());
             
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "EMERGENCY_RESET_COMPLETED");
-            response.put("action", "Risk parameters reset to safe defaults");
-            response.put("newRiskParameters", riskManagementService.getRiskManagementStats());
-            response.put("resetTime", LocalDateTime.now());
+            resetResult.put("timestamp", LocalDateTime.now());
+            resetResult.put("status", "success");
             
-            List<String> actions = Arrays.asList(
-                "Minimum risk-reward increased to 2:1",
-                "Maximum position risk reduced to 1%",
-                "Maximum portfolio risk reduced to 5%",
-                "Maximum position size reduced to 3000 units"
-            );
-            response.put("actionsPerformed", actions);
-            
-            log.info("✅ [EnhancedPortfolio] Emergency risk reset completed");
-            return ResponseEntity.ok(response);
+            log.warn("✅ [EmergencyReset] Risk parameters reset completed successfully");
+            return ResponseEntity.ok(resetResult);
             
         } catch (Exception e) {
-            log.error("🚨 [EnhancedPortfolio] Error in emergency reset: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(
-                Map.of("error", "Failed to perform emergency reset",
-                       "message", e.getMessage())
-            );
+            log.error("🚨 [EmergencyReset] Error during emergency reset: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to reset risk parameters");
+            errorResponse.put("message", e.getMessage());
+            errorResponse.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.internalServerError().body(errorResponse);
         }
     }
     
     /**
-     * 📈 GET PERFORMANCE INSIGHTS
-     * Get performance insights and optimization recommendations
+     * Get performance insights and analytics
      */
     @GetMapping("/performance-insights")
     public ResponseEntity<Map<String, Object>> getPerformanceInsights() {
         try {
-            log.info("📈 [EnhancedPortfolio] Generating performance insights...");
+            log.info("📈 [PerformanceInsights] Generating performance analytics");
             
             Map<String, Object> insights = new HashMap<>();
             
-            // Risk management performance
-            Map<String, Object> riskStats = riskManagementService.getRiskManagementStats();
+            // Portfolio performance
+            insights.put("portfolioSummary", portfolioManagementService.getPortfolioSummary());
+            insights.put("portfolioInsights", portfolioManagementService.getPortfolioInsights());
+            insights.put("riskMetrics", riskManagementService.getRiskManagementStats());
             
-            Map<String, Object> riskPerformance = new HashMap<>();
-            riskPerformance.put("riskControlEffectiveness", "EXCELLENT");
-            riskPerformance.put("weakSignalsBlocked", riskStats.get("weakSignalsRejected"));
-            riskPerformance.put("riskViolationsPrevented", riskStats.get("riskViolationsBlocked"));
-            riskPerformance.put("riskScore", 95); // Out of 100
-            insights.put("riskManagementPerformance", riskPerformance);
+            // Additional analytics
+            double portfolioValue = portfolioManagementService.getCurrentPortfolioValue();
+            double initialCapital = 1000000.0; // Should come from config
+            double totalReturn = ((portfolioValue - initialCapital) / initialCapital) * 100;
             
-            // System improvements
-            Map<String, Object> improvements = new HashMap<>();
-            improvements.put("criticalIssuesFixed", Arrays.asList(
-                "Weak risk-reward validation (0.1:1) → Strict validation (1.5:1)",
-                "Over-engineered pivot calculations → Simple risk-based calculations",
-                "Missing position size limits → Enforced position controls",
-                "No portfolio risk limits → Portfolio-wide risk management"
-            ));
-            improvements.put("systemReliability", "HIGH");
-            improvements.put("riskControlUpgrade", "COMPLETED");
-            insights.put("systemImprovements", improvements);
+            insights.put("totalReturnPercentage", totalReturn);
+            insights.put("portfolioGrowth", portfolioValue - initialCapital);
             
-            // Optimization recommendations
-            List<String> optimizations = Arrays.asList(
-                "Risk controls are working effectively",
-                "Position sizing is properly managed",
-                "Signal validation is strict and reliable",
-                "Continue monitoring risk metrics for ongoing optimization"
-            );
-            insights.put("optimizationRecommendations", optimizations);
+            insights.put("timestamp", LocalDateTime.now());
+            insights.put("status", "success");
             
-            // Overall assessment
-            Map<String, Object> assessment = new HashMap<>();
-            assessment.put("overallGrade", "A+");
-            assessment.put("riskManagement", "EXCELLENT");
-            assessment.put("systemStability", "HIGH");
-            assessment.put("recommendationCompliance", "100%");
-            insights.put("overallAssessment", assessment);
-            
-            insights.put("generatedAt", LocalDateTime.now());
-            
-            log.info("✅ [EnhancedPortfolio] Performance insights generated successfully");
+            log.info("✅ [PerformanceInsights] Performance insights generated successfully");
             return ResponseEntity.ok(insights);
             
         } catch (Exception e) {
-            log.error("🚨 [EnhancedPortfolio] Error generating insights: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(
-                Map.of("error", "Failed to generate performance insights",
-                       "message", e.getMessage())
-            );
+            log.error("🚨 [PerformanceInsights] Error generating performance insights: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to generate performance insights");
+            errorResponse.put("message", e.getMessage());
+            errorResponse.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.internalServerError().body(errorResponse);
         }
     }
     
     /**
-     * 🔧 GET SYSTEM STATUS
-     * Get comprehensive system status and health metrics
+     * Get comprehensive system status
      */
     @GetMapping("/system-status")
     public ResponseEntity<Map<String, Object>> getSystemStatus() {
         try {
+            log.info("🔍 [SystemStatus] Checking comprehensive system status");
+            
             Map<String, Object> status = new HashMap<>();
             
-            // Core system status
-            status.put("systemHealth", "HEALTHY");
-            status.put("riskControlsActive", true);
-            status.put("positionManagementActive", true);
-            status.put("portfolioMonitoringActive", true);
+            // System health indicators
+            status.put("portfolioService", "operational");
+            status.put("riskManagement", "operational");
+            status.put("timestamp", LocalDateTime.now());
             
-            // Risk management status
-            status.put("riskManagementStats", riskManagementService.getRiskManagementStats());
+            // Quick metrics
+            status.put("portfolioValue", portfolioManagementService.getCurrentPortfolioValue());
+            status.put("riskConfiguration", riskManagementService.getRiskConfiguration());
+            status.put("dailyPnL", portfolioManagementService.getTodayPnL());
             
-            // Feature status
-            Map<String, String> features = new HashMap<>();
-            features.put("enhancedRiskValidation", "ACTIVE");
-            features.put("simplifiedTargetCalculation", "ACTIVE");
-            features.put("positionSizeControl", "ACTIVE");
-            features.put("portfolioRiskMonitoring", "ACTIVE");
-            features.put("emergencyControls", "ACTIVE");
-            status.put("featureStatus", features);
+            status.put("systemHealth", "healthy");
+            status.put("status", "success");
             
-            // Critical issues addressed
-            Map<String, String> issuesFixed = new HashMap<>();
-            issuesFixed.put("weakRiskRewardValidation", "FIXED");
-            issuesFixed.put("overEngineeredPivots", "SIMPLIFIED");
-            issuesFixed.put("missingPositionControls", "IMPLEMENTED");
-            issuesFixed.put("noPortfolioManagement", "IMPLEMENTED");
-            status.put("criticalIssuesAddressed", issuesFixed);
-            
-            status.put("statusTime", LocalDateTime.now());
-            
+            log.info("✅ [SystemStatus] System status check completed successfully");
             return ResponseEntity.ok(status);
             
         } catch (Exception e) {
-            log.error("🚨 [EnhancedPortfolio] Error getting system status: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(
-                Map.of("error", "Failed to get system status",
-                       "message", e.getMessage())
-            );
+            log.error("🚨 [SystemStatus] Error checking system status: {}", e.getMessage(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "Failed to check system status");
+            errorResponse.put("message", e.getMessage());
+            errorResponse.put("systemHealth", "degraded");
+            errorResponse.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.internalServerError().body(errorResponse);
         }
     }
 } 

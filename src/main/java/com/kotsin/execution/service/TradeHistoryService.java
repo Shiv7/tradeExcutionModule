@@ -238,4 +238,40 @@ public class TradeHistoryService {
             log.error("🚨 Error during cleanup: {}", e.getMessage(), e);
         }
     }
+    
+    /**
+     * Get all completed trades as a list
+     */
+    public List<TradeResult> getAllTradeResults() {
+        return new ArrayList<>(completedTrades.values());
+    }
+    
+    /**
+     * Get trade results by date range
+     */
+    public List<TradeResult> getTradeResultsByDateRange(LocalDateTime startTime, LocalDateTime endTime) {
+        try {
+            LocalDate startDate = startTime.toLocalDate();
+            LocalDate endDate = endTime.toLocalDate();
+            
+            List<TradeResult> results = new ArrayList<>();
+            for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+                results.addAll(getTradeResultsForDate(date));
+            }
+            
+            // Filter by exact time range
+            return results.stream()
+                    .filter(trade -> {
+                        LocalDateTime exitTime = trade.getExitTime();
+                        return exitTime != null && 
+                               !exitTime.isBefore(startTime) && 
+                               !exitTime.isAfter(endTime);
+                    })
+                    .collect(Collectors.toList());
+                    
+        } catch (Exception e) {
+            log.error("🚨 Error getting trade results by date range: {}", e.getMessage(), e);
+            return new ArrayList<>();
+        }
+    }
 } 

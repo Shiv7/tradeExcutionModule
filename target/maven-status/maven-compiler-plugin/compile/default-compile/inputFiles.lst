@@ -14,8 +14,15 @@
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/TradeExecutionTestController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/ProfitLossCalculator.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/ActiveTrade.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/PortfolioManagementService.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/PortfolioManagementController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/TradeExecutionService.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/PortfolioSummary.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/EnhancedRiskManagementService.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/PortfolioInsights.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/TradeExecutionSelfHealingService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/WebConfig.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/EnhancedPortfolioController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/PendingSignal.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/consumer/LiveMarketDataConsumer.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/OpenApiConfig.java
