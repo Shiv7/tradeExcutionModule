@@ -137,7 +137,7 @@ public class PortfolioManagementController {
             performance.put("exposurePercentage", (totalExposure / portfolioValue) * 100);
             
             // Active trades performance
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             performance.put("activeTradesCount", activeTrades.size());
             performance.put("averagePositionSize", activeTrades.stream()
                     .mapToInt(trade -> trade.getPositionSize() != null ? trade.getPositionSize() : 0)
@@ -184,7 +184,7 @@ public class PortfolioManagementController {
         try {
             log.info("🎯 [PortfolioAPI] Analyzing portfolio positions...");
             
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             
             // Position analysis by script
             Map<String, List<ActiveTrade>> positionsByScript = activeTrades.stream()
@@ -247,7 +247,7 @@ public class PortfolioManagementController {
             
             double portfolioValue = portfolioManagementService.getPortfolioValue();
             double totalExposure = portfolioManagementService.calculateTotalExposure();
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             
             Map<String, Object> riskAssessment = new HashMap<>();
             

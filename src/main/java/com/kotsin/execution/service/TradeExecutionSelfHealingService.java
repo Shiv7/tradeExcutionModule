@@ -165,7 +165,7 @@ public class TradeExecutionSelfHealingService {
      */
     private void checkPortfolioRiskLimits() {
         try {
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             
             // Check maximum active trades limit
             if (activeTrades.size() > maxActiveTrades) {
@@ -200,7 +200,7 @@ public class TradeExecutionSelfHealingService {
         try {
             Map<String, List<ActiveTrade>> tradesByScript = new HashMap<>();
             
-            for (ActiveTrade trade : tradeStateManager.getAllActiveTrades()) {
+            for (ActiveTrade trade : tradeStateManager.getAllActiveTradesAsCollection()) {
                 tradesByScript.computeIfAbsent(trade.getScripCode(), k -> new ArrayList<>()).add(trade);
             }
             
@@ -234,7 +234,7 @@ public class TradeExecutionSelfHealingService {
      */
     private void validateActiveTradesHealth() {
         try {
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             int unhealthyTrades = 0;
             
             for (ActiveTrade trade : activeTrades) {
@@ -313,7 +313,7 @@ public class TradeExecutionSelfHealingService {
      */
     private int fixOverLeveragedPositions() {
         try {
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             int fixedCount = 0;
             
             for (ActiveTrade trade : activeTrades) {
@@ -346,7 +346,7 @@ public class TradeExecutionSelfHealingService {
      */
     private int clearInvalidRiskCalculations() {
         try {
-            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTrades();
+            Collection<ActiveTrade> activeTrades = tradeStateManager.getAllActiveTradesAsCollection();
             int fixedCount = 0;
             
             for (ActiveTrade trade : activeTrades) {
