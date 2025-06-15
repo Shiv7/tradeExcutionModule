@@ -41,7 +41,8 @@ public class TradeExecutionService {
     private final TradingHoursService tradingHoursService;
     private final CompanyNameService companyNameService;
     private final SignalValidationService signalValidationService;
-    private final PendingSignalManager pendingSignalManager; // NEW: Manage pending signals
+    private final PendingSignalManager pendingSignalManager;
+    private final TelegramNotificationService telegramNotificationService;
     
     // NEW: RestTemplate for calling Strategy Module's pivot calculation API
     private final RestTemplate restTemplate = new RestTemplate();
@@ -409,28 +410,17 @@ public class TradeExecutionService {
      */
     private void executeValidatedSignal(PendingSignal pendingSignal, double entryPrice, 
                                       LocalDateTime entryTime, SignalValidationResult validationResult) {
+        
         try {
             log.info("🚀 [TradeExecution] EXECUTING VALIDATED SIGNAL WITH PIVOT-BASED TARGETING: {} at price {}", 
                     pendingSignal.getSummary(), entryPrice);
-            
-            // Generate trade ID
-            String tradeId = generateTradeId(pendingSignal.getScripCode(), pendingSignal.getStrategyName(), entryTime);
-            
-            // ⚡ NEW: Calculate PIVOT-BASED targets and stop loss
-            log.info("🎯 [TradeExecution] STEP 1: Starting pivot-based target calculation for script: {}", pendingSignal.getScripCode());
-            log.info("🎯 [TradeExecution] STEP 1: Entry Price: {}, Signal Type: {}, Strategy: {}", 
-                    entryPrice, pendingSignal.getSignalType(), pendingSignal.getStrategyName());
-            
+
             Map<String, Object> pivotBasedLevels = calculatePivotBasedTargetsAndStopLoss(
-                    pendingSignal.getScripCode(), entryPrice, pendingSignal.getSignalType());
-            
-            log.info("🎯 [TradeExecution] STEP 1: Pivot calculation completed for {}, source: {}", 
-                    pendingSignal.getScripCode(), pivotBasedLevels.get("source"));
-            
-            // Extract trade levels (prioritize pivot-based, fallback to pending signal)
+                pendingSignal.getScripCode(), entryPrice, pendingSignal.getSignalType());
+
             Map<String, Double> tradeLevels = extractTradeLevelsFromPivotAnalysis(pendingSignal, entryPrice, pivotBasedLevels);
-            
-            // Create active trade with pivot-based levels
+
+            String tradeId = generateTradeId(pendingSignal.getScripCode(), pendingSignal.getStrategyName(), entryTime);
             ActiveTrade trade = ActiveTrade.builder()
                     .tradeId(tradeId)
                     .scripCode(pendingSignal.getScripCode())
@@ -441,57 +431,20 @@ public class TradeExecutionService {
                     .signalType(pendingSignal.getSignalType())
                     .signalTime(pendingSignal.getSignalTime())
                     .originalSignalId(pendingSignal.getSignalId())
-                    .status(ActiveTrade.TradeStatus.ACTIVE) // IMMEDIATE ACTIVE STATUS
-                    .entryTriggered(true) // IMMEDIATE ENTRY
+                    .status(ActiveTrade.TradeStatus.ACTIVE)
+                    .entryTriggered(true)
                     .entryPrice(entryPrice)
                     .entryTime(entryTime)
-                    .target1Hit(false)
-                    .target2Hit(false)
-                    .useTrailingStop(true)
                     .stopLoss(tradeLevels.get("stopLoss"))
                     .target1(tradeLevels.get("target1"))
                     .target2(tradeLevels.get("target2"))
                     .target3(tradeLevels.get("target3"))
-                    .target4(tradeLevels.get("target4"))
-                    .riskAmount(tradeLevels.get("riskAmount"))
-                    .riskPerShare(tradeLevels.get("riskPerShare"))
                     .positionSize(tradeLevels.get("positionSize").intValue())
-                    .maxHoldingTime(entryTime.plusDays(5)) // 5-day max holding
-                    .daysHeld(0)
-                    .highSinceEntry(entryPrice)
-                    .lowSinceEntry(entryPrice)
                     .build();
             
-            // Add comprehensive metadata including pivot analysis
-            trade.addMetadata("pendingSignalData", pendingSignal);
-            trade.addMetadata("validationAttempts", pendingSignal.getValidationAttempts());
-            trade.addMetadata("kotsinValidation", validationResult);
-            trade.addMetadata("validationApproved", true);
-            trade.addMetadata("dynamicValidation", true);
-            trade.addMetadata("validatedRiskReward", validationResult.getRiskReward());
-            trade.addMetadata("entryReason", "Dynamic validation with live price: " + entryPrice);
-            trade.addMetadata("entryTimeIndicators", indicatorDataService.getComprehensiveIndicators(pendingSignal.getScripCode()));
-            
-            // ⚡ NEW: Add comprehensive pivot analysis metadata
-            trade.addMetadata("pivotAnalysis", pivotBasedLevels);
-            trade.addMetadata("pivotAnalysisType", pivotBasedLevels.get("analysisType"));
-            trade.addMetadata("allPivots", pivotBasedLevels.get("allPivots"));
-            trade.addMetadata("stopLossExplanation", pivotBasedLevels.get("stopLossExplanation"));
-            trade.addMetadata("target1Explanation", pivotBasedLevels.get("target1Explanation"));
-            trade.addMetadata("target2Explanation", pivotBasedLevels.get("target2Explanation"));
-            trade.addMetadata("target3Explanation", pivotBasedLevels.get("target3Explanation"));
-            trade.addMetadata("targetsStrategy", pivotBasedLevels.get("strategy"));
-            trade.addMetadata("targetCalculationSource", pivotBasedLevels.get("source"));
-            
-            // Store active trade
             tradeStateManager.addActiveTrade(trade);
-            
-            log.info("✅ [TradeExecution] TRADE EXECUTED WITH PIVOT-BASED LEVELS: {} at entry {} with R:R: {:.2f} after {} validation attempts", 
-                    tradeId, entryPrice, validationResult.getRiskReward(), pendingSignal.getValidationAttempts());
-            
-            // Log detailed execution info with pivot analysis
-            logDetailedExecutionInfoWithPivots(trade, pendingSignal, validationResult, pivotBasedLevels);
-            
+            telegramNotificationService.sendTradeNotification(trade);
+
         } catch (Exception e) {
             log.error("🚨 [TradeExecution] Error executing validated signal with pivot-based targeting: {}", e.getMessage(), e);
         }
@@ -910,19 +863,15 @@ public class TradeExecutionService {
             log.info("🏁 Closing trade {}: {} at price: {} due to: {}", 
                     trade.getTradeId(), trade.getScripCode(), exitPrice, exitReason);
             
-            // Capture comprehensive exit time indicators
             Map<String, Object> exitTimeIndicators = indicatorDataService.getComprehensiveIndicators(trade.getScripCode());
             
-            // Update trade with exit information
             trade.setExitPrice(exitPrice);
             trade.setExitTime(exitTime);
             trade.setExitReason(exitReason);
             
-            // Add exit time metadata
             trade.addMetadata("exitTimeIndicators", exitTimeIndicators);
             trade.addMetadata("exitConfirmed", true);
             
-            // Set final status
             if ("STOP_LOSS".equals(exitReason)) {
                 trade.setStatus(ActiveTrade.TradeStatus.CLOSED_LOSS);
             } else if (exitReason.startsWith("TARGET")) {
@@ -931,20 +880,17 @@ public class TradeExecutionService {
                 trade.setStatus(ActiveTrade.TradeStatus.CLOSED_TIME);
             }
             
-            // Calculate comprehensive profit/loss with all details
             TradeResult result = profitLossCalculator.calculateTradeResult(trade);
             
             if (result != null) {
-                // Log detailed exit information before publishing
                 logDetailedExitInfo(trade, exitPrice, exitReason, exitTimeIndicators, result);
-                
-                // Publish comprehensive result to profit/loss topic
                 tradeResultProducer.publishTradeResult(result);
-                
                 log.info("💰 Trade Result Published: {}", result.getSummary());
             }
+
+            // Correctly call the exit notification method with the result
+            telegramNotificationService.sendTradeNotification(trade, result);
             
-            // Remove from active trades
             tradeStateManager.removeActiveTrade(trade.getTradeId());
             
         } catch (Exception e) {
