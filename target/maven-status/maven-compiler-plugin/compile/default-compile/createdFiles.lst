@@ -12,6 +12,7 @@ com/kotsin/execution/service/PortfolioManagementService.class
 com/kotsin/execution/config/OpenApiConfig.class
 com/kotsin/execution/service/ProfitLossCalculator.class
 com/kotsin/execution/model/PortfolioSummary.class
+com/kotsin/execution/service/TelegramNotificationService.class
 com/kotsin/execution/producer/TradeResultProducer.class
 com/kotsin/execution/service/SignalValidationService.class
 com/kotsin/execution/model/ActiveTrade$TradeStatus.class

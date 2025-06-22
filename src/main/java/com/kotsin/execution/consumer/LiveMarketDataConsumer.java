@@ -40,8 +40,8 @@ public class LiveMarketDataConsumer {
     /**
      * Consume live market data with trading hours validation
      */
-    @KafkaListener(topics = "${kafka.topics.market-data:forwardtesting-data}", 
-                   groupId = "${spring.kafka.consumer.group-id}")
+    @KafkaListener(topics = "forwardtesting-data",
+                   groupId = "trade-execution-market-data-group-v1")
     public void consumeMarketData(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,

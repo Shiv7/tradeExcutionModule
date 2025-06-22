@@ -18,9 +18,10 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Consumer for all 7 strategy signal topics from the new signal routing system.
- * Consumes signals from: 3m-supertrend, 15m-bb, 15m-supertrend, 15m-fudkii, 
- * 30m-bb, 30m-supertrend, 30m-fudkii signals.
+ * Consumer for ENHANCED 30M Price Action signals ONLY.
+ * Consumes signals from: 30m-bb, 30m-supertrend, 30m-fudkii signals.
+ * 
+ * ALL 3M and 15M strategies have been REMOVED as requested.
  */
 @Component
 @Slf4j
@@ -33,140 +34,14 @@ public class StrategySignalConsumer {
     
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     
-    // Metrics
-    private final AtomicLong processed3m = new AtomicLong(0);
-    private final AtomicLong processed15m = new AtomicLong(0);
+    // Metrics - ONLY 30M now
     private final AtomicLong processed30m = new AtomicLong(0);
     
     /**
-     * 3-Minute SuperTrend Signals - Fast scalping signals
-     */
-    @KafkaListener(topics = "3m-supertrend-signals", 
-                   groupId = "${spring.kafka.consumer.group-id}")
-    public void consume3mSuperTrendSignals(
-            @Payload String message,
-            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            Acknowledgment acknowledgment) {
-        
-        try {
-            log.info("🔥 [3M] Received SuperTrend signal from: {}", topic);
-            
-            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
-            
-            if (isValidSignal(signalData, "3M")) {
-                processStrategySignal(signalData, "3M_SUPERTREND");
-                processed3m.incrementAndGet();
-                
-                log.info("✅ [3M] SuperTrend signal processed: {}", extractStringValue(signalData, "scripCode"));
-            }
-            
-            acknowledgment.acknowledge();
-            
-        } catch (Exception e) {
-            log.error("🚨 [3M] Error processing SuperTrend signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge();
-        }
-    }
-    
-    /**
-     * 15-Minute BB Signals - Bollinger Band breakouts
-     */
-    @KafkaListener(topics = "15m-bb-signals", 
-                   groupId = "${spring.kafka.consumer.group-id}")
-    public void consume15mBBSignals(
-            @Payload String message,
-            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            Acknowledgment acknowledgment) {
-        
-        try {
-            log.info("📊 [15M-BB] Received BB signal from: {}", topic);
-            
-            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
-            
-            if (isValidSignal(signalData, "15M-BB")) {
-                processStrategySignal(signalData, "15M_BB");
-                processed15m.incrementAndGet();
-                
-                log.info("✅ [15M-BB] BB signal processed: {}", extractStringValue(signalData, "scripCode"));
-            }
-            
-            acknowledgment.acknowledge();
-            
-        } catch (Exception e) {
-            log.error("🚨 [15M-BB] Error processing BB signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge();
-        }
-    }
-    
-    /**
-     * 15-Minute SuperTrend Signals - SuperTrend direction changes
-     */
-    @KafkaListener(topics = "15m-supertrend-signals", 
-                   groupId = "${spring.kafka.consumer.group-id}")
-    public void consume15mSuperTrendSignals(
-            @Payload String message,
-            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            Acknowledgment acknowledgment) {
-        
-        try {
-            log.info("📈 [15M-ST] Received SuperTrend signal from: {}", topic);
-            
-            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
-            
-            if (isValidSignal(signalData, "15M-ST")) {
-                processStrategySignal(signalData, "15M_SUPERTREND");
-                processed15m.incrementAndGet();
-                
-                log.info("✅ [15M-ST] SuperTrend signal processed: {}", extractStringValue(signalData, "scripCode"));
-            }
-            
-            acknowledgment.acknowledge();
-            
-        } catch (Exception e) {
-            log.error("🚨 [15M-ST] Error processing SuperTrend signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge();
-        }
-    }
-    
-    /**
-     * 15-Minute FUDKII Signals - High confidence combined signals
-     */
-    @KafkaListener(topics = "15m-fudkii-signals", 
-                   groupId = "${spring.kafka.consumer.group-id}")
-    public void consume15mFudkiiSignals(
-            @Payload String message,
-            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            Acknowledgment acknowledgment) {
-        
-        try {
-            log.info("🎯 [15M-FUDKII] Received HIGH confidence signal from: {}", topic);
-            
-            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
-            
-            if (isValidSignal(signalData, "15M-FUDKII")) {
-                processStrategySignal(signalData, "15M_FUDKII");
-                processed15m.incrementAndGet();
-                
-                log.info("✅ [15M-FUDKII] HIGH confidence signal processed: {}", extractStringValue(signalData, "scripCode"));
-            }
-            
-            acknowledgment.acknowledge();
-            
-        } catch (Exception e) {
-            log.error("🚨 [15M-FUDKII] Error processing FUDKII signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge();
-        }
-    }
-    
-    /**
-     * 30-Minute BB Signals - Bollinger Band breakouts
+     * 30-Minute BB Signals - ENHANCED Bollinger Band breakouts with pivot validation
      */
     @KafkaListener(topics = "30m-bb-signals", 
-                   groupId = "${spring.kafka.consumer.group-id}")
+                   groupId = "trade-execution-30m-group-v1")
     public void consume30mBBSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
@@ -174,30 +49,34 @@ public class StrategySignalConsumer {
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("📊 [30M-BB] Received BB signal from: {}", topic);
+            log.info("📊 [30M-BB] ENHANCED - Received BB signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
             if (isValidSignal(signalData, "30M-BB")) {
-                processStrategySignal(signalData, "30M_BB");
+                String confidence = extractStringValue(signalData, "confidence");
+                log.info("📊 [30M-BB] Processing ENHANCED signal with confidence: {}", confidence);
+                
+                processEnhancedStrategySignal(signalData, "30M_BB_ENHANCED");
                 processed30m.incrementAndGet();
                 
-                log.info("✅ [30M-BB] BB signal processed: {}", extractStringValue(signalData, "scripCode"));
+                log.info("✅ [30M-BB] ENHANCED BB signal processed: {} (Confidence: {})", 
+                        extractStringValue(signalData, "scripCode"), confidence);
             }
             
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 [30M-BB] Error processing BB signal: {}", e.getMessage(), e);
+            log.error("🚨 [30M-BB] Error processing ENHANCED BB signal: {}", e.getMessage(), e);
             acknowledgment.acknowledge();
         }
     }
     
     /**
-     * 30-Minute SuperTrend Signals - SuperTrend direction changes
+     * 30-Minute SuperTrend Signals - ENHANCED SuperTrend direction changes with pivot validation
      */
     @KafkaListener(topics = "30m-supertrend-signals", 
-                   groupId = "${spring.kafka.consumer.group-id}")
+                   groupId = "trade-execution-30m-group-v1")
     public void consume30mSuperTrendSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
@@ -205,30 +84,34 @@ public class StrategySignalConsumer {
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("📈 [30M-ST] Received SuperTrend signal from: {}", topic);
+            log.info("📈 [30M-ST] ENHANCED - Received SuperTrend signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
             if (isValidSignal(signalData, "30M-ST")) {
-                processStrategySignal(signalData, "30M_SUPERTREND");
+                String confidence = extractStringValue(signalData, "confidence");
+                log.info("📈 [30M-ST] Processing ENHANCED signal with confidence: {}", confidence);
+                
+                processEnhancedStrategySignal(signalData, "30M_SUPERTREND_ENHANCED");
                 processed30m.incrementAndGet();
                 
-                log.info("✅ [30M-ST] SuperTrend signal processed: {}", extractStringValue(signalData, "scripCode"));
+                log.info("✅ [30M-ST] ENHANCED SuperTrend signal processed: {} (Confidence: {})", 
+                        extractStringValue(signalData, "scripCode"), confidence);
             }
             
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 [30M-ST] Error processing SuperTrend signal: {}", e.getMessage(), e);
+            log.error("🚨 [30M-ST] Error processing ENHANCED SuperTrend signal: {}", e.getMessage(), e);
             acknowledgment.acknowledge();
         }
     }
     
     /**
-     * 30-Minute FUDKII Signals - High confidence combined signals
+     * 30-Minute FUDKII Signals - ENHANCED High confidence combined signals with pivot validation
      */
     @KafkaListener(topics = "30m-fudkii-signals", 
-                   groupId = "${spring.kafka.consumer.group-id}")
+                   groupId = "trade-execution-30m-group-v1")
     public void consume30mFudkiiSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
@@ -236,21 +119,26 @@ public class StrategySignalConsumer {
             Acknowledgment acknowledgment) {
         
         try {
-            log.info("🎯 [30M-FUDKII] Received HIGH confidence signal from: {}", topic);
+            log.info("🎯 [30M-FUDKII] ENHANCED - Received HIGH confidence signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             
             if (isValidSignal(signalData, "30M-FUDKII")) {
-                processStrategySignal(signalData, "30M_FUDKII");
+                String confidence = extractStringValue(signalData, "confidence");
+                log.info("🎯 [30M-FUDKII] Processing ENHANCED HIGH confidence signal: {}", confidence);
+                
+                // FUDKII signals get priority processing due to higher confidence
+                processEnhancedStrategySignal(signalData, "30M_FUDKII_ENHANCED");
                 processed30m.incrementAndGet();
                 
-                log.info("✅ [30M-FUDKII] HIGH confidence signal processed: {}", extractStringValue(signalData, "scripCode"));
+                log.info("✅ [30M-FUDKII] ENHANCED HIGH confidence signal processed: {} (Confidence: {})", 
+                        extractStringValue(signalData, "scripCode"), confidence);
             }
             
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 [30M-FUDKII] Error processing FUDKII signal: {}", e.getMessage(), e);
+            log.error("🚨 [30M-FUDKII] Error processing ENHANCED FUDKII signal: {}", e.getMessage(), e);
             acknowledgment.acknowledge();
         }
     }
@@ -290,9 +178,9 @@ public class StrategySignalConsumer {
     }
     
     /**
-     * Process validated strategy signal
+     * Process enhanced strategy signal with additional logging and confidence handling
      */
-    private void processStrategySignal(Map<String, Object> signalData, String strategyType) {
+    private void processEnhancedStrategySignal(Map<String, Object> signalData, String strategyType) {
         try {
             String scripCode = extractStringValue(signalData, "scripCode");
             String signal = extractStringValue(signalData, "signal");
@@ -301,16 +189,22 @@ public class StrategySignalConsumer {
             Double target1 = extractDoubleValue(signalData, "target1");
             String confidence = extractStringValue(signalData, "confidence");
             
-            log.info("🎯 Processing {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
+            log.info("🎯 Processing ENHANCED {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
                      strategyType, scripCode, signal, entryPrice, stopLoss, target1, confidence);
             
-            // Forward to trade execution service
+            // Enhanced logging for high confidence signals
+            if ("HIGH".equalsIgnoreCase(confidence)) {
+                log.info("⭐ HIGH CONFIDENCE Enhanced 30M Signal detected for {}: {} -> {}", 
+                        scripCode, signal, strategyType);
+            }
+            
+            // Forward to existing trade execution service method
             tradeExecutionService.executeStrategySignal(
                     scripCode, signal, entryPrice, stopLoss, target1, 
                     strategyType, confidence);
             
         } catch (Exception e) {
-            log.error("🚨 Error processing strategy signal: {}", e.getMessage());
+            log.error("🚨 Error processing enhanced strategy signal: {}", e.getMessage());
         }
     }
     
@@ -341,10 +235,9 @@ public class StrategySignalConsumer {
     }
     
     /**
-     * Get processing statistics
+     * Get processing statistics - ONLY 30M now
      */
     public String getStats() {
-        return String.format("Signal Processing: 3m=%d, 15m=%d, 30m=%d", 
-                           processed3m.get(), processed15m.get(), processed30m.get());
+        return String.format("Enhanced 30M Signal Processing: %d", processed30m.get());
     }
 } 

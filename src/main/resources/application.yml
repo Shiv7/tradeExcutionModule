@@ -2,38 +2,101 @@ spring:
   application:
     name: trade-execution-module
   
-  # Kafka Configuration - Use LATEST offset to avoid old messages
+  # Database Configuration
+  data:
+    mongodb:
+      uri: mongodb://devina:devina4@172.31.12.118:27017/tradeIngestion?authSource=admin
+  
+  # Kafka Configuration
   kafka:
     bootstrap-servers: 172.31.12.118:9092
     consumer:
-      group-id: trade-execution-group-v5
-      auto-offset-reset: earliest  # Change to earliest to consume all signals
-      enable-auto-commit: false    # Manual commit for better control
-      max-poll-records: 10         # Process small batches for real-time response
-      session-timeout-ms: 30000    # 30 seconds
-      heartbeat-interval-ms: 10000 # 10 seconds
+      group-id: trade-execution-group-v1
+      auto-offset-reset: earliest
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      properties:
-        # Additional consumer properties for real-time processing
-        fetch.min.bytes: 1
-        fetch.max.wait.ms: 500   # Low latency
-        isolation.level: read_committed
-    
-    listener:
-      ack-mode: manual_immediate  # Fixed: Move ack-mode to correct location
-    
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      acks: all  # Ensure reliable delivery of trade results
-      retries: 3
-      batch-size: 16384
-      linger-ms: 5  # Low latency for trade results
-      properties:
-        # Producer reliability settings
-        enable.idempotence: true
-        max.in.flight.requests.per.connection: 1
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+# Server Configuration
+server:
+  port: 9090
+
+# Application Configuration
+app:
+  trading:
+    hours:
+      nse:
+        start: "09:15"
+        end: "15:30"
+      mcx:
+        start: "09:00"
+        end: "23:30"
+      timezone: "Asia/Kolkata"
+    risk:
+      max-risk-per-trade: 1.0
+      default-position-size: 1000
+      max-position-size: 10000
+      max-portfolio-risk: 5.0
+      max-active-trades: 10
+      max-trades-per-script: 2
+    targets:
+      target1-multiplier: 1.5
+      target2-multiplier: 2.5
+      target3-multiplier: 4.0
+      target4-multiplier: 6.0
+  
+  portfolio:
+    initial-capital: 1000000
+    max-single-position: 10.0
+    max-sector-exposure: 25.0
+    max-drawdown-limit: 15.0
+
+# Kafka Topics Configuration
+kafka:
+  topics:
+    market-data: forwardtesting-data
+    results:
+      trade-results: trade-results
+      daily-summary: daily-trade-summary
+
+# External API Configuration
+company:
+  mapping:
+    api:
+      base:
+        url: http://13.126.14.119:8102
+
+# Telegram Configuration
+telegram:
+  bot:
+    token: 6110276523:AAFNH9wRYkQQymniK8ioE0EnmN_6pfUZkJk
+  chat:
+    id: -4640817596
+  enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    com.kotsin.execution: INFO
+    org.springframework.kafka.listener: WARN
+    org.apache.kafka: WARN
+    org.springframework.kafka: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,kafka
+  endpoint:
+    health:
+      show-details: always
 
 # Redis Configuration for indicator data
 data:
@@ -47,95 +110,6 @@ data:
         max-wait: -1ms
         max-idle: 8
         min-idle: 0
-
-# Application Configuration
-app:
-  # Trading Configuration
-  trading:
-    # Trading hours validation (IST)
-    hours:
-      nse:
-        start: "09:15"      # NSE trading start
-        end: "15:30"        # NSE trading end
-      mcx:
-        start: "09:00"      # MCX trading start  
-        end: "23:30"        # MCX trading end
-      timezone: "Asia/Kolkata"  # IST timezone
-      
-    # Risk Management
-    risk:
-      max-risk-per-trade: 1.0      # 1% max risk per trade
-      default-position-size: 1000   # Default position size
-      max-position-size: 10000     # Maximum position size
-      
-    # Trade Management
-    management:
-      max-active-trades-per-script: 1  # One trade per script
-      max-holding-days: 5             # 5-day max holding
-      entry-buffer-percent: 0.1       # 0.1% entry buffer
-      
-    # Target Configuration
-    targets:
-      target1-multiplier: 1.5    # 1.5R first target
-      target2-multiplier: 2.5    # 2.5R second target
-      target3-multiplier: 4.0    # 4.0R third target
-      target4-multiplier: 6.0    # 6.0R fourth target
-
-# Kafka Topics Configuration - Updated for new signal routing system
-kafka:
-  topics:
-    # Input topics (consumed) - NEW 7-topic signal system
-    signals:
-      # 3-minute signals
-      supertrend-3m: 3m-supertrend-signals
-      
-      # 15-minute signals  
-      bb-15m: 15m-bb-signals
-      supertrend-15m: 15m-supertrend-signals
-      fudkii-15m: 15m-fudkii-signals
-      
-      # 30-minute signals
-      bb-30m: 30m-bb-signals
-      supertrend-30m: 30m-supertrend-signals
-      fudkii-30m: 30m-fudkii-signals
-    
-    # Market data topic
-    market-data: forwardtesting-data
-    
-    # Output topics (produced)
-    results:
-      trade-results: trade-results        # 🎯 Main profit/loss results
-      daily-summary: daily-trade-summary  # Daily performance summaries
-
-# Logging Configuration
-logging:
-  level:
-    com.kotsin.execution: INFO
-    org.springframework.kafka: WARN
-    org.apache.kafka: WARN
-  pattern:
-    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
-  file:
-    name: logs/trade-execution.log
-
-# Management Endpoints
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,metrics,info,loggers
-  endpoint:
-    health:
-      show-details: always
-  metrics:
-    export:
-      prometheus:
-        enabled: true
-
-# Server Configuration
-server:
-  port: 8080
 
 # CORS Configuration
 cors:
