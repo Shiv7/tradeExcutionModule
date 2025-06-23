@@ -43,6 +43,7 @@ public class TradeExecutionService {
     private final SignalValidationService signalValidationService;
     private final PendingSignalManager pendingSignalManager;
     private final TelegramNotificationService telegramNotificationService;
+    private final EnhancedPriceActionService enhancedPriceActionService;
     
     // NEW: RestTemplate for calling Strategy Module's pivot calculation API
     private final RestTemplate restTemplate = new RestTemplate();
@@ -709,80 +710,14 @@ public class TradeExecutionService {
     }
     
     /**
-     * Check if entry conditions are met and capture entry indicator data
+     * Check if entry conditions are met using Enhanced Price Action logic
      */
     private void checkEntryConditions(ActiveTrade trade, double currentPrice, LocalDateTime timestamp) {
-        // Entry logic based on KotsinBackTestBE patterns
-        boolean shouldEnter = false;
-        String entryReason = "";
+        // Use Enhanced Price Action Service for sophisticated entry logic
+        boolean shouldEnter = enhancedPriceActionService.checkEnhancedEntryConditions(trade, currentPrice, timestamp);
         
-        Double signalPrice = extractPriceFromMetadata(trade);
-        
-        log.info("🔍 [EntryCheck] Entry Check for Trade {} - Current: {}, Signal: {}, Type: {}", 
-                trade.getTradeId(), currentPrice, signalPrice, trade.getSignalType());
-        
-        if (trade.isBullish()) {
-            log.debug("📈 [EntryCheck] Evaluating BULLISH entry conditions for {}", trade.getTradeId());
-            
-            // For bullish trades, enter if price moves up from signal or is very close
-            if (signalPrice != null) {
-                double priceDiff = currentPrice - signalPrice;
-                double percentDiff = (priceDiff / signalPrice) * 100;
-                
-                log.debug("🔍 [EntryCheck] Price analysis: Current={}, Signal={}, Diff={} ({:.3f}%)", 
-                        currentPrice, signalPrice, priceDiff, percentDiff);
-                
-                if (currentPrice >= signalPrice * 1.001) { // 0.1% buffer
-                    shouldEnter = true;
-                    entryReason = String.format("Price moved up %.3f%% from signal (threshold: 0.1%%)", percentDiff);
-                    log.info("✅ [EntryCheck] BULLISH condition met: {}", entryReason);
-                } else if (Math.abs(currentPrice - signalPrice) <= signalPrice * 0.002) { // Within 0.2%
-                    shouldEnter = true;
-                    entryReason = String.format("Price within %.3f%% of signal price (threshold: 0.2%%)", Math.abs(percentDiff));
-                    log.info("✅ [EntryCheck] BULLISH condition met: {}", entryReason);
-                } else {
-                    entryReason = String.format("Price %.3f%% from signal - waiting for 0.1%% move up or 0.2%% proximity", percentDiff);
-                    log.debug("⏳ [EntryCheck] BULLISH conditions NOT met: {}", entryReason);
-                }
-            } else {
-                // If no signal price available, enter immediately
-                shouldEnter = true;
-                entryReason = "No signal price available - immediate entry";
-                log.info("✅ [EntryCheck] BULLISH condition met: {}", entryReason);
-            }
-        } else {
-            log.debug("📉 [EntryCheck] Evaluating BEARISH entry conditions for {}", trade.getTradeId());
-            
-            // For bearish trades, enter if price moves down from signal or is very close
-            if (signalPrice != null) {
-                double priceDiff = signalPrice - currentPrice; // Positive when price moved down
-                double percentDiff = (priceDiff / signalPrice) * 100;
-                
-                log.debug("🔍 [EntryCheck] Price analysis: Current={}, Signal={}, Diff={} ({:.3f}%)", 
-                        currentPrice, signalPrice, priceDiff, percentDiff);
-                
-                if (currentPrice <= signalPrice * 0.999) { // 0.1% buffer
-                    shouldEnter = true;
-                    entryReason = String.format("Price moved down %.3f%% from signal (threshold: 0.1%%)", percentDiff);
-                    log.info("✅ [EntryCheck] BEARISH condition met: {}", entryReason);
-                } else if (Math.abs(currentPrice - signalPrice) <= signalPrice * 0.002) { // Within 0.2%
-                    shouldEnter = true;
-                    entryReason = String.format("Price within %.3f%% of signal price (threshold: 0.2%%)", Math.abs(percentDiff));
-                    log.info("✅ [EntryCheck] BEARISH condition met: {}", entryReason);
-                } else {
-                    entryReason = String.format("Price %.3f%% from signal - waiting for 0.1%% move down or 0.2%% proximity", -percentDiff);
-                    log.debug("⏳ [EntryCheck] BEARISH conditions NOT met: {}", entryReason);
-                }
-            } else {
-                // If no signal price available, enter immediately
-                shouldEnter = true;
-                entryReason = "No signal price available - immediate entry";
-                log.info("✅ [EntryCheck] BEARISH condition met: {}", entryReason);
-            }
-        }
-        
-        log.info("🎯 [EntryCheck] Entry Decision for {} - Should Enter: {} ({})", 
-                trade.getTradeId(), shouldEnter, entryReason);
+        log.info("🎯 [EntryCheck] Enhanced Price Action Entry Decision for {} - Should Enter: {}", 
+                trade.getTradeId(), shouldEnter);
         
         if (shouldEnter) {
             // Capture indicator state at entry time
@@ -798,51 +733,43 @@ public class TradeExecutionService {
             // Add entry time metadata
             trade.addMetadata("entryTimeIndicators", entryTimeIndicators);
             trade.addMetadata("entryConfirmed", true);
-            trade.addMetadata("entryReason", entryReason);
+            trade.addMetadata("enhancedPriceActionEntry", true);
             
-            log.info("🚀 [EntryCheck] TRADE ENTERED: {} at price {} - {}", trade.getTradeId(), currentPrice, entryReason);
+            log.info("🚀 [EntryCheck] ENHANCED PRICE ACTION TRADE ENTERED: {} at price {}", 
+                    trade.getTradeId(), currentPrice);
             
             // Log entry details with indicators
             logDetailedEntryInfo(trade, currentPrice, entryTimeIndicators);
         } else {
-            // Log why entry was not triggered
-            log.debug("❌ [EntryCheck] Entry NOT triggered for {} - {}", trade.getTradeId(), entryReason);
+            // Update previous close for Enhanced Price Action logic
+            enhancedPriceActionService.updatePreviousClose(trade, currentPrice);
         }
     }
     
     /**
-     * Check exit conditions and close trade if needed, capturing exit indicator data
+     * Check exit conditions using Enhanced Price Action logic
      */
     private void checkExitConditions(ActiveTrade trade, double currentPrice, LocalDateTime timestamp) {
-        // Check stop loss first
-        if (trade.isStopLossHit()) {
-            closeTrade(trade, currentPrice, timestamp, "STOP_LOSS");
+        // Use Enhanced Price Action Service for sophisticated exit logic
+        String exitReason = enhancedPriceActionService.checkEnhancedExitConditions(trade, currentPrice, timestamp);
+        
+        if (exitReason != null) {
+            // Handle different exit scenarios
+            if ("STOP_LOSS".equals(exitReason)) {
+                closeTrade(trade, trade.getStopLoss(), timestamp, "STOP_LOSS");
+            } else if ("TARGET_2".equals(exitReason)) {
+                closeTrade(trade, trade.getTarget2(), timestamp, "TARGET_2");
+            } else if ("TRAILING_STOP".equals(exitReason)) {
+                closeTrade(trade, trade.getTrailingStopLoss(), timestamp, "TRAILING_STOP");
+            } else if ("PERCENT_DROP".equals(exitReason)) {
+                closeTrade(trade, currentPrice, timestamp, "PERCENT_DROP");
+            }
             return;
         }
         
-        // Check target 1
-        if (trade.isTarget1Hit() && !trade.getTarget1Hit()) {
-            trade.setTarget1Hit(true);
-            
-            // Capture target 1 hit indicators
-            Map<String, Object> target1Indicators = indicatorDataService.getComprehensiveIndicators(trade.getScripCode());
-            trade.addMetadata("target1HitIndicators", target1Indicators);
-            trade.addMetadata("target1HitTime", timestamp);
-            
-            log.info("🎯 Target 1 hit for trade {}: {} - Indicators: {}", 
-                    trade.getTradeId(), currentPrice, 
-                    indicatorDataService.createIndicatorSummary(
-                        indicatorDataService.getCurrentIndicators(trade.getScripCode(), "15m"), "15m"));
-            
-            // Update trailing stop after target 1
-            trade.updateTrailingStop();
-        }
-        
-        // Check target 2
-        if (trade.isTarget2Hit() && !trade.getTarget2Hit()) {
-            trade.setTarget2Hit(true);
-            closeTrade(trade, currentPrice, timestamp, "TARGET_2");
-            return;
+        // Handle partial exit for Target 1 (Enhanced Price Action feature)
+        if (trade.getTarget1Hit() && trade.getMetadata().get("partialExitProcessed") == null) {
+            handlePartialExit(trade, timestamp);
         }
         
         // Check time-based exit (max holding time)
@@ -851,8 +778,26 @@ public class TradeExecutionService {
             return;
         }
         
-        // Update trailing stop loss
-        trade.updateTrailingStop();
+        // Update previous close for Enhanced Price Action calculations
+        enhancedPriceActionService.updatePreviousClose(trade, currentPrice);
+    }
+    
+    /**
+     * Handle partial exit when Target 1 is hit (Enhanced Price Action feature)
+     */
+    private void handlePartialExit(ActiveTrade trade, LocalDateTime timestamp) {
+        // Generate partial exit result
+        TradeResult partialResult = enhancedPriceActionService.calculatePartialExitResult(
+                trade, trade.getTarget1(), timestamp);
+        
+        // Publish partial result
+        tradeResultProducer.publishTradeResult(partialResult);
+        
+        // Mark partial exit as processed
+        trade.addMetadata("partialExitProcessed", true);
+        
+        log.info("📊 [EnhancedPA] Published partial exit result for {} - 50% position closed at Target 1: {}", 
+                trade.getTradeId(), trade.getTarget1());
     }
     
     /**
