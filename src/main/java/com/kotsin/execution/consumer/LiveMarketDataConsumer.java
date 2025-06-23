@@ -39,9 +39,11 @@ public class LiveMarketDataConsumer {
     
     /**
      * Consume live market data with trading hours validation
+     * Configured to consume from earliest offset to process all today's market data
      */
     @KafkaListener(topics = "forwardtesting-data",
-                   groupId = "trade-execution-market-data-group-v1")
+                   groupId = "kotsin-trade-execution-market-data-today-v2",
+                   properties = {"auto.offset.reset=earliest"})
     public void consumeMarketData(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
@@ -83,6 +85,18 @@ public class LiveMarketDataConsumer {
             if (scripCode == null || lastRate == null) {
                 log.debug("Skipping tick with missing data: scripCode={}, lastRate={}, fields={}", 
                         scripCode, lastRate, tickData.keySet());
+                acknowledgment.acknowledge();
+                return;
+            }
+            
+            // Process only today's market data
+            if (!isTodayMarketData(tickTime)) {
+                rejectedTicks.incrementAndGet();
+                if (rejectedTicks.get() % 1000 == 0) {
+                    log.debug("📅 Rejected {} non-today ticks - Tick time: {}, Today: {}", 
+                            rejectedTicks.get(), tickTime.toLocalDate(), 
+                            java.time.LocalDate.now());
+                }
                 acknowledgment.acknowledge();
                 return;
             }
@@ -395,5 +409,28 @@ public class LiveMarketDataConsumer {
         processedTicks.set(0);
         rejectedTicks.set(0);
         log.info("📊 Reset market data processing statistics");
+    }
+    
+    /**
+     * Check if the market data tick is from today
+     */
+    private boolean isTodayMarketData(LocalDateTime tickTime) {
+        try {
+            java.time.LocalDate tickDate = tickTime.toLocalDate();
+            java.time.LocalDate today = java.time.LocalDate.now();
+            
+            boolean isToday = tickDate.equals(today);
+            
+            if (!isToday) {
+                log.debug("📅 [MarketData] Tick from {}, today is {} - skipping", tickDate, today);
+            }
+            
+            return isToday;
+            
+        } catch (Exception e) {
+            log.error("🚨 [MarketData] Error checking tick date for time {}: {}", tickTime, e.getMessage());
+            // If we can't parse the date, process it anyway (conservative approach)
+            return true;
+        }
     }
 } 

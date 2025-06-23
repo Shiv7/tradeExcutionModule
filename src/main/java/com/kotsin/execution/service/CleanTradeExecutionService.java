@@ -50,6 +50,20 @@ public class CleanTradeExecutionService {
             Double stopLoss,
             Double target1,
             String confidence) {
+        executeEnhanced30MSignal(scripCode, signal, entryPrice, stopLoss, target1, confidence, LocalDateTime.now());
+    }
+    
+    /**
+     * Execute Enhanced 30M strategy signal with specific signal time
+     */
+    public void executeEnhanced30MSignal(
+            String scripCode,
+            String signal,
+            Double entryPrice,
+            Double stopLoss,
+            Double target1,
+            String confidence,
+            LocalDateTime signalTime) {
         
         long startTime = System.currentTimeMillis();
         
@@ -72,7 +86,7 @@ public class CleanTradeExecutionService {
             }
             
             // Create active trade
-            ActiveTrade trade = createEnhanced30MTrade(scripCode, signal, entryPrice, stopLoss, target1, confidence);
+            ActiveTrade trade = createEnhanced30MTrade(scripCode, signal, entryPrice, stopLoss, target1, confidence, signalTime);
             
             // Store trade
             activeTrades.put(scripCode, trade);
@@ -231,7 +245,7 @@ public class CleanTradeExecutionService {
      * Create Enhanced 30M active trade
      */
     private ActiveTrade createEnhanced30MTrade(String scripCode, String signal, Double entryPrice, 
-                                              Double stopLoss, Double target1, String confidence) {
+                                              Double stopLoss, Double target1, String confidence, LocalDateTime signalTime) {
         
         String tradeId = generateTradeId(scripCode);
         int positionSize = calculatePositionSize(entryPrice, stopLoss);
@@ -243,7 +257,7 @@ public class CleanTradeExecutionService {
                 .companyName(scripCode) // Simplified - use scripCode as company name
                 .signalType(isBullish ? "BULLISH" : "BEARISH")
                 .strategyName("ENHANCED_30M")
-                .signalTime(LocalDateTime.now())
+                .signalTime(signalTime)
                 .stopLoss(stopLoss)
                 .target1(target1)
                 .target2(calculateTarget2(entryPrice, stopLoss, target1, isBullish))

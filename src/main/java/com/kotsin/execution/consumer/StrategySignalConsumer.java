@@ -41,7 +41,8 @@ public class StrategySignalConsumer {
      * Consumes from: enhanced-30m-signals (Strategy Module output)
      */
     @KafkaListener(topics = "enhanced-30m-signals", 
-                   groupId = "trade-execution-enhanced-30m-group-v1")
+                   groupId = "kotsin-trade-execution-enhanced-30m-today-v3",
+                   properties = {"auto.offset.reset=earliest"})
     public void consumeEnhanced30MSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
@@ -57,7 +58,7 @@ public class StrategySignalConsumer {
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             scripCode = extractStringValue(signalData, "scripCode");
             
-            if (isValidEnhanced30MSignal(signalData)) {
+            if (isValidEnhanced30MSignal(signalData) && isTodaySignal(signalData)) {
                 String signal = extractStringValue(signalData, "signal");
                 String confidence = extractStringValue(signalData, "confidence");
                 Double entryPrice = extractDoubleValue(signalData, "entryPrice");
@@ -245,5 +246,43 @@ public class StrategySignalConsumer {
     public String getStats() {
         return String.format("Enhanced 30M Signals - Total: %d, Successful: %d, Failed: %d", 
                 processedSignals.get(), successfulSignals.get(), failedSignals.get());
+    }
+    
+    /**
+     * Check if the signal is from today
+     */
+    private boolean isTodaySignal(Map<String, Object> signalData) {
+        try {
+            String signalTime = extractStringValue(signalData, "signalTime");
+            if (signalTime == null || signalTime.isEmpty()) {
+                // Try alternative timestamp fields
+                signalTime = extractStringValue(signalData, "timestamp");
+                if (signalTime == null) {
+                    log.warn("⚠️ [Enhanced30M] No timestamp found in signal data for {}", 
+                            extractStringValue(signalData, "scripCode"));
+                    return false;
+                }
+            }
+            
+            // Extract date from timestamp (format: 2025-06-23T13:45+05:30[Asia/Kolkata] or similar)
+            String dateStr = signalTime.split("T")[0]; // Get date part before 'T'
+            String todayStr = java.time.LocalDate.now().toString(); // Format: 2025-06-23
+            
+            boolean isToday = dateStr.equals(todayStr);
+            
+            if (!isToday) {
+                log.debug("📅 [Enhanced30M] Signal from {}, today is {} - skipping", dateStr, todayStr);
+            } else {
+                log.debug("✅ [Enhanced30M] Processing today's signal from {}", dateStr);
+            }
+            
+            return isToday;
+            
+        } catch (Exception e) {
+            String scripCode = extractStringValue(signalData, "scripCode");
+            log.error("🚨 [Enhanced30M] Error parsing signal timestamp for {}: {}", scripCode, e.getMessage());
+            // If we can't parse the timestamp, process it anyway (conservative approach)
+            return true;
+        }
     }
 } 
