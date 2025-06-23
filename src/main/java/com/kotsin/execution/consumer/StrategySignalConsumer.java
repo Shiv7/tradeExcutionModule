@@ -41,7 +41,7 @@ public class StrategySignalConsumer {
      * Consumes from: enhanced-30m-signals (Strategy Module output)
      */
     @KafkaListener(topics = "enhanced-30m-signals", 
-                   groupId = "kotsin-trade-execution-enhanced-30m-today-v3",
+                   groupId = "kotsin-trade-execution-enhanced-30m-final-test-v5",
                    properties = {"auto.offset.reset=earliest"})
     public void consumeEnhanced30MSignals(
             @Payload String message,
@@ -54,20 +54,39 @@ public class StrategySignalConsumer {
         
         try {
             log.info("🎯 [Enhanced30M] Received signal from: {}", topic);
+            log.info("🔍 [Enhanced30M] Raw Kafka message: {}", message);
+            log.info("⏰ [Enhanced30M] Kafka timestamp: {}", timestamp);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
             scripCode = extractStringValue(signalData, "scripCode");
             
-            if (isValidEnhanced30MSignal(signalData) && isTodaySignal(signalData)) {
+            // LOG ALL EXTRACTED DATA FOR DEBUGGING
+            log.info("📊 [Enhanced30M] Extracted signal data for {}:", scripCode);
+            log.info("   - scripCode: {}", extractStringValue(signalData, "scripCode"));
+            log.info("   - companyName: {}", extractStringValue(signalData, "companyName"));
+            log.info("   - signal: {}", extractStringValue(signalData, "signal"));
+            log.info("   - strategy: {}", extractStringValue(signalData, "strategy"));
+            log.info("   - entryPrice: {}", extractDoubleValue(signalData, "entryPrice"));
+            log.info("   - stopLoss: {}", extractDoubleValue(signalData, "stopLoss"));
+            log.info("   - target1: {}", extractDoubleValue(signalData, "target1"));
+            log.info("   - target2: {}", extractDoubleValue(signalData, "target2"));
+            log.info("   - confidence: {}", extractStringValue(signalData, "confidence"));
+            log.info("   - signalTime: {}", extractStringValue(signalData, "signalTime"));
+            log.info("   - logic: {}", extractStringValue(signalData, "logic"));
+            log.info("   - riskReward: {}", extractDoubleValue(signalData, "riskReward"));
+            
+            if (isValidEnhanced30MSignal(signalData)) {
                 String signal = extractStringValue(signalData, "signal");
                 String confidence = extractStringValue(signalData, "confidence");
                 Double entryPrice = extractDoubleValue(signalData, "entryPrice");
+                Double stopLoss = extractDoubleValue(signalData, "stopLoss");
+                Double target1 = extractDoubleValue(signalData, "target1");
                 
-                log.info("🚀 [Enhanced30M] Processing {} signal: {} -> {} @ {} (Confidence: {})", 
-                         scripCode, signal, scripCode, entryPrice, confidence);
+                log.info("🚀 [Enhanced30M] Processing {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
+                         scripCode, signal, scripCode, entryPrice, stopLoss, target1, confidence);
                 
-                // Process the Enhanced 30M signal
-                processEnhanced30MSignal(signalData);
+                // Process the Enhanced 30M signal with Kafka timestamp
+                processEnhanced30MSignal(signalData, timestamp);
                 
                 successfulSignals.incrementAndGet();
                 
@@ -82,7 +101,13 @@ public class StrategySignalConsumer {
                 
             } else {
                 failedSignals.incrementAndGet();
-                log.warn("❌ [Enhanced30M] Invalid signal received for {}", scripCode);
+                log.warn("❌ [Enhanced30M] Invalid signal received for {}: signal={}, strategy={}, entryPrice={}, stopLoss={}, target1={}", 
+                        scripCode, 
+                        extractStringValue(signalData, "signal"),
+                        extractStringValue(signalData, "strategy"),
+                        extractDoubleValue(signalData, "entryPrice"),
+                        extractDoubleValue(signalData, "stopLoss"),
+                        extractDoubleValue(signalData, "target1"));
             }
             
             acknowledgment.acknowledge();
@@ -116,6 +141,9 @@ public class StrategySignalConsumer {
             Double entryPrice = extractDoubleValue(signalData, "entryPrice");
             Double stopLoss = extractDoubleValue(signalData, "stopLoss");
             Double target1 = extractDoubleValue(signalData, "target1");
+            
+            log.info("🔍 [Enhanced30M] Validating signal for {}: signal={}, strategy={}, entryPrice={}, stopLoss={}, target1={}", 
+                    scripCode, signal, strategy, entryPrice, stopLoss, target1);
             
             // Basic validation
             if (scripCode == null || scripCode.isEmpty()) {
@@ -155,6 +183,7 @@ public class StrategySignalConsumer {
                 return false;
             }
             
+            log.info("✅ [Enhanced30M] Signal validation passed for {}", scripCode);
             return true;
             
         } catch (Exception e) {
@@ -166,21 +195,33 @@ public class StrategySignalConsumer {
     /**
      * Process Enhanced 30M signal - clean and focused
      */
-    private void processEnhanced30MSignal(Map<String, Object> signalData) {
+    private void processEnhanced30MSignal(Map<String, Object> signalData, long kafkaTimestamp) {
         String scripCode = extractStringValue(signalData, "scripCode");
         String signal = extractStringValue(signalData, "signal");
         Double entryPrice = extractDoubleValue(signalData, "entryPrice");
         Double stopLoss = extractDoubleValue(signalData, "stopLoss");
         Double target1 = extractDoubleValue(signalData, "target1");
         String confidence = extractStringValue(signalData, "confidence");
+        String logic = extractStringValue(signalData, "logic");
         
-        log.info("📊 [Enhanced30M] Executing Enhanced Price Action signal: {} {} @ {} (SL: {}, T1: {}, R:R: {})", 
-                 scripCode, signal, entryPrice, stopLoss, target1, 
-                 calculateRiskReward(entryPrice, stopLoss, target1, signal));
+        // Convert Kafka timestamp to LocalDateTime
+        LocalDateTime signalTime = LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(kafkaTimestamp), 
+                java.time.ZoneId.of("Asia/Kolkata"));
         
-        // Forward to clean trade execution service
+        log.info("📊 [Enhanced30M] Executing Enhanced Price Action signal:");
+        log.info("   - Script: {} {}", scripCode, signal);
+        log.info("   - Entry: {}", entryPrice);
+        log.info("   - Stop Loss: {}", stopLoss);
+        log.info("   - Target 1: {}", target1);
+        log.info("   - Confidence: {}", confidence);
+        log.info("   - Logic: {}", logic);
+        log.info("   - Signal Time (from Kafka): {}", signalTime);
+        log.info("   - R:R Ratio: {}", calculateRiskReward(entryPrice, stopLoss, target1, signal));
+        
+        // Forward to clean trade execution service with Kafka timestamp
         cleanTradeExecutionService.executeEnhanced30MSignal(
-                scripCode, signal, entryPrice, stopLoss, target1, confidence);
+                scripCode, signal, entryPrice, stopLoss, target1, confidence, signalTime);
     }
     
     /**
@@ -246,43 +287,5 @@ public class StrategySignalConsumer {
     public String getStats() {
         return String.format("Enhanced 30M Signals - Total: %d, Successful: %d, Failed: %d", 
                 processedSignals.get(), successfulSignals.get(), failedSignals.get());
-    }
-    
-    /**
-     * Check if the signal is from today
-     */
-    private boolean isTodaySignal(Map<String, Object> signalData) {
-        try {
-            String signalTime = extractStringValue(signalData, "signalTime");
-            if (signalTime == null || signalTime.isEmpty()) {
-                // Try alternative timestamp fields
-                signalTime = extractStringValue(signalData, "timestamp");
-                if (signalTime == null) {
-                    log.warn("⚠️ [Enhanced30M] No timestamp found in signal data for {}", 
-                            extractStringValue(signalData, "scripCode"));
-                    return false;
-                }
-            }
-            
-            // Extract date from timestamp (format: 2025-06-23T13:45+05:30[Asia/Kolkata] or similar)
-            String dateStr = signalTime.split("T")[0]; // Get date part before 'T'
-            String todayStr = java.time.LocalDate.now().toString(); // Format: 2025-06-23
-            
-            boolean isToday = dateStr.equals(todayStr);
-            
-            if (!isToday) {
-                log.debug("📅 [Enhanced30M] Signal from {}, today is {} - skipping", dateStr, todayStr);
-            } else {
-                log.debug("✅ [Enhanced30M] Processing today's signal from {}", dateStr);
-            }
-            
-            return isToday;
-            
-        } catch (Exception e) {
-            String scripCode = extractStringValue(signalData, "scripCode");
-            log.error("🚨 [Enhanced30M] Error parsing signal timestamp for {}: {}", scripCode, e.getMessage());
-            // If we can't parse the timestamp, process it anyway (conservative approach)
-            return true;
-        }
     }
 } 
