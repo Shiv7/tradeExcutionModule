@@ -1,7 +1,7 @@
 package com.kotsin.execution.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kotsin.execution.service.TradeExecutionService;
+import com.kotsin.execution.service.CleanTradeExecutionService;
 import com.kotsin.execution.service.TradingHoursService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,199 +13,204 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Consumer for ENHANCED 30M Price Action signals ONLY.
- * Consumes signals from: 30m-bb, 30m-supertrend, 30m-fudkii signals.
+ * Consumer for Enhanced 30M Price Action signals ONLY.
+ * Consumes signals from: enhanced-30m-signals topic (Strategy Module output)
  * 
- * ALL 3M and 15M strategies have been REMOVED as requested.
+ * Clean, focused implementation for Enhanced Price Action strategy execution.
  */
 @Component
 @Slf4j
 @RequiredArgsConstructor
 public class StrategySignalConsumer {
     
-    private final TradeExecutionService tradeExecutionService;
+    private final CleanTradeExecutionService cleanTradeExecutionService;
     private final TradingHoursService tradingHoursService;
     private final ObjectMapper objectMapper;
     
-    private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    
-    // Metrics - ONLY 30M now
-    private final AtomicLong processed30m = new AtomicLong(0);
+    // Metrics for Enhanced 30M signals
+    private final AtomicLong processedSignals = new AtomicLong(0);
+    private final AtomicLong successfulSignals = new AtomicLong(0);
+    private final AtomicLong failedSignals = new AtomicLong(0);
     
     /**
-     * 30-Minute BB Signals - ENHANCED Bollinger Band breakouts with pivot validation
+     * Enhanced 30M Signals - The ONLY signal type we process
+     * Consumes from: enhanced-30m-signals (Strategy Module output)
      */
-    @KafkaListener(topics = "30m-bb-signals", 
-                   groupId = "trade-execution-30m-group-v1")
-    public void consume30mBBSignals(
+    @KafkaListener(topics = "enhanced-30m-signals", 
+                   groupId = "trade-execution-enhanced-30m-group-v1")
+    public void consumeEnhanced30MSignals(
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             Acknowledgment acknowledgment) {
         
-        try {
-            log.info("📊 [30M-BB] ENHANCED - Received BB signal from: {}", topic);
-            
-            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
-            
-            if (isValidSignal(signalData, "30M-BB")) {
-                String confidence = extractStringValue(signalData, "confidence");
-                log.info("📊 [30M-BB] Processing ENHANCED signal with confidence: {}", confidence);
-                
-                processEnhancedStrategySignal(signalData, "30M_BB_ENHANCED");
-                processed30m.incrementAndGet();
-                
-                log.info("✅ [30M-BB] ENHANCED BB signal processed: {} (Confidence: {})", 
-                        extractStringValue(signalData, "scripCode"), confidence);
-            }
-            
-            acknowledgment.acknowledge();
-            
-        } catch (Exception e) {
-            log.error("🚨 [30M-BB] Error processing ENHANCED BB signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge();
-        }
-    }
-    
-    /**
-     * 30-Minute SuperTrend Signals - ENHANCED SuperTrend direction changes with pivot validation
-     */
-    @KafkaListener(topics = "30m-supertrend-signals", 
-                   groupId = "trade-execution-30m-group-v1")
-    public void consume30mSuperTrendSignals(
-            @Payload String message,
-            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            Acknowledgment acknowledgment) {
+        long startTime = System.currentTimeMillis();
+        String scripCode = "UNKNOWN";
         
         try {
-            log.info("📈 [30M-ST] ENHANCED - Received SuperTrend signal from: {}", topic);
+            log.info("🎯 [Enhanced30M] Received signal from: {}", topic);
             
             Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
+            scripCode = extractStringValue(signalData, "scripCode");
             
-            if (isValidSignal(signalData, "30M-ST")) {
+            if (isValidEnhanced30MSignal(signalData)) {
+                String signal = extractStringValue(signalData, "signal");
                 String confidence = extractStringValue(signalData, "confidence");
-                log.info("📈 [30M-ST] Processing ENHANCED signal with confidence: {}", confidence);
+                Double entryPrice = extractDoubleValue(signalData, "entryPrice");
                 
-                processEnhancedStrategySignal(signalData, "30M_SUPERTREND_ENHANCED");
-                processed30m.incrementAndGet();
+                log.info("🚀 [Enhanced30M] Processing {} signal: {} -> {} @ {} (Confidence: {})", 
+                         scripCode, signal, scripCode, entryPrice, confidence);
                 
-                log.info("✅ [30M-ST] ENHANCED SuperTrend signal processed: {} (Confidence: {})", 
-                        extractStringValue(signalData, "scripCode"), confidence);
+                // Process the Enhanced 30M signal
+                processEnhanced30MSignal(signalData);
+                
+                successfulSignals.incrementAndGet();
+                
+                long processingTime = System.currentTimeMillis() - startTime;
+                log.info("✅ [Enhanced30M] Successfully processed {} signal in {}ms (Confidence: {})", 
+                        scripCode, processingTime, confidence);
+                
+                // Log high confidence signals prominently
+                if ("HIGH".equalsIgnoreCase(confidence)) {
+                    log.info("⭐ [Enhanced30M] HIGH CONFIDENCE signal executed for {}", scripCode);
+                }
+                
+            } else {
+                failedSignals.incrementAndGet();
+                log.warn("❌ [Enhanced30M] Invalid signal received for {}", scripCode);
             }
             
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 [30M-ST] Error processing ENHANCED SuperTrend signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge();
-        }
-    }
-    
-    /**
-     * 30-Minute FUDKII Signals - ENHANCED High confidence combined signals with pivot validation
-     */
-    @KafkaListener(topics = "30m-fudkii-signals", 
-                   groupId = "trade-execution-30m-group-v1")
-    public void consume30mFudkiiSignals(
-            @Payload String message,
-            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            Acknowledgment acknowledgment) {
-        
-        try {
-            log.info("🎯 [30M-FUDKII] ENHANCED - Received HIGH confidence signal from: {}", topic);
+            failedSignals.incrementAndGet();
+            long processingTime = System.currentTimeMillis() - startTime;
             
-            Map<String, Object> signalData = objectMapper.readValue(message, Map.class);
+            log.error("🚨 [Enhanced30M] Error processing signal for {} after {}ms: {}", 
+                     scripCode, processingTime, e.getMessage(), e);
+            acknowledgment.acknowledge(); // Acknowledge to avoid infinite retries
+        } finally {
+            processedSignals.incrementAndGet();
             
-            if (isValidSignal(signalData, "30M-FUDKII")) {
-                String confidence = extractStringValue(signalData, "confidence");
-                log.info("🎯 [30M-FUDKII] Processing ENHANCED HIGH confidence signal: {}", confidence);
-                
-                // FUDKII signals get priority processing due to higher confidence
-                processEnhancedStrategySignal(signalData, "30M_FUDKII_ENHANCED");
-                processed30m.incrementAndGet();
-                
-                log.info("✅ [30M-FUDKII] ENHANCED HIGH confidence signal processed: {} (Confidence: {})", 
-                        extractStringValue(signalData, "scripCode"), confidence);
+            // Log stats every 10 signals
+            if (processedSignals.get() % 10 == 0) {
+                logProcessingStats();
             }
-            
-            acknowledgment.acknowledge();
-            
-        } catch (Exception e) {
-            log.error("🚨 [30M-FUDKII] Error processing ENHANCED FUDKII signal: {}", e.getMessage(), e);
-            acknowledgment.acknowledge();
         }
     }
     
     /**
-     * Validate signal data and trading hours
+     * Validate Enhanced 30M signal data
      */
-    private boolean isValidSignal(Map<String, Object> signalData, String timeframe) {
+    private boolean isValidEnhanced30MSignal(Map<String, Object> signalData) {
         try {
             String scripCode = extractStringValue(signalData, "scripCode");
-            String exchange = extractStringValue(signalData, "exchange");
+            String companyName = extractStringValue(signalData, "companyName");
             String signal = extractStringValue(signalData, "signal");
+            String strategy = extractStringValue(signalData, "strategy");
+            Double entryPrice = extractDoubleValue(signalData, "entryPrice");
+            Double stopLoss = extractDoubleValue(signalData, "stopLoss");
+            Double target1 = extractDoubleValue(signalData, "target1");
             
+            // Basic validation
             if (scripCode == null || scripCode.isEmpty()) {
-                log.warn("⚠️ [{}] Invalid signal: missing scripCode", timeframe);
+                log.warn("⚠️ [Enhanced30M] Invalid signal: missing scripCode");
                 return false;
             }
             
-            if (signal == null || signal.isEmpty()) {
-                log.warn("⚠️ [{}] Invalid signal: missing signal for {}", timeframe, scripCode);
+            if (signal == null || (!signal.equals("BUY") && !signal.equals("SELL"))) {
+                log.warn("⚠️ [Enhanced30M] Invalid signal: invalid signal type '{}' for {}", signal, scripCode);
+                return false;
+            }
+            
+            if (!"ENHANCED_30M".equals(strategy)) {
+                log.warn("⚠️ [Enhanced30M] Invalid signal: wrong strategy '{}' for {}", strategy, scripCode);
+                return false;
+            }
+            
+            if (entryPrice == null || entryPrice <= 0) {
+                log.warn("⚠️ [Enhanced30M] Invalid signal: invalid entry price {} for {}", entryPrice, scripCode);
+                return false;
+            }
+            
+            if (stopLoss == null || stopLoss <= 0) {
+                log.warn("⚠️ [Enhanced30M] Invalid signal: invalid stop loss {} for {}", stopLoss, scripCode);
+                return false;
+            }
+            
+            if (target1 == null || target1 <= 0) {
+                log.warn("⚠️ [Enhanced30M] Invalid signal: invalid target1 {} for {}", target1, scripCode);
                 return false;
             }
             
             // Validate trading hours
             LocalDateTime now = tradingHoursService.getCurrentISTTime();
-            if (!tradingHoursService.shouldProcessTrade(exchange, now)) {
-                log.warn("🚫 [{}] Skipping signal for {} - outside trading hours", timeframe, scripCode);
+            if (!tradingHoursService.shouldProcessTrade("NSE", now)) {
+                log.warn("🚫 [Enhanced30M] Skipping signal for {} - outside trading hours", scripCode);
                 return false;
             }
             
             return true;
             
         } catch (Exception e) {
-            log.error("🚨 [{}] Error validating signal: {}", timeframe, e.getMessage());
+            log.error("🚨 [Enhanced30M] Error validating signal: {}", e.getMessage());
             return false;
         }
     }
     
     /**
-     * Process enhanced strategy signal with additional logging and confidence handling
+     * Process Enhanced 30M signal - clean and focused
      */
-    private void processEnhancedStrategySignal(Map<String, Object> signalData, String strategyType) {
-        try {
-            String scripCode = extractStringValue(signalData, "scripCode");
-            String signal = extractStringValue(signalData, "signal");
-            Double entryPrice = extractDoubleValue(signalData, "entryPrice");
-            Double stopLoss = extractDoubleValue(signalData, "stopLoss");
-            Double target1 = extractDoubleValue(signalData, "target1");
-            String confidence = extractStringValue(signalData, "confidence");
-            
-            log.info("🎯 Processing ENHANCED {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
-                     strategyType, scripCode, signal, entryPrice, stopLoss, target1, confidence);
-            
-            // Enhanced logging for high confidence signals
-            if ("HIGH".equalsIgnoreCase(confidence)) {
-                log.info("⭐ HIGH CONFIDENCE Enhanced 30M Signal detected for {}: {} -> {}", 
-                        scripCode, signal, strategyType);
-            }
-            
-            // Forward to existing trade execution service method
-            tradeExecutionService.executeStrategySignal(
-                    scripCode, signal, entryPrice, stopLoss, target1, 
-                    strategyType, confidence);
-            
-        } catch (Exception e) {
-            log.error("🚨 Error processing enhanced strategy signal: {}", e.getMessage());
+    private void processEnhanced30MSignal(Map<String, Object> signalData) {
+        String scripCode = extractStringValue(signalData, "scripCode");
+        String signal = extractStringValue(signalData, "signal");
+        Double entryPrice = extractDoubleValue(signalData, "entryPrice");
+        Double stopLoss = extractDoubleValue(signalData, "stopLoss");
+        Double target1 = extractDoubleValue(signalData, "target1");
+        String confidence = extractStringValue(signalData, "confidence");
+        
+        log.info("📊 [Enhanced30M] Executing Enhanced Price Action signal: {} {} @ {} (SL: {}, T1: {}, R:R: {})", 
+                 scripCode, signal, entryPrice, stopLoss, target1, 
+                 calculateRiskReward(entryPrice, stopLoss, target1, signal));
+        
+        // Forward to clean trade execution service
+        cleanTradeExecutionService.executeEnhanced30MSignal(
+                scripCode, signal, entryPrice, stopLoss, target1, confidence);
+    }
+    
+    /**
+     * Calculate risk-reward ratio for logging
+     */
+    private double calculateRiskReward(Double entryPrice, Double stopLoss, Double target1, String signal) {
+        if (entryPrice == null || stopLoss == null || target1 == null) return 0.0;
+        
+        double risk, reward;
+        if ("BUY".equals(signal)) {
+            risk = Math.abs(entryPrice - stopLoss);
+            reward = Math.abs(target1 - entryPrice);
+        } else {
+            risk = Math.abs(stopLoss - entryPrice);
+            reward = Math.abs(entryPrice - target1);
         }
+        
+        return risk > 0 ? Math.round((reward / risk) * 100.0) / 100.0 : 0.0;
+    }
+    
+    /**
+     * Log processing statistics
+     */
+    private void logProcessingStats() {
+        long total = processedSignals.get();
+        long successful = successfulSignals.get();
+        long failed = failedSignals.get();
+        double successRate = total > 0 ? (double) successful / total * 100.0 : 0.0;
+        
+        log.info("📈 [Enhanced30M] Stats - Total: {}, Successful: {}, Failed: {}, Success Rate: {:.1f}%", 
+                total, successful, failed, successRate);
     }
     
     /**
@@ -235,9 +240,10 @@ public class StrategySignalConsumer {
     }
     
     /**
-     * Get processing statistics - ONLY 30M now
+     * Get current processing statistics
      */
     public String getStats() {
-        return String.format("Enhanced 30M Signal Processing: %d", processed30m.get());
+        return String.format("Enhanced 30M Signals - Total: %d, Successful: %d, Failed: %d", 
+                processedSignals.get(), successfulSignals.get(), failedSignals.get());
     }
 } 

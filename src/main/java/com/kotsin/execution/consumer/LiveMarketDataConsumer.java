@@ -1,7 +1,7 @@
 package com.kotsin.execution.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kotsin.execution.service.TradeExecutionService;
+import com.kotsin.execution.service.CleanTradeExecutionService;
 import com.kotsin.execution.service.TradingHoursService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicLong;
 @RequiredArgsConstructor
 public class LiveMarketDataConsumer {
     
-    private final TradeExecutionService tradeExecutionService;
+    private final CleanTradeExecutionService cleanTradeExecutionService;
     private final TradingHoursService tradingHoursService;
     private final ObjectMapper objectMapper;
     
@@ -232,7 +232,7 @@ public class LiveMarketDataConsumer {
                     scripCode, price, tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             
             // Forward tick to trade execution service for active trade updates
-            tradeExecutionService.updateTradeWithPrice(scripCode, price, tickTime);
+            cleanTradeExecutionService.updateTradeWithPrice(scripCode, price, tickTime);
             
             return true;
             
