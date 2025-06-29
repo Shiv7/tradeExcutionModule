@@ -3,6 +3,7 @@ package com.kotsin.execution.consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kotsin.execution.service.CleanTradeExecutionService;
 import com.kotsin.execution.service.TradingHoursService;
+import com.kotsin.execution.service.TradeSelectionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -29,6 +30,7 @@ public class StrategySignalConsumer {
     
     private final CleanTradeExecutionService cleanTradeExecutionService;
     private final TradingHoursService tradingHoursService;
+    private final TradeSelectionService tradeSelectionService;
     private final ObjectMapper objectMapper;
     
     // Metrics for Enhanced 30M signals
@@ -41,7 +43,7 @@ public class StrategySignalConsumer {
      * Consumes from: enhanced-30m-signals (Strategy Module output)
      */
     @KafkaListener(topics = "enhanced-30m-signals", 
-                   groupId = "kotsin-trade-execution-enhanced-30m-final-test-v5",
+                   groupId = "kotsin-trade-execution-enhanced-30m-debug-testing-pivot-fix-v1",
                    properties = {"auto.offset.reset=earliest"})
     public void consumeEnhanced30MSignals(
             @Payload String message,
@@ -85,18 +87,25 @@ public class StrategySignalConsumer {
                 log.info("🚀 [Enhanced30M] Processing {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
                          scripCode, signal, scripCode, entryPrice, stopLoss, target1, confidence);
                 
-                // Process the Enhanced 30M signal with Kafka timestamp
-                processEnhanced30MSignal(signalData, timestamp);
+                // Use trade selection service to handle one-trade-at-a-time logic
+                boolean shouldExecute = tradeSelectionService.processIncomingSignal(signalData);
                 
-                successfulSignals.incrementAndGet();
-                
-                long processingTime = System.currentTimeMillis() - startTime;
-                log.info("✅ [Enhanced30M] Successfully processed {} signal in {}ms (Confidence: {})", 
-                        scripCode, processingTime, confidence);
-                
-                // Log high confidence signals prominently
-                if ("HIGH".equalsIgnoreCase(confidence)) {
-                    log.info("⭐ [Enhanced30M] HIGH CONFIDENCE signal executed for {}", scripCode);
+                if (shouldExecute) {
+                    // Process the Enhanced 30M signal with Kafka timestamp
+                    processEnhanced30MSignal(signalData, timestamp);
+                    
+                    successfulSignals.incrementAndGet();
+                    
+                    long processingTime = System.currentTimeMillis() - startTime;
+                    log.info("✅ [Enhanced30M] Successfully processed {} signal in {}ms (Confidence: {})", 
+                            scripCode, processingTime, confidence);
+                    
+                    // Log high confidence signals prominently
+                    if ("HIGH".equalsIgnoreCase(confidence)) {
+                        log.info("⭐ [Enhanced30M] HIGH CONFIDENCE signal executed for {}", scripCode);
+                    }
+                } else {
+                    log.info("📋 [Enhanced30M] Signal {} queued for trade selection or rejected due to active trade", scripCode);
                 }
                 
             } else {

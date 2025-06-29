@@ -53,6 +53,11 @@ app:
     max-single-position: 10.0
     max-sector-exposure: 25.0
     max-drawdown-limit: 15.0
+  
+  diversification:
+    max-simultaneous-trades: 2
+    capital-split-percent: 45.0
+    enable-fund-diversification: true
 
 # Kafka Topics Configuration
 kafka:
