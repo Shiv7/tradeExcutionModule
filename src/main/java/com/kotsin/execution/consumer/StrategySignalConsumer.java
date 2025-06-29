@@ -73,8 +73,13 @@ public class StrategySignalConsumer {
             log.info("   - target1: {}", extractDoubleValue(signalData, "target1"));
             log.info("   - target2: {}", extractDoubleValue(signalData, "target2"));
             log.info("   - confidence: {}", extractStringValue(signalData, "confidence"));
-            log.info("   - signalTime: {}", extractStringValue(signalData, "signalTime"));
-            log.info("   - logic: {}", extractStringValue(signalData, "logic"));
+            // Fix field names - Strategy sends 'timestamp' and 'reason', not 'signalTime' and 'logic'
+            Long signalTimestamp = extractLongValue(signalData, "timestamp");
+            String signalTimeStr = signalTimestamp != null ? 
+                LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(signalTimestamp), 
+                    java.time.ZoneId.of("Asia/Kolkata")).toString() : "null";
+            log.info("   - signalTime: {} (from timestamp: {})", signalTimeStr, signalTimestamp);
+            log.info("   - logic: {}", extractStringValue(signalData, "reason"));
             log.info("   - riskReward: {}", extractDoubleValue(signalData, "riskReward"));
             
             if (isValidEnhanced30MSignal(signalData)) {
@@ -186,12 +191,10 @@ public class StrategySignalConsumer {
                 return false;
             }
             
-            // Validate trading hours
-            LocalDateTime now = tradingHoursService.getCurrentISTTime();
-            if (!tradingHoursService.shouldProcessTrade("NSE", now)) {
-                log.warn("🚫 [Enhanced30M] Skipping signal for {} - outside trading hours", scripCode);
-                return false;
-            }
+            // NOTE: Trading hours validation removed from signal validation
+            // Trade SELECTION should happen regardless of market hours
+            // Only actual EXECUTION will be restricted by trading hours
+            log.debug("✅ [Enhanced30M] Signal validation allows processing regardless of market hours for {}", scripCode);
             
             log.info("✅ [Enhanced30M] Signal validation passed for {}", scripCode);
             return true;
@@ -212,7 +215,7 @@ public class StrategySignalConsumer {
         Double stopLoss = extractDoubleValue(signalData, "stopLoss");
         Double target1 = extractDoubleValue(signalData, "target1");
         String confidence = extractStringValue(signalData, "confidence");
-        String logic = extractStringValue(signalData, "logic");
+        String logic = extractStringValue(signalData, "reason");
         
         // Convert Kafka timestamp to LocalDateTime
         LocalDateTime signalTime = LocalDateTime.ofInstant(
@@ -225,7 +228,7 @@ public class StrategySignalConsumer {
         log.info("   - Stop Loss: {}", stopLoss);
         log.info("   - Target 1: {}", target1);
         log.info("   - Confidence: {}", confidence);
-        log.info("   - Logic: {}", logic);
+        log.info("   - Logic: {} (from reason field)", logic);
         log.info("   - Signal Time (from Kafka): {}", signalTime);
         log.info("   - R:R Ratio: {}", calculateRiskReward(entryPrice, stopLoss, target1, signal));
         
@@ -284,6 +287,24 @@ public class StrategySignalConsumer {
         if (value instanceof String) {
             try {
                 return Double.parseDouble((String) value);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Extract long value safely  
+     */
+    private Long extractLongValue(Map<String, Object> data, String key) {
+        Object value = data.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Long.parseLong((String) value);
             } catch (NumberFormatException e) {
                 return null;
             }
