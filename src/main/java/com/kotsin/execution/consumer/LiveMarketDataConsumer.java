@@ -140,13 +140,21 @@ public class LiveMarketDataConsumer {
     
     /**
      * Enhanced script code extraction with multiple fallback fields
+     * FIXED: Proper handling of Token as Long and conversion to String
      */
     private String extractScripCode(Map<String, Object> tickData) {
         // Primary: Try Token field first (this contains the actual script code)
         Object tokenObj = tickData.get("Token");
         if (tokenObj != null) {
-            String scripCode = tokenObj.toString().trim();
-            if (!scripCode.isEmpty() && !scripCode.equals("null")) {
+            String scripCode;
+            // Handle both Long and String types for Token
+            if (tokenObj instanceof Number) {
+                scripCode = String.valueOf(((Number) tokenObj).longValue());
+            } else {
+                scripCode = tokenObj.toString().trim();
+            }
+            
+            if (!scripCode.isEmpty() && !scripCode.equals("null") && !scripCode.equals("0")) {
                 log.debug("🔍 [ScriptCode] Extracted from Token: {} (type: {})", scripCode, tokenObj.getClass().getSimpleName());
                 return scripCode;
             }

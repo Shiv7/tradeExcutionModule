@@ -42,8 +42,8 @@ public class StrategySignalConsumer {
      * Enhanced 30M Signals - The ONLY signal type we process
      * Consumes from: enhanced-30m-signals (Strategy Module output)
      */
-    @KafkaListener(topics = "enhanced-30m-signals", 
-                   groupId = "kotsin-trade-execution-enhanced-30m-debug-testing-pivot-fix-v1",
+    @KafkaListener(topics = "enhanced-30m-signals",
+               groupId = "kotsin-trade-execution-enhanced-30m-date-fix-test-v2",
                    properties = {"auto.offset.reset=earliest"})
     public void consumeEnhanced30MSignals(
             @Payload String message,
@@ -160,7 +160,8 @@ public class StrategySignalConsumer {
                 return false;
             }
             
-            if (signal == null || (!signal.equals("BUY") && !signal.equals("SELL"))) {
+            if (signal == null || (!signal.equals("BUY") && !signal.equals("SELL") && 
+                                   !signal.equals("BULLISH") && !signal.equals("BEARISH"))) {
                 log.warn("⚠️ [Enhanced30M] Invalid signal: invalid signal type '{}' for {}", signal, scripCode);
                 return false;
             }

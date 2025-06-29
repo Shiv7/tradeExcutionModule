@@ -11,7 +11,7 @@ spring:
   kafka:
     bootstrap-servers: 172.31.12.118:9092
     consumer:
-      group-id: trade-execution-group-v1
+      group-id: kotsin-trade-execution-enhanced-30m-comprehensive-fix-v3
       auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -81,6 +81,19 @@ telegram:
   chat:
     id: -4640817596
   enabled: true
+  
+  # Separate Channels for Enhanced 30M
+  alerts:
+    chat:
+      id: -4640817596
+  execution:
+    chat:
+      id: -4987106706
+  pnl:
+    chat:
+      id: -4924122957
+  channels:
+    enabled: true
 
 # Logging Configuration
 logging:

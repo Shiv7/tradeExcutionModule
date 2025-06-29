@@ -315,7 +315,7 @@ public class TradeExecutionService {
             Double target2 = extractDoubleValue(signalData, "target2");
             Double target3 = extractDoubleValue(signalData, "target3");
             String signalType = extractStringValue(signalData, "signal");
-            boolean isBullish = "BUY".equalsIgnoreCase(signalType);
+            boolean isBullish = "BUY".equalsIgnoreCase(signalType) || "BULLISH".equalsIgnoreCase(signalType);
             
             log.info("📈 [ValidationAnalysis] ===== DETAILED VALIDATION ANALYSIS =====");
             log.info("📈 [ValidationAnalysis] Script: {} | Strategy: {} | Signal: {} | Current Price: {}", 

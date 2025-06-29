@@ -26,8 +26,11 @@ public class TelegramNotificationService {
     @Value("${telegram.bot.token:6110276523:AAFNH9wRYkQQymniK8ioE0EnmN_6pfUZkJk}")
     private String telegramToken;
 
-    @Value("${telegram.chat.id:-4640817596}")
-    private String chatId;
+    @Value("${telegram.execution.chat.id:-4987106706}")
+    private String executionChatId;
+    
+    @Value("${telegram.pnl.chat.id:-4924122957}")
+    private String pnlChatId;
 
     @Value("${telegram.enabled:true}")
     private boolean telegramEnabled;
@@ -52,8 +55,9 @@ public class TelegramNotificationService {
             return false;
         }
         try {
+            log.info("📱 [TRADE-EXECUTION] Sending trade entry to EXECUTION channel: {}", executionChatId);
             String message = formatEntryMessage(trade);
-            return sendMessage(message);
+            return sendMessage(message, executionChatId);
         } catch (Exception e) {
             log.error("🚨 Error sending Telegram trade entry notification: {}", e.getMessage(), e);
             messagesFailed.incrementAndGet();
@@ -74,8 +78,9 @@ public class TelegramNotificationService {
             return false;
         }
         try {
+            log.info("📱 [TRADE-EXECUTION] Sending P&L to PnL channel: {}", pnlChatId);
             String message = formatExitMessage(trade, result);
-            return sendMessage(message);
+            return sendMessage(message, pnlChatId);
         } catch (Exception e) {
             log.error("🚨 Error sending Telegram trade exit notification: {}", e.getMessage(), e);
             messagesFailed.incrementAndGet();
@@ -127,7 +132,7 @@ public class TelegramNotificationService {
         );
     }
 
-    private boolean sendMessage(String message) {
+    private boolean sendMessage(String message, String chatId) {
         // This method is copied directly from the strategyModule's service
         // ... (implementation is identical)
         HttpResponse<String> response = null;
@@ -143,7 +148,7 @@ public class TelegramNotificationService {
 
             if (response.statusCode() == 200) {
                 messagesSuccessful.incrementAndGet();
-                log.info("✅ Telegram message sent successfully.");
+                log.info("✅ Telegram message sent successfully to channel: {}", chatId);
                 return true;
             } else {
                 messagesFailed.incrementAndGet();

@@ -47,7 +47,7 @@ public class SignalValidationService {
                 return SignalValidationResult.rejected("Missing required data: stopLoss or target1");
             }
             
-            boolean isBullish = "BUY".equalsIgnoreCase(signalType);
+            boolean isBullish = "BUY".equalsIgnoreCase(signalType) || "BULLISH".equalsIgnoreCase(signalType);
             
             log.debug("🎯 [DynamicValidation] {} signal validation: Price={}, SL={}, T1={}, T2={}, T3={}", 
                      isBullish ? "BULLISH" : "BEARISH", currentMarketPrice, stopLoss, target1, target2, target3);
