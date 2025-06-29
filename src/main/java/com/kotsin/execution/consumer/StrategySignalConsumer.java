@@ -50,7 +50,7 @@ public class StrategySignalConsumer {
      * Consumes from: enhanced-30m-signals (Strategy Module output)
      */
     @KafkaListener(topics = "enhanced-30m-signals",
-               groupId = "kotsin-trade-execution-enhanced-30m-clean-v1",
+               groupId = "kotsin-trade-execution-enhanced-30m-retest-v3",
                    properties = {"auto.offset.reset=earliest"})
     public void consumeEnhanced30MSignals(
             @Payload String message,

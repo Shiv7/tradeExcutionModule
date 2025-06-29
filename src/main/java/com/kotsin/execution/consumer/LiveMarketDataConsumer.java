@@ -42,7 +42,7 @@ public class LiveMarketDataConsumer {
      * Configured to consume from earliest offset to process all today's market data
      */
     @KafkaListener(topics = "forwardtesting-data",
-                   groupId = "kotsin-trade-execution-market-data-today-v2",
+                   groupId = "kotsin-trade-execution-market-data-retest-v3",
                    properties = {"auto.offset.reset=earliest"})
     public void consumeMarketData(
             @Payload String message,
