@@ -607,11 +607,11 @@ public class PortfolioManagementService {
     public double getMaxRiskPerTrade() {
         try {
             double portfolioValue = getPortfolioValue();
-            // Risk 2% of portfolio per trade
-            return portfolioValue * 0.02;
+            // 🚨 CRITICAL FIX: Use standardized 1.5% risk (was 2%)
+            return portfolioValue * 0.015;
         } catch (Exception e) {
             log.error("🚨 [Portfolio] Error calculating max risk per trade: {}", e.getMessage(), e);
-            return 20000.0; // Default fallback: 20K per trade
+            return 15000.0; // Default fallback: 15K per trade (reduced from 20K)
         }
     }
     

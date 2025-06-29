@@ -7,6 +7,7 @@ import com.kotsin.execution.producer.TradeResultProducer;
 import com.kotsin.execution.service.SignalValidationService.SignalValidationResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestClientException;
@@ -48,6 +49,10 @@ public class TradeExecutionService {
     // NEW: RestTemplate for calling Strategy Module's pivot calculation API
     private final RestTemplate restTemplate = new RestTemplate();
     private static final String PIVOT_CALCULATION_API_URL = "http://localhost:8112/api/pivots/calculate-targets";
+    
+    // 🚨 CRITICAL FIX: Centralized risk configuration
+    @Value("${app.trading.risk.default-risk-percentage:1.5}")
+    private double defaultRiskPercentage;
     
     /**
      * Process a new signal from strategy modules
@@ -1506,7 +1511,8 @@ public class TradeExecutionService {
         log.info("🔢 [FallbackTargets] Input - Price: {}, Signal: {}", currentPrice, signalType);
         
         boolean isBullish = signalType.equalsIgnoreCase("BUY") || signalType.equalsIgnoreCase("BULLISH");
-        double riskPercent = 0.015; // 1.5% risk
+        // 🚨 CRITICAL FIX: Use centralized risk configuration instead of hardcoded 1.5%
+        double riskPercent = defaultRiskPercentage / 100.0; // Use centralized config (convert % to decimal)
         double riskPerShare = currentPrice * riskPercent;
         
         log.info("🔢 [FallbackTargets] Signal Direction: {}, Risk %: {}%, Risk per Share: {}", 

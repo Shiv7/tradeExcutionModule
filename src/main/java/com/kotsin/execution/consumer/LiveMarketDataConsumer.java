@@ -143,49 +143,41 @@ public class LiveMarketDataConsumer {
      * FIXED: Proper handling of Token as Long and conversion to String
      */
     private String extractScripCode(Map<String, Object> tickData) {
-        // Primary: Try Token field first (this contains the actual script code)
-        Object tokenObj = tickData.get("Token");
-        if (tokenObj != null) {
-            String scripCode;
-            // Handle both Long and String types for Token
-            if (tokenObj instanceof Number) {
-                scripCode = String.valueOf(((Number) tokenObj).longValue());
-            } else {
-                scripCode = tokenObj.toString().trim();
+        // Try multiple field names that could contain the script identifier
+        String[] possibleFields = {"companyName", "scripCode", "Token", "token", "instrument_token", "symbol"};
+        
+        for (String field : possibleFields) {
+            Object value = tickData.get(field);
+            if (value != null) {
+                String scripCode = null;
+                
+                if (value instanceof String) {
+                    scripCode = (String) value;
+                } else if (value instanceof Number) {
+                    // Handle numeric tokens (convert to string)
+                    scripCode = value.toString();
+                } else {
+                    scripCode = value.toString();
+                }
+                
+                // Clean and validate script code
+                if (scripCode != null && !scripCode.trim().isEmpty() && !scripCode.equalsIgnoreCase("null")) {
+                    scripCode = scripCode.trim();
+                    
+                    // Log successful extraction with field info for debugging
+                    log.debug("📊 [MarketData] Script code extracted: '{}' from field: '{}' (type: {})", 
+                             scripCode, field, value.getClass().getSimpleName());
+                    
+                    return scripCode;
+                }
             }
-            
-            if (!scripCode.isEmpty() && !scripCode.equals("null") && !scripCode.equals("0")) {
-                log.debug("🔍 [ScriptCode] Extracted from Token: {} (type: {})", scripCode, tokenObj.getClass().getSimpleName());
-                return scripCode;
-            }
         }
         
-        // Try other possible fields as fallbacks
-        String scripCode = extractStringValue(tickData, "companyName");
-        if (scripCode != null && !scripCode.isEmpty()) {
-            log.debug("🔍 [ScriptCode] Fallback to companyName: {}", scripCode);
-            return scripCode.trim();
-        }
+        // Enhanced fallback logging
+        log.warn("⚠️ [MarketData] Could not extract script code from tick data. Available fields: {}", 
+                tickData.keySet());
+        log.debug("🔍 [MarketData] Full tick data for debugging: {}", tickData);
         
-        scripCode = extractStringValue(tickData, "scripCode");
-        if (scripCode != null && !scripCode.isEmpty()) {
-            log.debug("🔍 [ScriptCode] Fallback to scripCode: {}", scripCode);
-            return scripCode.trim();
-        }
-        
-        scripCode = extractStringValue(tickData, "token");
-        if (scripCode != null && !scripCode.isEmpty()) {
-            log.debug("🔍 [ScriptCode] Fallback to token: {}", scripCode);
-            return scripCode.trim();
-        }
-        
-        scripCode = extractStringValue(tickData, "instrument_token");
-        if (scripCode != null && !scripCode.isEmpty()) {
-            log.debug("🔍 [ScriptCode] Fallback to instrument_token: {}", scripCode);
-            return scripCode.trim();
-        }
-        
-        log.warn("🚨 [ScriptCode] Could not extract script code from tick data fields: {}", tickData.keySet());
         return null;
     }
     

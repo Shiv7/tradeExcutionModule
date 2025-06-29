@@ -108,7 +108,7 @@ public class FundDiversificationService {
                                         double entryPrice, double positionSize) {
         
         double allocatedCapital = calculateCapitalAllocation(activeAllocations.size());
-        double riskAmount = positionSize * Math.abs(entryPrice * 0.01); // Assume 1% risk
+                    double riskAmount = positionSize * Math.abs(entryPrice * 0.015); // 🚨 FIXED: Use standardized 1.5% risk
         
         // Check sector exposure
         if (!checkSectorExposure(sector, allocatedCapital)) {

@@ -59,17 +59,56 @@ public class EnhancedPriceActionService {
      */
     private boolean checkImmediateEntry(ActiveTrade trade, double currentPrice) {
         Double signalPrice = extractSignalPrice(trade);
-        if (signalPrice == null) return true;
+        String tradeId = trade.getTradeId();
+        String scripCode = trade.getScripCode();
         
-        if (trade.isBullish()) {
+        // CRITICAL FIX: Don't auto-enter if signal price is missing!
+        if (signalPrice == null) {
+            log.warn("🚨 [EnhancedPA] ENTRY REJECTED - Missing signal price for trade {} ({})", tradeId, scripCode);
+            return false; // Changed from 'true' to 'false' - require valid signal price
+        }
+        
+        boolean isBullish = trade.isBullish();
+        boolean shouldEnter = false;
+        
+        // Enhanced logging for entry decision making
+        log.info("🔍 [EnhancedPA] ENTRY CHECK - Trade: {} ({}), Signal Price: {}, Current Price: {}, Direction: {}", 
+                tradeId, scripCode, signalPrice, currentPrice, isBullish ? "BULLISH" : "BEARISH");
+        
+        if (isBullish) {
             // For bullish trades, enter if price moves up from signal or is very close
-            return currentPrice >= signalPrice * 1.001 || // 0.1% buffer
-                   Math.abs(currentPrice - signalPrice) <= signalPrice * 0.002; // Within 0.2%
+            double upperThreshold = signalPrice * 1.001; // 0.1% buffer
+            double priceRange = signalPrice * 0.002; // 0.2% range
+            boolean priceCondition1 = currentPrice >= upperThreshold;
+            boolean priceCondition2 = Math.abs(currentPrice - signalPrice) <= priceRange;
+            
+            shouldEnter = priceCondition1 || priceCondition2;
+            
+            log.info("🔍 [EnhancedPA] BULLISH ENTRY - Current: {}, Signal: {}, Upper Threshold: {}, Range Check: {}, Condition1: {}, Condition2: {}, Result: {}", 
+                    currentPrice, signalPrice, upperThreshold, priceRange, priceCondition1, priceCondition2, shouldEnter);
+            
         } else {
             // For bearish trades, enter if price moves down from signal or is very close  
-            return currentPrice <= signalPrice * 0.999 || // 0.1% buffer
-                   Math.abs(currentPrice - signalPrice) <= signalPrice * 0.002; // Within 0.2%
+            double lowerThreshold = signalPrice * 0.999; // 0.1% buffer
+            double priceRange = signalPrice * 0.002; // 0.2% range
+            boolean priceCondition1 = currentPrice <= lowerThreshold;
+            boolean priceCondition2 = Math.abs(currentPrice - signalPrice) <= priceRange;
+            
+            shouldEnter = priceCondition1 || priceCondition2;
+            
+            log.info("🔍 [EnhancedPA] BEARISH ENTRY - Current: {}, Signal: {}, Lower Threshold: {}, Range Check: {}, Condition1: {}, Condition2: {}, Result: {}", 
+                    currentPrice, signalPrice, lowerThreshold, priceRange, priceCondition1, priceCondition2, shouldEnter);
         }
+        
+        if (shouldEnter) {
+            log.info("✅ [EnhancedPA] IMMEDIATE ENTRY APPROVED for {} ({}) - Price: {} vs Signal: {}", 
+                    tradeId, scripCode, currentPrice, signalPrice);
+        } else {
+            log.info("❌ [EnhancedPA] IMMEDIATE ENTRY REJECTED for {} ({}) - Price: {} vs Signal: {} (waiting for better price)", 
+                    tradeId, scripCode, currentPrice, signalPrice);
+        }
+        
+        return shouldEnter;
     }
     
     /**

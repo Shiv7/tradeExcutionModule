@@ -114,7 +114,18 @@ public class CleanTradeExecutionService {
      */
     public void updateTradeWithPrice(String scripCode, double price, LocalDateTime timestamp) {
         ActiveTrade trade = activeTrades.get(scripCode);
+        
+        // Enhanced logging for debugging script code matching
         if (trade == null) {
+            // Only log every 100th price update for non-matching scripts to avoid spam
+            if (System.currentTimeMillis() % 100 == 0) {
+                log.debug("💹 [Enhanced30M] Price update for {} @ {} - No active trade found (Total active trades: {})", 
+                         scripCode, price, activeTrades.size());
+                
+                if (!activeTrades.isEmpty()) {
+                    log.debug("🔍 [Enhanced30M] Active trade scripts: {}", activeTrades.keySet());
+                }
+            }
             return; // No active trade for this script
         }
         
@@ -122,16 +133,35 @@ public class CleanTradeExecutionService {
             // Update price and timestamp
             trade.updatePrice(price, timestamp);
             
-            log.debug("💹 [Enhanced30M] Price update: {} @ {} (Entry: {}, Status: {})", 
-                     scripCode, price, trade.getEntryTriggered() ? "TRIGGERED" : "WAITING", trade.getStatus());
+            // Enhanced logging for trade updates
+            log.info("💹 [Enhanced30M] Price update: {} @ {} (Entry: {}, Status: {}, Signal Price: {})", 
+                     scripCode, price, 
+                     trade.getEntryTriggered() ? String.format("TRIGGERED @ %.2f", trade.getEntryPrice()) : "WAITING", 
+                     trade.getStatus(),
+                     trade.getMetadata().get("signalPrice"));
             
             // Check entry conditions (if not entered yet)
             if (!trade.getEntryTriggered()) {
+                log.info("🎯 [Enhanced30M] CHECKING ENTRY CONDITIONS for {} - Current Price: {}, Trade Status: {}", 
+                        scripCode, price, trade.getStatus());
+                
                 checkEnhancedEntryConditions(trade, price, timestamp);
+                
+                // Log result of entry check
+                if (trade.getEntryTriggered()) {
+                    log.info("🚀 [Enhanced30M] ENTRY TRIGGERED! Trade {} now ACTIVE at price {}", 
+                            scripCode, price);
+                } else {
+                    log.info("⏳ [Enhanced30M] Entry conditions NOT met for {} at price {} - still waiting", 
+                            scripCode, price);
+                }
             }
             
             // Check exit conditions (if trade is active)
             if (trade.getEntryTriggered() && trade.getStatus() == ActiveTrade.TradeStatus.ACTIVE) {
+                log.debug("🔍 [Enhanced30M] Checking exit conditions for active trade {} at price {}", 
+                         scripCode, price);
+                
                 checkEnhancedExitConditions(trade, price, timestamp);
             }
             

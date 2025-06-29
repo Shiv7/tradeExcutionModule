@@ -22,7 +22,7 @@ spring:
 
 # Server Configuration
 server:
-  port: 9090
+  port: 8080
 
 # Application Configuration
 app:
@@ -36,17 +36,37 @@ app:
         end: "23:30"
       timezone: "Asia/Kolkata"
     risk:
-      max-risk-per-trade: 1.0
-      default-position-size: 1000
-      max-position-size: 10000
-      max-portfolio-risk: 5.0
-      max-active-trades: 10
-      max-trades-per-script: 2
+      # Primary risk configuration - used across all modules
+      default-risk-percentage: 1.5        # 1.5% default risk per trade
+      max-risk-per-trade-percentage: 2.0   # 2% max risk per single trade
+      max-portfolio-risk-percentage: 5.0   # 5% max total portfolio risk
+      min-risk-reward-ratio: 1.5           # Minimum 1.5:1 risk-reward ratio
+      
+      # Position sizing configuration
+      max-position-size: 5000              # Maximum units per position
+      default-position-size: 1000          # Default position size fallback
+      
+      # Portfolio exposure limits
+      max-portfolio-exposure: 8.0          # 8% max portfolio exposure
+      max-daily-loss-percentage: 5.0       # 5% max daily loss limit
+      
     targets:
-      target1-multiplier: 1.5
-      target2-multiplier: 2.5
-      target3-multiplier: 4.0
-      target4-multiplier: 6.0
+      # Target multipliers based on risk amount
+      target1-multiplier: 1.5              # Target 1 = Risk * 1.5
+      target2-multiplier: 2.5              # Target 2 = Risk * 2.5  
+      target3-multiplier: 4.0              # Target 3 = Risk * 4.0
+      target4-multiplier: 6.0              # Target 4 = Risk * 6.0
+      
+    validation:
+      # Price distance validation
+      min-price-distance-percentage: 0.5   # 0.5% minimum price movement
+      max-price-distance-percentage: 10.0  # 10% maximum price movement
+      
+    limits:
+      # Trade limits
+      max-active-trades: 10                # Maximum active trades
+      max-trades-per-script: 2             # Maximum trades per script
+      max-daily-trades: 20                 # Maximum trades per day
   
   portfolio:
     initial-capital: 100000  # 1 lakh initial capital as requested
@@ -67,6 +87,7 @@ kafka:
       trade-results: trade-results
       daily-summary: daily-trade-summary
       profit-loss: profit-loss  # All entry/exit events
+    signals: strategy-signals
 
 # External API Configuration
 company:
