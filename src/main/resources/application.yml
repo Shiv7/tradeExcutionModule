@@ -11,7 +11,7 @@ spring:
   kafka:
     bootstrap-servers: 172.31.12.118:9092
     consumer:
-      group-id: kotsin-trade-execution-enhanced-30m-comprehensive-fix-v3
+      group-id: kotsin-trade-execution-enhanced-30m-smart-aggregation-v4
       auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -49,7 +49,7 @@ app:
       target4-multiplier: 6.0
   
   portfolio:
-    initial-capital: 1000000
+    initial-capital: 100000  # 1 lakh initial capital as requested
     max-single-position: 10.0
     max-sector-exposure: 25.0
     max-drawdown-limit: 15.0
@@ -66,6 +66,7 @@ kafka:
     results:
       trade-results: trade-results
       daily-summary: daily-trade-summary
+      profit-loss: profit-loss  # All entry/exit events
 
 # External API Configuration
 company:

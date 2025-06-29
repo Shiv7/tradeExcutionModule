@@ -3,6 +3,7 @@ package com.kotsin.execution.service;
 import com.kotsin.execution.model.ActiveTrade;
 import com.kotsin.execution.model.TradeResult;
 import com.kotsin.execution.producer.TradeResultProducer;
+import com.kotsin.execution.producer.ProfitLossProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,8 @@ public class CleanTradeExecutionService {
     
     private final EnhancedPriceActionService enhancedPriceActionService;
     private final TradeResultProducer tradeResultProducer;
+    private final ProfitLossProducer profitLossProducer;
+    private final CapitalManagementService capitalManagementService;
     private final TradingHoursService tradingHoursService;
     private final TelegramNotificationService telegramNotificationService;
     
@@ -85,11 +88,12 @@ public class CleanTradeExecutionService {
                 return;
             }
             
-            // Create active trade
+            // Create active trade using capital management
             ActiveTrade trade = createEnhanced30MTrade(scripCode, signal, entryPrice, stopLoss, target1, confidence, signalTime);
             
-            // Store trade
+            // Store trade in local storage AND capital management
             activeTrades.put(scripCode, trade);
+            capitalManagementService.addActiveTrade(trade);
             
             long executionTime = System.currentTimeMillis() - startTime;
             log.info("✅ [Enhanced30M] Trade created for {} in {}ms - Waiting for entry conditions", 
@@ -153,6 +157,9 @@ public class CleanTradeExecutionService {
             
             log.info("🚀 [Enhanced30M] TRADE ENTERED: {} at {} (Strategy: Enhanced Price Action)", 
                     trade.getScripCode(), currentPrice);
+            
+            // Publish trade entry to profit-loss topic
+            profitLossProducer.publishTradeEntry(trade, currentPrice);
             
             // Send entry notification
             sendTradeEnteredNotification(trade, currentPrice);
@@ -223,11 +230,28 @@ public class CleanTradeExecutionService {
             // Calculate final result
             TradeResult result = calculateFinalTradeResult(trade, exitPrice, exitTime, exitReason);
             
-            // Publish result
+            // Calculate P&L for capital management
+            double profitLoss = result.getProfitLoss();
+            
+            // Publish to profit-loss topic FIRST
+            profitLossProducer.publishTradeExit(trade, exitPrice, exitReason, profitLoss);
+            
+            // Publish result to trade-results topic
             tradeResultProducer.publishTradeResult(result);
             
-            // Remove from active trades
+            // Update capital management
+            capitalManagementService.removeActiveTrade(trade.getScripCode(), profitLoss);
+            
+            // Remove from local active trades
             activeTrades.remove(trade.getScripCode());
+            
+            // Publish portfolio update
+            Map<String, Object> capitalStats = capitalManagementService.getCapitalStats();
+            profitLossProducer.publishPortfolioUpdate(
+                    (Double) capitalStats.get("currentCapital"),
+                    (Double) capitalStats.get("totalProfitLoss"),
+                    (Double) capitalStats.get("roi")
+            );
             
             log.info("🏁 [Enhanced30M] TRADE CLOSED: {} - Entry: {}, Exit: {}, P&L: {}, Reason: {}", 
                     trade.getScripCode(), trade.getEntryPrice(), exitPrice, 
@@ -283,22 +307,18 @@ public class CleanTradeExecutionService {
     }
     
     /**
-     * Calculate position size based on risk management
+     * Calculate position size using Capital Management Service
      */
     private int calculatePositionSize(Double entryPrice, Double stopLoss) {
         if (entryPrice == null || stopLoss == null) {
             return DEFAULT_POSITION_SIZE;
         }
         
-        double riskPerShare = Math.abs(entryPrice - stopLoss);
-        double riskAmount = DEFAULT_POSITION_SIZE * DEFAULT_RISK_PERCENTAGE / 100.0; // 1% of position
+        // Use capital management service for proper position sizing
+        int positionSize = capitalManagementService.calculatePositionSize(entryPrice, stopLoss);
         
-        if (riskPerShare > 0) {
-            int calculatedSize = (int) (riskAmount / riskPerShare);
-            return Math.max(100, Math.min(calculatedSize, 5000)); // Between 100 and 5000 shares
-        }
-        
-        return DEFAULT_POSITION_SIZE;
+        // Fallback to default if calculation fails
+        return positionSize > 0 ? positionSize : DEFAULT_POSITION_SIZE;
     }
     
     /**

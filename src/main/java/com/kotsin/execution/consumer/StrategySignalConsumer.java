@@ -3,7 +3,8 @@ package com.kotsin.execution.consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kotsin.execution.service.CleanTradeExecutionService;
 import com.kotsin.execution.service.TradingHoursService;
-import com.kotsin.execution.service.TradeSelectionService;
+import com.kotsin.execution.service.CapitalManagementService;
+import com.kotsin.execution.producer.ProfitLossProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -21,6 +22,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * Consumer for Enhanced 30M Price Action signals ONLY.
  * Consumes signals from: enhanced-30m-signals topic (Strategy Module output)
  * 
+ * SIMPLIFIED ARCHITECTURE - Double Logic Removed:
+ * - Strategy Module does smart aggregation and sends ONLY the BEST signal
+ * - Trade Execution Module directly executes without complex selection/validation
+ * - No more redundant 2-minute selection windows or duplicate scoring
+ * 
  * Clean, focused implementation for Enhanced Price Action strategy execution.
  */
 @Component
@@ -30,7 +36,8 @@ public class StrategySignalConsumer {
     
     private final CleanTradeExecutionService cleanTradeExecutionService;
     private final TradingHoursService tradingHoursService;
-    private final TradeSelectionService tradeSelectionService;
+    private final CapitalManagementService capitalManagementService;
+    private final ProfitLossProducer profitLossProducer;
     private final ObjectMapper objectMapper;
     
     // Metrics for Enhanced 30M signals
@@ -43,7 +50,7 @@ public class StrategySignalConsumer {
      * Consumes from: enhanced-30m-signals (Strategy Module output)
      */
     @KafkaListener(topics = "enhanced-30m-signals",
-               groupId = "kotsin-trade-execution-enhanced-30m-date-fix-test-v2",
+               groupId = "kotsin-trade-execution-enhanced-30m-clean-v1",
                    properties = {"auto.offset.reset=earliest"})
     public void consumeEnhanced30MSignals(
             @Payload String message,
@@ -92,25 +99,24 @@ public class StrategySignalConsumer {
                 log.info("🚀 [Enhanced30M] Processing {} signal: {} -> {} @ {} (SL: {}, T1: {}, Confidence: {})", 
                          scripCode, signal, scripCode, entryPrice, stopLoss, target1, confidence);
                 
-                // Use trade selection service to handle one-trade-at-a-time logic
-                boolean shouldExecute = tradeSelectionService.processIncomingSignal(signalData);
+                // TRADE REPLACEMENT LOGIC - Handle 1 trade at a time with better signal replacement
+                boolean shouldProcess = handleTradeReplacementLogic(signalData, timestamp);
                 
-                if (shouldExecute) {
-                    // Process the Enhanced 30M signal with Kafka timestamp
+                if (shouldProcess) {
                     processEnhanced30MSignal(signalData, timestamp);
-                    
-                    successfulSignals.incrementAndGet();
-                    
-                    long processingTime = System.currentTimeMillis() - startTime;
-                    log.info("✅ [Enhanced30M] Successfully processed {} signal in {}ms (Confidence: {})", 
-                            scripCode, processingTime, confidence);
-                    
-                    // Log high confidence signals prominently
-                    if ("HIGH".equalsIgnoreCase(confidence)) {
-                        log.info("⭐ [Enhanced30M] HIGH CONFIDENCE signal executed for {}", scripCode);
-                    }
                 } else {
-                    log.info("📋 [Enhanced30M] Signal {} queued for trade selection or rejected due to active trade", scripCode);
+                    log.info("📋 [Enhanced30M] Signal {} not processed due to trade replacement logic", scripCode);
+                }
+                
+                successfulSignals.incrementAndGet();
+                
+                long processingTime = System.currentTimeMillis() - startTime;
+                log.info("✅ [Enhanced30M] Successfully processed {} signal in {}ms (Confidence: {})", 
+                        scripCode, processingTime, confidence);
+                
+                // Log high confidence signals prominently
+                if ("HIGH".equalsIgnoreCase(confidence)) {
+                    log.info("⭐ [Enhanced30M] HIGH CONFIDENCE signal executed for {}", scripCode);
                 }
                 
             } else {
@@ -144,24 +150,22 @@ public class StrategySignalConsumer {
     }
     
     /**
-     * Validate Enhanced 30M signal data
+     * Minimal validation - Strategy Module already validates, this is just safety check
      */
     private boolean isValidEnhanced30MSignal(Map<String, Object> signalData) {
         try {
             String scripCode = extractStringValue(signalData, "scripCode");
-            String companyName = extractStringValue(signalData, "companyName");
             String signal = extractStringValue(signalData, "signal");
             String strategy = extractStringValue(signalData, "strategy");
-            Double entryPrice = extractDoubleValue(signalData, "entryPrice");
-            Double stopLoss = extractDoubleValue(signalData, "stopLoss");
-            Double target1 = extractDoubleValue(signalData, "target1");
             
-            log.info("🔍 [Enhanced30M] Validating signal for {}: signal={}, strategy={}, entryPrice={}, stopLoss={}, target1={}", 
-                    scripCode, signal, strategy, entryPrice, stopLoss, target1);
-            
-            // Basic validation
+            // Minimal safety checks since Strategy Module already validated
             if (scripCode == null || scripCode.isEmpty()) {
                 log.warn("⚠️ [Enhanced30M] Invalid signal: missing scripCode");
+                return false;
+            }
+            
+            if (!"ENHANCED_30M".equals(strategy)) {
+                log.warn("⚠️ [Enhanced30M] Invalid signal: wrong strategy '{}' for {}", strategy, scripCode);
                 return false;
             }
             
@@ -171,38 +175,71 @@ public class StrategySignalConsumer {
                 return false;
             }
             
-            if (!"ENHANCED_30M".equals(strategy)) {
-                log.warn("⚠️ [Enhanced30M] Invalid signal: wrong strategy '{}' for {}", strategy, scripCode);
-                return false;
-            }
-            
-            if (entryPrice == null || entryPrice <= 0) {
-                log.warn("⚠️ [Enhanced30M] Invalid signal: invalid entry price {} for {}", entryPrice, scripCode);
-                return false;
-            }
-            
-            if (stopLoss == null || stopLoss <= 0) {
-                log.warn("⚠️ [Enhanced30M] Invalid signal: invalid stop loss {} for {}", stopLoss, scripCode);
-                return false;
-            }
-            
-            if (target1 == null || target1 <= 0) {
-                log.warn("⚠️ [Enhanced30M] Invalid signal: invalid target1 {} for {}", target1, scripCode);
-                return false;
-            }
-            
-            // NOTE: Trading hours validation removed from signal validation
-            // Trade SELECTION should happen regardless of market hours
-            // Only actual EXECUTION will be restricted by trading hours
-            log.debug("✅ [Enhanced30M] Signal validation allows processing regardless of market hours for {}", scripCode);
-            
-            log.info("✅ [Enhanced30M] Signal validation passed for {}", scripCode);
+            log.info("✅ [Enhanced30M] Signal passed minimal safety validation for {}", scripCode);
             return true;
             
         } catch (Exception e) {
             log.error("🚨 [Enhanced30M] Error validating signal: {}", e.getMessage());
             return false;
         }
+    }
+    
+    /**
+     * Handle trade replacement logic - Core of the 1-trade-at-a-time system
+     * Returns true if signal should be processed, false if rejected
+     */
+    private boolean handleTradeReplacementLogic(Map<String, Object> signalData, long kafkaTimestamp) {
+        String scripCode = extractStringValue(signalData, "scripCode");
+        Double newRiskReward = extractDoubleValue(signalData, "riskReward");
+        
+        // Check if we can take a new trade (no active trades)
+        if (capitalManagementService.canTakeNewTrade()) {
+            log.info("✅ [TradeReplacement] No active trades - can take new signal: {}", scripCode);
+            return true;
+        }
+        
+        // We have an active trade - check if new signal is worth replacing
+        if (capitalManagementService.shouldReplaceCurrentTrade(signalData)) {
+            // Force exit current trade for better signal
+            var currentTrade = capitalManagementService.getCurrentActiveTrade();
+            
+            log.info("🔄 [TradeReplacement] Replacing current trade {} (R:R: {}) with {} (R:R: {})", 
+                    currentTrade.getScripCode(), currentTrade.getRiskRewardRatio(),
+                    scripCode, newRiskReward);
+            
+            // Get current market price for forced exit
+            double currentPrice = currentTrade.getCurrentPrice() != null ? 
+                    currentTrade.getCurrentPrice() : currentTrade.getEntryPrice();
+            
+            // Publish replacement event
+            profitLossProducer.publishTradeReplacement(currentTrade, signalData, currentPrice);
+            
+            // Force exit current trade
+            var exitedTrade = capitalManagementService.forceExitCurrentTrade(
+                    "Better signal available - R:R: " + newRiskReward);
+            
+            if (exitedTrade != null) {
+                // Calculate P&L for forced exit
+                double profitLoss = exitedTrade.getCurrentPnL();
+                
+                // Publish forced exit event
+                profitLossProducer.publishTradeExit(exitedTrade, currentPrice, 
+                        "FORCED_EXIT_BETTER_SIGNAL", profitLoss);
+                
+                // Update capital management
+                capitalManagementService.removeActiveTrade(exitedTrade.getScripCode(), profitLoss);
+                
+                log.info("🔄 [TradeReplacement] Forced exit completed: {} | P&L: ₹{}", 
+                        exitedTrade.getScripCode(), String.format("%.2f", profitLoss));
+            }
+            
+            return true; // Process new signal
+        }
+        
+        // Current trade is better or new signal doesn't meet criteria
+        log.info("❌ [TradeReplacement] Rejecting signal {} - current trade is better or new R:R {} not sufficient", 
+                scripCode, newRiskReward);
+        return false;
     }
     
     /**
