@@ -67,6 +67,21 @@ public class CleanTradeExecutionService {
             Double target1,
             String confidence,
             LocalDateTime signalTime) {
+        executeEnhanced30MSignal(scripCode, signal, entryPrice, stopLoss, target1, confidence, "NSE", signalTime);
+    }
+    
+    /**
+     * Execute Enhanced 30M strategy signal with exchange and specific signal time
+     */
+    public void executeEnhanced30MSignal(
+            String scripCode,
+            String signal,
+            Double entryPrice,
+            Double stopLoss,
+            Double target1,
+            String confidence,
+            String exchange,
+            LocalDateTime signalTime) {
         
         long startTime = System.currentTimeMillis();
         
@@ -74,13 +89,18 @@ public class CleanTradeExecutionService {
             log.info("🎯 [Enhanced30M] Executing signal: {} {} @ {} (SL: {}, T1: {}, Confidence: {})", 
                     scripCode, signal, entryPrice, stopLoss, target1, confidence);
             
-            // Validate trading hours
+            // Validate trading hours using actual exchange
             LocalDateTime now = tradingHoursService.getCurrentISTTime();
-            if (!tradingHoursService.shouldProcessTrade("NSE", now)) {
-                log.warn("🚫 [Enhanced30M] Skipping {} - outside trading hours: {}", 
-                        scripCode, now.format(TIME_FORMAT));
+            String exchangeForValidation = exchange != null ? exchange : "NSE"; // Default to NSE if null
+            
+            if (!tradingHoursService.shouldProcessTrade(exchangeForValidation, now)) {
+                log.warn("🚫 [Enhanced30M] Skipping {} - outside trading hours for exchange {}: {}", 
+                        scripCode, exchangeForValidation, now.format(TIME_FORMAT));
                 return;
             }
+            
+            log.info("✅ [Enhanced30M] Trading hours validated for exchange {} at {}", 
+                    exchangeForValidation, now.format(TIME_FORMAT));
             
             // Check for existing active trade
             if (activeTrades.containsKey(scripCode)) {

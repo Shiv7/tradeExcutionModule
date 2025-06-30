@@ -258,6 +258,7 @@ public class StrategySignalConsumer {
         Double target1 = extractDoubleValue(signalData, "target1");
         String confidence = extractStringValue(signalData, "confidence");
         String logic = extractStringValue(signalData, "reason");
+        String exchange = extractStringValue(signalData, "exchange");
         
         // Convert Kafka timestamp to LocalDateTime
         LocalDateTime signalTime = LocalDateTime.ofInstant(
@@ -270,13 +271,14 @@ public class StrategySignalConsumer {
         log.info("   - Stop Loss: {}", stopLoss);
         log.info("   - Target 1: {}", target1);
         log.info("   - Confidence: {}", confidence);
+        log.info("   - Exchange: {}", exchange);
         log.info("   - Logic: {} (from reason field)", logic);
         log.info("   - Signal Time (from Kafka): {}", signalTime);
         log.info("   - R:R Ratio: {}", calculateRiskReward(entryPrice, stopLoss, target1, signal));
         
-        // Forward to clean trade execution service with Kafka timestamp
+        // Forward to clean trade execution service with exchange and Kafka timestamp
         cleanTradeExecutionService.executeEnhanced30MSignal(
-                scripCode, signal, entryPrice, stopLoss, target1, confidence, signalTime);
+                scripCode, signal, entryPrice, stopLoss, target1, confidence, exchange, signalTime);
     }
     
     /**
