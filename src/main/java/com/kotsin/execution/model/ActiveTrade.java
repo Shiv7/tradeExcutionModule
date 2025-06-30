@@ -270,6 +270,11 @@ public class ActiveTrade {
             return 0.0;
         }
         
+        // Additional validation for corrupted data
+        if (entryPrice <= 0 || stopLoss <= 0 || target1 <= 0) {
+            return 0.0;
+        }
+        
         double riskPerShare = Math.abs(entryPrice - stopLoss);
         double rewardPerShare = Math.abs(target1 - entryPrice);
         

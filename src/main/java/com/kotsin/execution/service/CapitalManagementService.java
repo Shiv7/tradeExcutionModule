@@ -59,6 +59,13 @@ public class CapitalManagementService {
         ActiveTrade currentTrade = activeTrades.values().iterator().next();
         double currentRR = currentTrade.getRiskRewardRatio();
         
+        // Handle corrupted trades with 0.0 R:R (likely null price values)
+        if (currentRR <= 0.0) {
+            log.warn("🚨 [CapitalMgmt] Current trade {} has invalid R:R: {} - forcing replacement", 
+                    currentTrade.getScripCode(), currentRR);
+            return true; // Force replace corrupted trades
+        }
+        
         // Replace if new signal is significantly better
         boolean shouldReplace = newRiskReward > currentRR + 0.3; // At least 0.3 better R:R
         

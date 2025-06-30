@@ -203,9 +203,14 @@ public class StrategySignalConsumer {
             // Force exit current trade for better signal
             var currentTrade = capitalManagementService.getCurrentActiveTrade();
             
+            // Safely handle null risk reward ratio to prevent NPE
+            Double currentRR = currentTrade.getRiskRewardRatio();
+            String currentRRDisplay = currentRR != null ? String.format("%.2f", currentRR) : "null";
+            String newRRDisplay = newRiskReward != null ? String.format("%.2f", newRiskReward) : "null";
+            
             log.info("🔄 [TradeReplacement] Replacing current trade {} (R:R: {}) with {} (R:R: {})", 
-                    currentTrade.getScripCode(), currentTrade.getRiskRewardRatio(),
-                    scripCode, newRiskReward);
+                    currentTrade.getScripCode(), currentRRDisplay,
+                    scripCode, newRRDisplay);
             
             // Get current market price for forced exit
             double currentPrice = currentTrade.getCurrentPrice() != null ? 
