@@ -144,7 +144,8 @@ public class LiveMarketDataConsumer {
      */
     private String extractScripCode(Map<String, Object> tickData) {
         // Try multiple field names that could contain the script identifier
-        String[] possibleFields = {"companyName", "scripCode", "Token", "token", "instrument_token", "symbol"};
+        // Priority: Token first (for consistency with signal scripCode), then fallbacks
+        String[] possibleFields = {"Token", "token", "scripCode", "instrument_token", "symbol", "companyName"};
         
         for (String field : possibleFields) {
             Object value = tickData.get(field);
