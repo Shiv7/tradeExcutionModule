@@ -35,6 +35,9 @@ public class EnhancedPriceActionService {
      * Based on kotsinBackTestBE's simulateTradeWithImprovedRules method
      */
     public boolean checkEnhancedEntryConditions(ActiveTrade trade, double currentPrice, LocalDateTime timestamp) {
+        log.debug("🔍 [EnhancedPA] Entry check for {} - Current: {}, Delayed: {}", 
+                 trade.getTradeId(), currentPrice, isEntryDelayed(trade));
+        
         // If entry is not delayed, use immediate entry (existing logic)
         if (!isEntryDelayed(trade)) {
             return checkImmediateEntry(trade, currentPrice);
@@ -51,7 +54,20 @@ public class EnhancedPriceActionService {
     private boolean isEntryDelayed(ActiveTrade trade) {
         // Check if trade metadata indicates entry should be delayed
         Object entryDelayed = trade.getMetadata().get("entryDelayed");
-        return entryDelayed != null && (Boolean) entryDelayed;
+        boolean delayed = entryDelayed != null && (Boolean) entryDelayed;
+        
+        if (delayed) {
+            String delayReason = (String) trade.getMetadata().get("delayReason");
+            Double targetProximity = (Double) trade.getMetadata().get("targetProximity");
+            Double pivotProximity = (Double) trade.getMetadata().get("pivotProximity");
+            
+            log.info("⏳ [EnhancedPA] Entry DELAYED for {} - Reason: {} | Target: {:.1f}% | Pivot: {:.1f}%", 
+                    trade.getTradeId(), delayReason, 
+                    targetProximity != null ? targetProximity : 0.0,
+                    pivotProximity != null ? pivotProximity : 0.0);
+        }
+        
+        return delayed;
     }
     
     /**
@@ -72,7 +88,7 @@ public class EnhancedPriceActionService {
         boolean shouldEnter = false;
         
         // Enhanced logging for entry decision making
-        log.info("🔍 [EnhancedPA] ENTRY CHECK - Trade: {} ({}), Signal Price: {}, Current Price: {}, Direction: {}", 
+        log.info("🔍 [EnhancedPA] IMMEDIATE ENTRY CHECK - Trade: {} ({}), Signal Price: {}, Current Price: {}, Direction: {}", 
                 tradeId, scripCode, signalPrice, currentPrice, isBullish ? "BULLISH" : "BEARISH");
         
         if (isBullish) {
@@ -117,9 +133,14 @@ public class EnhancedPriceActionService {
      */
     private boolean checkDelayedEntryWithPivotBreakout(ActiveTrade trade, double currentPrice, LocalDateTime timestamp) {
         Double offendingPivot = extractOffendingPivot(trade);
+        String delayReason = (String) trade.getMetadata().get("delayReason");
+        
+        log.info("🔍 [EnhancedPA] DELAYED ENTRY CHECK for {} - Current: {}, Offending Pivot: {}, Reason: {}", 
+                trade.getTradeId(), currentPrice, offendingPivot, delayReason);
         
         if (offendingPivot == null || offendingPivot <= 0) {
-            log.warn("🚨 [EnhancedPA] No offending pivot found for delayed entry trade {}", trade.getTradeId());
+            log.warn("🚨 [EnhancedPA] No offending pivot found for delayed entry trade {} - falling back to immediate entry", 
+                    trade.getTradeId());
             return checkImmediateEntry(trade, currentPrice); // Fallback to immediate entry
         }
         
@@ -131,25 +152,42 @@ public class EnhancedPriceActionService {
             double breakoutLevel = offendingPivot * (1 + PIVOT_BREAKOUT_THRESHOLD / 100.0);
             entryTriggered = currentPrice > breakoutLevel;
             
-            log.debug("🔍 [EnhancedPA] BULLISH delayed entry check - Price: {}, Pivot: {}, Breakout Level: {}, Triggered: {}", 
+            log.info("🔍 [EnhancedPA] BULLISH delayed entry check - Price: {}, Pivot: {}, Breakout Level: {}, Triggered: {}", 
                     currentPrice, offendingPivot, breakoutLevel, entryTriggered);
+                    
+            if (entryTriggered) {
+                log.info("🚀 [EnhancedPA] BULLISH BREAKOUT CONFIRMED! Price {} > Breakout Level {} (Pivot: {})", 
+                        currentPrice, breakoutLevel, offendingPivot);
+            } else {
+                log.info("⏳ [EnhancedPA] BULLISH waiting for breakout - Need price > {} (currently {})", 
+                        breakoutLevel, currentPrice);
+            }
         } else {
             // Bearish: Need breakdown BELOW the offending pivot
             double breakdownLevel = offendingPivot * (1 - PIVOT_BREAKOUT_THRESHOLD / 100.0);
             entryTriggered = currentPrice < breakdownLevel;
             
-            log.debug("🔍 [EnhancedPA] BEARISH delayed entry check - Price: {}, Pivot: {}, Breakdown Level: {}, Triggered: {}", 
+            log.info("🔍 [EnhancedPA] BEARISH delayed entry check - Price: {}, Pivot: {}, Breakdown Level: {}, Triggered: {}", 
                     currentPrice, offendingPivot, breakdownLevel, entryTriggered);
+                    
+            if (entryTriggered) {
+                log.info("🚀 [EnhancedPA] BEARISH BREAKDOWN CONFIRMED! Price {} < Breakdown Level {} (Pivot: {})", 
+                        currentPrice, breakdownLevel, offendingPivot);
+            } else {
+                log.info("⏳ [EnhancedPA] BEARISH waiting for breakdown - Need price < {} (currently {})", 
+                        breakdownLevel, currentPrice);
+            }
         }
         
         if (entryTriggered) {
-            log.info("🚀 [EnhancedPA] DELAYED ENTRY TRIGGERED for {} - Price {} broke {} pivot at {}", 
-                    trade.getTradeId(), currentPrice, isBullish ? "above" : "below", offendingPivot);
+            log.info("🚀 [EnhancedPA] DELAYED ENTRY TRIGGERED for {} - Price {} broke {} pivot at {} | Reason was: {}", 
+                    trade.getTradeId(), currentPrice, isBullish ? "above" : "below", offendingPivot, delayReason);
             
             // Update trade with actual entry details
             trade.addMetadata("actualEntryTime", timestamp);
             trade.addMetadata("actualEntryPrice", currentPrice);
             trade.addMetadata("pivotBreakoutConfirmed", true);
+            trade.addMetadata("breakoutType", isBullish ? "BULLISH_BREAKOUT" : "BEARISH_BREAKDOWN");
         }
         
         return entryTriggered;

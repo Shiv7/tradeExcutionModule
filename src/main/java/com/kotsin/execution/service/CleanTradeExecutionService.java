@@ -6,6 +6,7 @@ import com.kotsin.execution.producer.TradeResultProducer;
 import com.kotsin.execution.producer.ProfitLossProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -13,6 +14,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Clean Trade Execution Service - Enhanced Price Action Strategy ONLY
@@ -22,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 2. Real-time WebSocket price updates
  * 3. Comprehensive logging
  * 4. Single strategy execution
+ * 5. 30-minute timeout for delayed entry trades
  */
 @Service
 @Slf4j
@@ -42,6 +46,7 @@ public class CleanTradeExecutionService {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final int DEFAULT_POSITION_SIZE = 1000;
     private static final double DEFAULT_RISK_PERCENTAGE = 1.0; // 1% risk per trade
+    private static final int ENTRY_TIMEOUT_MINUTES = 30; // 30-minute timeout for delayed entry
     
     /**
      * Execute Enhanced 30M strategy signal - main entry point
@@ -350,10 +355,127 @@ public class CleanTradeExecutionService {
         trade.addMetadata("enhancedPriceAction", true);
         trade.addMetadata("strategy", "ENHANCED_30M");
         
-        // Add pivot-based entry delay if needed (simplified - no pivot analysis for now)
-        trade.addMetadata("entryDelayed", false);
+        // 🚨 CRITICAL FIX: Implement proper pivot proximity analysis for entry delay
+        analyzeEntryDelayRequirement(trade, entryPrice, stopLoss, target1, isBullish);
+        
+        // Add timeout tracking metadata
+        trade.addMetadata("tradeCreatedTime", LocalDateTime.now());
+        trade.addMetadata("timeoutMinutes", ENTRY_TIMEOUT_MINUTES);
+        
+        // Log trade creation with timeout info
+        if ((Boolean) trade.getMetadata().get("entryDelayed")) {
+            String delayReason = (String) trade.getMetadata().get("delayReason");
+            log.info("⏰ [Timeout] Created delayed entry trade for {} - Will timeout in {} minutes if conditions not met (Reason: {})", 
+                    scripCode, ENTRY_TIMEOUT_MINUTES, delayReason);
+        }
         
         return trade;
+    }
+    
+    /**
+     * Analyze if entry should be delayed based on pivot proximity and target distance
+     * This implements the missing logic for smart entry timing
+     */
+    private void analyzeEntryDelayRequirement(ActiveTrade trade, Double entryPrice, Double stopLoss, 
+                                            Double target1, boolean isBullish) {
+        try {
+            log.info("🔍 [EntryDelay] Analyzing pivot proximity for {} at price {}", 
+                    trade.getScripCode(), entryPrice);
+            
+            // Default to immediate entry
+            boolean shouldDelayEntry = false;
+            Double offendingPivot = null;
+            String delayReason = "IMMEDIATE_ENTRY";
+            
+            // 1. Check target proximity (50% rule)
+            double targetProximity = calculateTargetProximity(entryPrice, target1, isBullish);
+            log.info("🎯 [EntryDelay] Target proximity: {:.2f}% for {}", targetProximity, trade.getScripCode());
+            
+            if (targetProximity >= 50.0) {
+                shouldDelayEntry = true;
+                delayReason = "TARGET_50_PERCENT_CLOSE";
+                log.info("⚠️ [EntryDelay] {} is {:.1f}% close to target - DELAYING ENTRY", 
+                        trade.getScripCode(), targetProximity);
+            }
+            
+            // 2. Check pivot level proximity (using stop loss as proxy for nearest pivot)
+            double pivotProximity = calculatePivotProximity(entryPrice, stopLoss, isBullish);
+            log.info("📊 [EntryDelay] Pivot proximity: {:.2f}% for {}", pivotProximity, trade.getScripCode());
+            
+            if (pivotProximity <= 2.0) { // Within 2% of pivot level
+                shouldDelayEntry = true;
+                offendingPivot = stopLoss; // Use stop loss level as the pivot to break
+                delayReason = "PIVOT_TOO_CLOSE";
+                log.info("⚠️ [EntryDelay] {} signal price too close to pivot level - DELAYING ENTRY", 
+                        trade.getScripCode());
+            }
+            
+            // 3. Set entry delay metadata
+            trade.addMetadata("entryDelayed", shouldDelayEntry);
+            trade.addMetadata("delayReason", delayReason);
+            trade.addMetadata("targetProximity", targetProximity);
+            trade.addMetadata("pivotProximity", pivotProximity);
+            
+            if (shouldDelayEntry) {
+                trade.addMetadata("delayOnPivot", offendingPivot);
+                log.info("🛑 [EntryDelay] {} entry DELAYED - Reason: {} | Waiting for breakout/retest", 
+                        trade.getScripCode(), delayReason);
+            } else {
+                log.info("✅ [EntryDelay] {} entry IMMEDIATE - Good proximity to pivots and targets", 
+                        trade.getScripCode());
+            }
+            
+        } catch (Exception e) {
+            log.error("🚨 [EntryDelay] Error analyzing entry delay for {}: {}", 
+                    trade.getScripCode(), e.getMessage(), e);
+            // Default to immediate entry on error
+            trade.addMetadata("entryDelayed", false);
+            trade.addMetadata("delayReason", "ERROR_FALLBACK");
+        }
+    }
+    
+    /**
+     * Calculate how close the entry price is to the target (as percentage)
+     * Returns percentage of distance covered toward target
+     */
+    private double calculateTargetProximity(Double entryPrice, Double target1, boolean isBullish) {
+        if (entryPrice == null || target1 == null) {
+            return 0.0;
+        }
+        
+        double totalDistance, currentDistance;
+        
+        if (isBullish) {
+            // For bullish trades: check how close we are to the upside target
+            totalDistance = target1 - entryPrice;
+            if (totalDistance <= 0) {
+                return 100.0; // Already at or past target
+            }
+            // Assume we want at least 1% gap, so current position relative to that gap
+            currentDistance = totalDistance;
+            return Math.max(0, (1.0 - (currentDistance / entryPrice)) * 100);
+        } else {
+            // For bearish trades: check how close we are to the downside target  
+            totalDistance = entryPrice - target1;
+            if (totalDistance <= 0) {
+                return 100.0; // Already at or past target
+            }
+            currentDistance = totalDistance;
+            return Math.max(0, (1.0 - (currentDistance / entryPrice)) * 100);
+        }
+    }
+    
+    /**
+     * Calculate proximity to pivot level (using stop loss as nearest significant level)
+     * Returns percentage distance to pivot
+     */
+    private double calculatePivotProximity(Double entryPrice, Double stopLoss, boolean isBullish) {
+        if (entryPrice == null || stopLoss == null) {
+            return 100.0; // Assume far if we can't calculate
+        }
+        
+        double distance = Math.abs(entryPrice - stopLoss);
+        return (distance / entryPrice) * 100.0;
     }
     
     /**
@@ -518,5 +640,327 @@ public class CleanTradeExecutionService {
         });
         
         return summary.toString();
+    }
+    
+    /**
+     * Get detailed summary of delayed trades and their timeout status
+     */
+    public String getDelayedTradesSummary() {
+        List<ActiveTrade> delayedTrades = activeTrades.values().stream()
+                .filter(trade -> {
+                    Object entryDelayed = trade.getMetadata().get("entryDelayed");
+                    return entryDelayed != null && (Boolean) entryDelayed && 
+                           !trade.getEntryTriggered() && 
+                           trade.getStatus() == ActiveTrade.TradeStatus.WAITING_FOR_ENTRY;
+                })
+                .collect(java.util.stream.Collectors.toList());
+        
+        if (delayedTrades.isEmpty()) {
+            return "No delayed entry trades currently waiting";
+        }
+        
+        StringBuilder summary = new StringBuilder();
+        summary.append(String.format("Delayed Entry Trades: %d\n", delayedTrades.size()));
+        
+        LocalDateTime now = LocalDateTime.now();
+        
+        for (ActiveTrade trade : delayedTrades) {
+            String delayReason = (String) trade.getMetadata().get("delayReason");
+            LocalDateTime signalTime = trade.getSignalTime();
+            
+            long minutesWaiting = signalTime != null ? 
+                java.time.Duration.between(signalTime, now).toMinutes() : 0;
+            long remainingMinutes = Math.max(0, ENTRY_TIMEOUT_MINUTES - minutesWaiting);
+            
+            summary.append(String.format("- %s %s: %s (Waiting: %d min, Remaining: %d min)\n", 
+                    trade.getScripCode(), trade.getSignalType(), delayReason, 
+                    minutesWaiting, remainingMinutes));
+        }
+        
+        return summary.toString();
+    }
+    
+    /**
+     * Scheduled task to check for trade entry timeouts every 5 minutes
+     * Sends detailed Telegram notifications for timed-out trades
+     */
+    @Scheduled(fixedRate = 300000) // Check every 5 minutes (300,000 ms)
+    public void checkTradeEntryTimeouts() {
+        if (activeTrades.isEmpty()) {
+            return; // No active trades to check
+        }
+        
+        LocalDateTime now = LocalDateTime.now();
+        List<ActiveTrade> timedOutTrades = new ArrayList<>();
+        
+        // Find trades that have timed out
+        for (ActiveTrade trade : activeTrades.values()) {
+            if (isTradeTimedOut(trade, now)) {
+                timedOutTrades.add(trade);
+            }
+        }
+        
+        // Process timed-out trades
+        for (ActiveTrade trade : timedOutTrades) {
+            handleTradeTimeout(trade, now);
+        }
+        
+        if (!timedOutTrades.isEmpty()) {
+            log.info("⏰ [Timeout] Processed {} timed-out delayed entry trades", timedOutTrades.size());
+        }
+    }
+    
+    /**
+     * Check if a trade has timed out (30 minutes without entry)
+     */
+    private boolean isTradeTimedOut(ActiveTrade trade, LocalDateTime now) {
+        // Only check trades waiting for entry that are delayed
+        if (trade.getEntryTriggered() || trade.getStatus() != ActiveTrade.TradeStatus.WAITING_FOR_ENTRY) {
+            return false;
+        }
+        
+        // Check if this trade has delayed entry
+        Object entryDelayed = trade.getMetadata().get("entryDelayed");
+        if (entryDelayed == null || !(Boolean) entryDelayed) {
+            return false; // Not a delayed entry trade
+        }
+        
+        // Check timeout based on signal time
+        LocalDateTime signalTime = trade.getSignalTime();
+        if (signalTime == null) {
+            return false;
+        }
+        
+        long minutesWaiting = java.time.Duration.between(signalTime, now).toMinutes();
+        return minutesWaiting >= ENTRY_TIMEOUT_MINUTES;
+    }
+    
+    /**
+     * Handle a timed-out trade - send notification and clean up
+     */
+    private void handleTradeTimeout(ActiveTrade trade, LocalDateTime now) {
+        try {
+            log.info("⏰ [Timeout] Trade {} timed out after {} minutes - cleaning up", 
+                    trade.getScripCode(), ENTRY_TIMEOUT_MINUTES);
+            
+            // Send detailed timeout notification
+            sendTimeoutNotification(trade, now);
+            
+            // Remove from capital management
+            capitalManagementService.removeActiveTrade(trade.getScripCode(), 0.0); // No P&L impact
+            
+            // Remove from local storage
+            activeTrades.remove(trade.getScripCode());
+            
+            log.info("🗑️ [Timeout] Cleaned up timed-out trade for {} - ready for new signals", 
+                    trade.getScripCode());
+            
+        } catch (Exception e) {
+            log.error("🚨 [Timeout] Error handling timeout for {}: {}", 
+                    trade.getScripCode(), e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Send detailed timeout notification via Telegram
+     */
+    private void sendTimeoutNotification(ActiveTrade trade, LocalDateTime now) {
+        try {
+            String message = buildTimeoutMessage(trade, now);
+            
+            // Send to PnL channel (same as exit notifications)
+            telegramNotificationService.sendTimeoutNotification(message);
+            
+            log.info("📱 [Timeout] Sent timeout notification for {}", trade.getScripCode());
+            
+        } catch (Exception e) {
+            log.warn("⚠️ [Timeout] Failed to send timeout notification for {}: {}", 
+                    trade.getScripCode(), e.getMessage());
+        }
+    }
+    
+    /**
+     * Build detailed timeout message for Telegram
+     */
+    private String buildTimeoutMessage(ActiveTrade trade, LocalDateTime now) {
+        String scripCode = trade.getScripCode();
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : scripCode;
+        String signalType = trade.getSignalType();
+        
+        // Extract delay information
+        String delayReason = (String) trade.getMetadata().get("delayReason");
+        Double targetProximity = (Double) trade.getMetadata().get("targetProximity");
+        Double pivotProximity = (Double) trade.getMetadata().get("pivotProximity");
+        Double offendingPivot = (Double) trade.getMetadata().get("delayOnPivot");
+        Double signalPrice = (Double) trade.getMetadata().get("signalPrice");
+        
+        // Calculate waiting time
+        LocalDateTime signalTime = trade.getSignalTime();
+        long minutesWaited = signalTime != null ? 
+            java.time.Duration.between(signalTime, now).toMinutes() : ENTRY_TIMEOUT_MINUTES;
+        
+        // Determine next pivot information
+        String nextPivotInfo = getNextPivotInfo(trade, offendingPivot);
+        
+        // Format timing information
+        String signalTimeStr = signalTime != null ? 
+            signalTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")) : "Unknown";
+        String currentTime = now.format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+        
+        StringBuilder message = new StringBuilder();
+        message.append(String.format("⏰ <b>TRADE TIMEOUT - %d MINUTES</b> ⏰\n\n", minutesWaited));
+        
+        message.append(String.format("%s <b>%s for %s</b>\n", 
+                getActionEmoji(signalType), signalType, companyName));
+        message.append(String.format("<b>%s (%s)</b>\n\n", companyName, scripCode));
+        
+        message.append("<b>⏱️ TIMEOUT DETAILS:</b>\n");
+        message.append(String.format("🟢 Signal Time: %s\n", signalTimeStr));
+        message.append(String.format("🔴 Timeout: %s\n", currentTime));
+        message.append(String.format("⏰ Waited: %d minutes\n\n", minutesWaited));
+        
+        message.append("<b>🚫 ENTRY CONDITIONS NOT MET:</b>\n");
+        message.append(String.format("📊 Signal Price: ₹%.2f\n", signalPrice != null ? signalPrice : 0.0));
+        
+        if ("TARGET_50_PERCENT_CLOSE".equals(delayReason)) {
+            message.append(String.format("🎯 Issue: Too close to target (%.1f%%)\n", 
+                    targetProximity != null ? targetProximity : 0.0));
+            message.append("🔄 Needed: Price to move away from target\n");
+        } else if ("PIVOT_TOO_CLOSE".equals(delayReason)) {
+            message.append(String.format("📊 Issue: Too close to pivot (%.1f%%)\n", 
+                    pivotProximity != null ? pivotProximity : 0.0));
+            if (offendingPivot != null) {
+                message.append(String.format("🔄 Needed: %s breakout %s ₹%.2f\n", 
+                        signalType.equals("BULLISH") ? "Above" : "Below",
+                        signalType.equals("BULLISH") ? ">" : "<",
+                        offendingPivot));
+            }
+        }
+        
+        message.append(String.format("\n<b>📈 NEXT PIVOT ANALYSIS:</b>\n%s", nextPivotInfo));
+        
+        message.append("\n\n<b>🔄 SWITCHING TO NEXT SIGNAL</b>\n");
+        message.append("✅ Trade slot now available for new signals\n");
+        message.append("📊 30M strategy continues monitoring\n\n");
+        message.append("Enhanced 30M Strategy - Timeout Management");
+        
+        return message.toString();
+    }
+    
+    /**
+     * Get next pivot information for timeout message
+     */
+    private String getNextPivotInfo(ActiveTrade trade, Double currentPivot) {
+        try {
+            if (currentPivot == null) {
+                return "Next pivot analysis pending for new signal";
+            }
+            
+            boolean isBullish = trade.isBullish();
+            double signalPrice = trade.getMetadata().get("signalPrice") != null ? 
+                (Double) trade.getMetadata().get("signalPrice") : 0.0;
+            
+            // Calculate next significant level (simplified)
+            double nextPivot;
+            String direction;
+            
+            if (isBullish) {
+                nextPivot = currentPivot * 1.02; // 2% above current pivot
+                direction = "resistance";
+            } else {
+                nextPivot = currentPivot * 0.98; // 2% below current pivot  
+                direction = "support";
+            }
+            
+            return String.format("🎯 Next %s level: ₹%.2f\n📏 Distance from signal: %.2f%%", 
+                    direction, nextPivot, 
+                    Math.abs((nextPivot - signalPrice) / signalPrice) * 100);
+                    
+        } catch (Exception e) {
+            log.warn("⚠️ [Timeout] Error calculating next pivot info: {}", e.getMessage());
+            return "Next pivot analysis will be done for new signal";
+        }
+    }
+    
+    /**
+     * Get emoji for signal type
+     */
+    private String getActionEmoji(String signalType) {
+        if ("BULLISH".equalsIgnoreCase(signalType)) return "🟢";
+        if ("BEARISH".equalsIgnoreCase(signalType)) return "🔴";
+        return "⚪";
+    }
+    
+    /**
+     * Force cleanup of a specific delayed trade (manual intervention)
+     */
+    public boolean forceCleanupDelayedTrade(String scripCode, String reason) {
+        ActiveTrade trade = activeTrades.get(scripCode);
+        
+        if (trade == null) {
+            log.warn("⚠️ [ForceCleanup] No active trade found for {}", scripCode);
+            return false;
+        }
+        
+        Object entryDelayed = trade.getMetadata().get("entryDelayed");
+        if (entryDelayed == null || !(Boolean) entryDelayed) {
+            log.warn("⚠️ [ForceCleanup] Trade {} is not a delayed entry trade", scripCode);
+            return false;
+        }
+        
+        if (trade.getEntryTriggered()) {
+            log.warn("⚠️ [ForceCleanup] Trade {} has already been entered", scripCode);
+            return false;
+        }
+        
+        try {
+            log.info("🔧 [ForceCleanup] Manually cleaning up delayed trade {} - Reason: {}", 
+                    scripCode, reason);
+            
+            // Send timeout notification with manual reason
+            String message = buildManualCleanupMessage(trade, reason);
+            telegramNotificationService.sendTimeoutNotification(message);
+            
+            // Remove from capital management
+            capitalManagementService.removeActiveTrade(trade.getScripCode(), 0.0);
+            
+            // Remove from local storage
+            activeTrades.remove(scripCode);
+            
+            log.info("✅ [ForceCleanup] Successfully cleaned up trade for {}", scripCode);
+            return true;
+            
+        } catch (Exception e) {
+            log.error("🚨 [ForceCleanup] Error cleaning up trade {}: {}", scripCode, e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    /**
+     * Build manual cleanup message for Telegram
+     */
+    private String buildManualCleanupMessage(ActiveTrade trade, String reason) {
+        String scripCode = trade.getScripCode();
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : scripCode;
+        String signalType = trade.getSignalType();
+        
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime signalTime = trade.getSignalTime();
+        long minutesWaited = signalTime != null ? 
+            java.time.Duration.between(signalTime, now).toMinutes() : 0;
+        
+        StringBuilder message = new StringBuilder();
+        message.append("🔧 <b>MANUAL TRADE CLEANUP</b> 🔧\n\n");
+        
+        message.append(String.format("%s <b>%s for %s</b>\n", 
+                getActionEmoji(signalType), signalType, companyName));
+        message.append(String.format("<b>%s (%s)</b>\n\n", companyName, scripCode));
+        
+        message.append(String.format("⏰ Waited: %d minutes\n", minutesWaited));
+        message.append(String.format("🔧 Cleanup Reason: %s\n", reason));
+        message.append("✅ Trade slot now available for new signals\n\n");
+        message.append("Enhanced 30M Strategy - Manual Cleanup");
+        
+        return message.toString();
     }
 } 

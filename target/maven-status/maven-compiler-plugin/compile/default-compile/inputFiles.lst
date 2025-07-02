@@ -19,6 +19,7 @@
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/TradeExecutionTestController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/ProfitLossCalculator.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/ActiveTrade.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/SchedulingConfig.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/PortfolioManagementService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/PortfolioManagementController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/TradeExecutionService.java
