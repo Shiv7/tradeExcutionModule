@@ -208,6 +208,10 @@ public void processStrategySignal(StrategySignal signal,
             return; // Silent - no spam for non-matching scripts
         }
         
+        // 📊 LOG PRICE UPDATE FOR ACTIVE TRADE
+        log.info("💹 [BulletproofSC] PRICE UPDATE: {} @ {} (Entry: {}, Status: {})", 
+                scripCode, price, trade.getEntryTriggered() ? "TRIGGERED" : "WAITING", trade.getStatus());
+        
         // 🧟‍♂️ BULLETPROOF: Zombie trade detection
         if (trade.getStatus() != null && 
             (trade.getStatus() == ActiveTrade.TradeStatus.CLOSED_PROFIT || 
@@ -256,8 +260,8 @@ public void processStrategySignal(StrategySignal signal,
             return;
         }
         
-        log.debug("🎯 [BulletproofSC] Entry check: {} - Current: {}, Signal: {}, SL: {}, Bullish: {}", 
-                 trade.getScripCode(), price, signalPrice, stopLoss, isBullish);
+        log.info("🎯 [BulletproofSC] ENTRY CHECK: {} - Current: {}, Signal: {}, SL: {}, Bullish: {}, Age: {}min", 
+                 trade.getScripCode(), price, signalPrice, stopLoss, isBullish, signalAgeMs / 60000);
         
         // 🕳️ FIXED: Gap handling - wait for retest if price comes back above stop loss
         boolean shouldEnter = false;
@@ -266,6 +270,9 @@ public void processStrategySignal(StrategySignal signal,
         if (isBullish) {
             // 🟢 BULLISH ENTRY: Price retests near stop loss (pivot) then moves toward target
             double retestZone = stopLoss + ((signalPrice - stopLoss) * 0.2); // 20% above stop loss
+            log.info("🎯 [BulletproofSC] BULLISH RETEST: Current {}, RetestZone {}, StopLoss {}, InZone: {}", 
+                    price, String.format("%.2f", retestZone), stopLoss, (price <= retestZone && price > stopLoss));
+            
             if (price <= retestZone && price > stopLoss) {
                 shouldEnter = true;
                 entryReason = String.format("Bullish retest at %.2f (near pivot SL: %.2f)", price, stopLoss);
@@ -273,6 +280,9 @@ public void processStrategySignal(StrategySignal signal,
         } else {
             // 🔴 BEARISH ENTRY: Price retests near stop loss (pivot) then moves toward target  
             double retestZone = stopLoss - ((stopLoss - signalPrice) * 0.2); // 20% below stop loss
+            log.info("🎯 [BulletproofSC] BEARISH RETEST: Current {}, RetestZone {}, StopLoss {}, InZone: {}", 
+                    price, String.format("%.2f", retestZone), stopLoss, (price >= retestZone && price < stopLoss));
+            
             if (price >= retestZone && price < stopLoss) {
                 shouldEnter = true;
                 entryReason = String.format("Bearish retest at %.2f (near pivot SL: %.2f)", price, stopLoss);

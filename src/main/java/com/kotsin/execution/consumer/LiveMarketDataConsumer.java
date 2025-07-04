@@ -62,7 +62,11 @@ public class LiveMarketDataConsumer {
             boolean hasActiveTradeForScript = bulletproofSignalConsumer.getCurrentTrade() != null &&
                 scripCode.equals(bulletproofSignalConsumer.getCurrentTrade().getScripCode());
             
-            // 🔇 REMOVED SPAM LOGS: No more sample market data or linking info on every tick
+            // 🎯 DEBUGGING: Log market data for active trade token
+            if (hasActiveTradeForScript) {
+                log.info("📈 [LiveMarketData-ACTIVE] Received data for ACTIVE TRADE token: {} at price: {} (Exchange: {}, Time: {})", 
+                        scripCode, lastRate, exchange, tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+            }
             
             // Quick validation
             if (scripCode == null || lastRate <= 0) {
