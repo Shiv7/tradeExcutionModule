@@ -110,6 +110,28 @@ public class TelegramNotificationService {
         }
     }
 
+    /**
+     * 🛡️ BULLETPROOF: Send general trade notification message to execution channel
+     */
+    public boolean sendTradeNotificationMessage(String message) {
+        if (!telegramEnabled) {
+            log.debug("📱 Telegram notifications disabled, skipping trade notification.");
+            return false;
+        }
+        if (message == null || message.trim().isEmpty()) {
+            log.warn("❌ Cannot send Telegram alert: empty message");
+            return false;
+        }
+        try {
+            log.info("📱 [BULLETPROOF-TRADE] Sending trade notification to EXECUTION channel: {}", executionChatId);
+            return sendMessage(message, executionChatId);
+        } catch (Exception e) {
+            log.error("🚨 Error sending Telegram trade notification: {}", e.getMessage(), e);
+            messagesFailed.incrementAndGet();
+            return false;
+        }
+    }
+
     private String formatEntryMessage(ActiveTrade trade) {
         long alertNumber = messagesSent.incrementAndGet();
         
@@ -149,11 +171,14 @@ public class TelegramNotificationService {
             "💰 Capital Risk: ₹%.2f",
             
             alertNumber,
-            getActionEmoji(trade.getSignalType()), trade.getSignalType(), trade.getCompanyName(),
-            trade.getCompanyName(), trade.getScripCode(),
+            getActionEmoji(trade.getSignalType()), 
+            cleanText(trade.getSignalType()), 
+            cleanText(trade.getCompanyName()),
+            cleanText(trade.getCompanyName()), 
+            cleanText(trade.getScripCode()),
             entryTime, trade.getEntryPrice(),
             trade.getStopLoss(), targetLevels, rrContext,
-            strategyInfo,
+            cleanText(strategyInfo),
             trade.getPositionSize() != null ? trade.getPositionSize() : 0,
             calculateRiskAmount(trade)
         );
@@ -246,13 +271,16 @@ public class TelegramNotificationService {
             "📊 Position Size: %d shares",
             
             pnlEmoji, pnlStatus, alertNumber, pnlEmoji,
-            getActionEmoji(trade.getSignalType()), trade.getSignalType(), trade.getCompanyName(),
-            trade.getCompanyName(), trade.getScripCode(),
+            getActionEmoji(trade.getSignalType()), 
+            cleanText(trade.getSignalType()), 
+            cleanText(trade.getCompanyName()),
+            cleanText(trade.getCompanyName()), 
+            cleanText(trade.getScripCode()),
             entryTime, trade.getEntryPrice(),
             exitTime, trade.getExitPrice(),
             duration,
-            strategyInfo,
-            exitReasonEmoji, exitReason, rrContext, targetInfo,
+            cleanText(strategyInfo),
+            exitReasonEmoji, cleanText(exitReason), rrContext, targetInfo,
             pnlEmoji, pnl, roiText,
             trade.getPositionSize() != null ? trade.getPositionSize() : 0
         );
@@ -275,12 +303,11 @@ public class TelegramNotificationService {
     }
 
     private boolean sendMessage(String message, String chatId) {
-        // This method is copied directly from the strategyModule's service
-        // ... (implementation is identical)
         HttpResponse<String> response = null;
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         try {
-            String encodedMessage = URLEncoder.encode(message, StandardCharsets.UTF_8);
+            String cleanedMessage = cleanMessage(message);
+            String encodedMessage = URLEncoder.encode(cleanedMessage, StandardCharsets.UTF_8);
             String uriString = String.format(
                 "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s&parse_mode=html",
                 telegramToken, chatId, encodedMessage
@@ -295,6 +322,12 @@ public class TelegramNotificationService {
             } else {
                 messagesFailed.incrementAndGet();
                 log.warn("⚠️ Telegram API returned non-200 status: {}. Response: {}", response.statusCode(), response.body());
+                
+                if (response.body().contains("can't parse entities") || response.body().contains("Bad Request")) {
+                    log.info("🔄 Retrying with plain text format due to HTML parsing error");
+                    return sendPlainTextMessage(message, chatId);
+                }
+                
                 return false;
             }
         } catch (IOException | InterruptedException ex) {
@@ -305,8 +338,65 @@ public class TelegramNotificationService {
     }
 
     private String getActionEmoji(String signal) {
-        if ("BUY".equalsIgnoreCase(signal)) return "🟢";
-        if ("SELL".equalsIgnoreCase(signal)) return "🔴";
+        if ("BUY".equalsIgnoreCase(signal) || "BULLISH".equalsIgnoreCase(signal)) return "🟢";
+        if ("SELL".equalsIgnoreCase(signal) || "BEARISH".equalsIgnoreCase(signal)) return "🔴";
         return "⚪";
+    }
+
+    /**
+     * Clean text to prevent HTML parsing issues
+     */
+    private String cleanText(String text) {
+        if (text == null) return "";
+        
+        // Remove or escape problematic characters
+        return text.replace("<", "&lt;")
+                  .replace(">", "&gt;")
+                  .replace("&", "&amp;")
+                  .trim();
+    }
+    
+    /**
+     * Clean entire message to prevent parsing errors
+     */
+    private String cleanMessage(String message) {
+        if (message == null) return "";
+        
+        // Remove any problematic empty tags or malformed HTML
+        return message.replaceAll("<[^>]*>(?=\\s*<)", "") // Remove empty tags
+                     .replaceAll("\\s+", " ") // Normalize whitespace
+                     .trim();
+    }
+    
+    /**
+     * Fallback method to send plain text message if HTML fails
+     */
+    private boolean sendPlainTextMessage(String message, String chatId) {
+        try {
+            // Strip all HTML tags for plain text
+            String plainMessage = message.replaceAll("<[^>]*>", "");
+            String encodedMessage = URLEncoder.encode(plainMessage, StandardCharsets.UTF_8);
+            
+            String uriString = String.format(
+                "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s",
+                telegramToken, chatId, encodedMessage
+            );
+            
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+            HttpRequest request = HttpRequest.newBuilder().GET().uri(URI.create(uriString)).timeout(Duration.ofSeconds(10)).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                messagesSuccessful.incrementAndGet();
+                log.info("✅ Telegram plain text message sent successfully to channel: {}", chatId);
+                return true;
+            } else {
+                log.warn("⚠️ Telegram plain text also failed. Status: {}, Response: {}", response.statusCode(), response.body());
+                return false;
+            }
+        } catch (Exception ex) {
+            log.error("🚨 Failed to send plain text Telegram message: {}", ex.getMessage(), ex);
+            return false;
+        }
     }
 } 

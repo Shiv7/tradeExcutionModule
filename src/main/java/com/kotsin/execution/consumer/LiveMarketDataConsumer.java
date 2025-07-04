@@ -1,7 +1,6 @@
 package com.kotsin.execution.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kotsin.execution.service.CleanTradeExecutionService;
 import com.kotsin.execution.service.TradingHoursService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +17,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Consumer for live market data from forwardtesting-data topic.
+ * 🛡️ BULLETPROOF Consumer for live market data from forwardtesting-data topic.
  * Uses latest offset and validates trading hours to avoid processing old ticks.
  */
 @Component
@@ -26,9 +25,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @RequiredArgsConstructor
 public class LiveMarketDataConsumer {
     
-    private final CleanTradeExecutionService cleanTradeExecutionService;
     private final TradingHoursService tradingHoursService;
     private final ObjectMapper objectMapper;
+    private final BulletproofSignalConsumer bulletproofSignalConsumer;
     
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     
@@ -239,15 +238,15 @@ public class LiveMarketDataConsumer {
     }
     
     /**
-     * Process valid tick data by forwarding to trade execution service
+     * 🛡️ BULLETPROOF: Process valid tick data using bulletproof trade execution system
      */
     private boolean processValidTick(String scripCode, double price, LocalDateTime tickTime) {
         try {
             log.debug("📈 [LiveMarketData] Processing tick for {} at price {} (Time: {})", 
                     scripCode, price, tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             
-            // Forward tick to trade execution service for active trade updates
-            cleanTradeExecutionService.updateTradeWithPrice(scripCode, price, tickTime);
+            // 🛡️ BULLETPROOF: Forward to bulletproof signal consumer for single trade management
+            bulletproofSignalConsumer.updatePrice(scripCode, price, tickTime);
             
             return true;
             
