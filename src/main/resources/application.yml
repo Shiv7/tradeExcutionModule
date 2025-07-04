@@ -31,13 +31,19 @@ server:
 app:
   trading:
     hours:
+      # 🕐 STRICT TRADING HOURS (for live trading)
       nse:
         start: "09:15"
         end: "15:30"
       mcx:
         start: "09:00"
-        end: "23:30"
+        end: "23:30"  # 11:30 PM - Commodities run until late night ✅
       timezone: "Asia/Kolkata"
+      
+      # 📝 NOTE: For testing/demo, flexible hours are also configured:
+      # NSE Flexible: 07:00 - 20:00 (7 AM - 8 PM) 
+      # MCX Flexible: 07:00 - 01:00 (7 AM - 1 AM next day)
+      # This allows processing outside strict market hours for demos
     risk:
       # Primary risk configuration - used across all modules
       default-risk-percentage: 1.5        # 1.5% default risk per trade

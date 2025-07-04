@@ -88,7 +88,7 @@ public class BulletproofSignalConsumer {
                    containerFactory = "strategySignalKafkaListenerContainerFactory")
     public void processStrategySignal(StrategySignal signal, Acknowledgment acknowledgment) {
         try {
-            log.info("🎯 [BulletproofSC] Signal received: {} {} @ {} (SL: {}, T1: {}, T2: {}, T3: {})", 
+            log.info("🎯 [BulletproofSC] STRATEGY SIGNAL RECEIVED: {} {} @ {} (SL: {}, T1: {}, T2: {}, T3: {})", 
                     signal.getScripCode(), signal.getSignal(), signal.getEntryPrice(), 
                     signal.getStopLoss(), signal.getTarget1(), signal.getTarget2(), signal.getTarget3());
             
@@ -101,20 +101,27 @@ public class BulletproofSignalConsumer {
             String exchangeForValidation = signal.getExchange() != null ? signal.getExchange() : "NSE";
             
             if (!tradingHoursService.shouldProcessTrade(exchangeForValidation, signalTime)) {
-                log.warn("🚫 [BulletproofSC] Outside trading hours for {} - {}", exchangeForValidation, 
-                        signalTime.format(TIME_FORMAT));
+                log.warn("🚫 [BulletproofSC] OUTSIDE TRADING HOURS for {} - Signal time: {}, Current IST: {}", 
+                        exchangeForValidation, signalTime.format(TIME_FORMAT), 
+                        tradingHoursService.getCurrentISTTime().format(TIME_FORMAT));
                 acknowledgment.acknowledge();
                 return;
             }
             
             // 🎯 CREATE TRADE (Only one at a time) - Use pivot-based targets
-            createTrade(signal.getScripCode(), signal.getNormalizedSignal(), signal.getEntryPrice(), 
+            boolean tradeCreated = createTrade(signal.getScripCode(), signal.getNormalizedSignal(), signal.getEntryPrice(), 
                        signal.getStopLoss(), signal.getTarget1(), signal.getTarget2(), signal.getTarget3(), signalTime);
+            
+            if (tradeCreated) {
+                log.info("✅ [BulletproofSC] TRADE CREATED successfully for {}", signal.getScripCode());
+            } else {
+                log.warn("❌ [BulletproofSC] TRADE CREATION FAILED for {}", signal.getScripCode());
+            }
             
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 [BulletproofSC] Error processing signal: {}", e.getMessage(), e);
+            log.error("🚨 [BulletproofSC] Error processing signal for {}: {}", signal.getScripCode(), e.getMessage(), e);
             acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
     }

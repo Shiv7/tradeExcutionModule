@@ -58,25 +58,25 @@ public class LiveMarketDataConsumer {
             // Extract or generate timestamp
             LocalDateTime tickTime = extractTickTime(marketData, timestamp);
             
-            // Enhanced debugging every 500 ticks to see what tokens we're getting
-            if (processedTicks.get() % 500 == 0) {
-                log.info("🔍 [MarketData-POJO] Sample market data: Token={}, LastRate={}, Exchange={}, CompanyName={}", 
+            // 🔇 SMART LOGGING: Only log detailed info if there's an active trade for this scripCode
+            boolean hasActiveTradeForScript = bulletproofSignalConsumer.getCurrentTrade() != null &&
+                scripCode.equals(bulletproofSignalConsumer.getCurrentTrade().getScripCode());
+            
+            // Enhanced debugging only for active trades
+            if (hasActiveTradeForScript && processedTicks.get() % 10 == 0) {
+                log.info("📈 [ACTIVE-TRADE] Market data for ACTIVE trade: Token={}, LastRate={}, Exchange={}, CompanyName={}", 
                         marketData.getToken(), marketData.getLastRate(), marketData.getExchange(), marketData.getCompanyName());
                 
-                log.info("🔗 [MarketData-POJO] Linking info: scripCode={} (from Token={})", 
+                log.info("🔗 [ACTIVE-TRADE] Linking: scripCode={} (from Token={}) - PROCESSING!", 
                         scripCode, marketData.getToken());
-            }
-            
-            // Enhanced logging for debugging
-            if (processedTicks.get() % 100 == 0) {
-                log.debug("🔍 Market Data POJO - Token: {}, Exchange: {}, Price: {}, Time: {}", 
-                        marketData.getToken(), exchange, lastRate, tickTime);
             }
             
             // Quick validation
             if (scripCode == null || lastRate <= 0) {
-                log.debug("Skipping tick with invalid data: Token={}, LastRate={}", 
-                        marketData.getToken(), lastRate);
+                if (hasActiveTradeForScript) {
+                    log.warn("⚠️ [ACTIVE-TRADE] Invalid data for ACTIVE trade: Token={}, LastRate={}", 
+                            marketData.getToken(), lastRate);
+                }
                 acknowledgment.acknowledge();
                 return;
             }
@@ -84,23 +84,18 @@ public class LiveMarketDataConsumer {
             // Process only today's market data
             if (!isTodayMarketData(tickTime)) {
                 rejectedTicks.incrementAndGet();
-                if (rejectedTicks.get() % 1000 == 0) {
-                    log.debug("📅 Rejected {} non-today ticks - Tick time: {}, Today: {}", 
-                            rejectedTicks.get(), tickTime.toLocalDate(), 
-                            java.time.LocalDate.now());
-                }
                 acknowledgment.acknowledge();
                 return;
             }
             
-            // Enhanced trading hours validation with debugging
+            // Enhanced trading hours validation - only log rejections for active trades
             if (!isValidTradingTime(exchange, tickTime)) {
                 rejectedTicks.incrementAndGet();
-                // Log rejection with more details
-                if (rejectedTicks.get() % 500 == 0) {
-                    log.warn("🚫 Rejected {} ticks outside trading hours - Exchange: {}, Current IST: {}, Tick Time: {}", 
-                            rejectedTicks.get(), exchange, 
-                            tradingHoursService.getCurrentISTTime(), tickTime);
+                
+                // Only log rejection details for active trades
+                if (hasActiveTradeForScript) {
+                    log.warn("🚫 [ACTIVE-TRADE] REJECTED outside trading hours - Exchange: {}, Current IST: {}, Tick Time: {}", 
+                            exchange, tradingHoursService.getCurrentISTTime(), tickTime);
                 }
                 acknowledgment.acknowledge();
                 return;
@@ -115,9 +110,9 @@ public class LiveMarketDataConsumer {
             // Update metrics
             long processed = processedTicks.incrementAndGet();
             
-            // Enhanced progress logging
-            if (processed % 1000 == 0) {
-                log.info("📊 Market Data POJO Stats - Processed: {}, Rejected: {}, Matched to Trades: {}, Current IST: {}", 
+            // 📊 REDUCED STATS LOGGING: Only every 5000 ticks instead of 1000
+            if (processed % 5000 == 0) {
+                log.info("📊 Market Data Stats - Processed: {}, Rejected: {}, Matched to Trades: {}, Current IST: {}", 
                         processed, rejectedTicks.get(), matchedTicks.get(), 
                         tradingHoursService.getCurrentISTTime().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             }
@@ -173,13 +168,13 @@ public class LiveMarketDataConsumer {
         java.time.LocalTime currentTimeOfDay = currentTime.toLocalTime();
         
         if ("N".equalsIgnoreCase(exchange) || "NSE".equalsIgnoreCase(exchange)) {
-            // NSE flexible: 7:00 AM to 6:00 PM (extended for testing)
-            return !currentTimeOfDay.isBefore(java.time.LocalTime.of(7, 0)) && 
-                   !currentTimeOfDay.isAfter(java.time.LocalTime.of(18, 0));
+            // 🕐 NSE STRICT: Only during trading hours 9:15 AM - 3:30 PM
+            return !currentTimeOfDay.isBefore(java.time.LocalTime.of(9, 15)) && 
+                   !currentTimeOfDay.isAfter(java.time.LocalTime.of(15, 30));
         } else if ("M".equalsIgnoreCase(exchange) || "MCX".equalsIgnoreCase(exchange)) {
-            // MCX flexible: 7:00 AM to 1:00 AM next day
-            return !currentTimeOfDay.isBefore(java.time.LocalTime.of(7, 0)) && 
-                   !currentTimeOfDay.isAfter(java.time.LocalTime.of(1, 0));
+            // MCX flexible: 9:00 AM to 11:30 PM (commodities extended hours)
+            return !currentTimeOfDay.isBefore(java.time.LocalTime.of(9, 0)) && 
+                   !currentTimeOfDay.isAfter(java.time.LocalTime.of(23, 30));
         }
         
         // Default to allow for unknown exchanges
