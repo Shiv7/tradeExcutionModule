@@ -2,6 +2,7 @@ package com.kotsin.execution.consumer;
 
 import com.kotsin.execution.model.ActiveTrade;
 import com.kotsin.execution.model.TradeResult;
+import com.kotsin.execution.model.StrategySignal;
 import com.kotsin.execution.producer.TradeResultProducer;
 import com.kotsin.execution.producer.ProfitLossProducer;
 import com.kotsin.execution.service.TelegramNotificationService;
@@ -9,6 +10,7 @@ import com.kotsin.execution.service.TradingHoursService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -33,6 +35,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * ✅ Proper signal price vs entry price separation
  * ✅ Thread-safe operations with atomic variables
  * ✅ Null-safe metadata access throughout
+ * ✅ FIXED: Proper JSON deserialization using StrategySignal POJO
  */
 @Service
 @Slf4j
@@ -78,42 +81,41 @@ public class BulletproofSignalConsumer {
     
     /**
      * 🚀 PROCESS STRATEGY SIGNALS - Only one trade at a time
+     * 🔧 FIXED: Use StrategySignal POJO with proper JSON deserialization
      */
-    @KafkaListener(topics = "enhanced-30m-signals", groupId = "bulletproof-trade-execution")
-    public void processStrategySignal(Map<String, Object> signalData) {
+    @KafkaListener(topics = "enhanced-30m-signals", 
+                   groupId = "bulletproof-trade-execution",
+                   containerFactory = "strategySignalKafkaListenerContainerFactory")
+    public void processStrategySignal(StrategySignal signal, Acknowledgment acknowledgment) {
         try {
-            String scripCode = extractStringValue(signalData, "scripCode");
-            String signal = extractStringValue(signalData, "signal");
-            Double entryPrice = extractDoubleValue(signalData, "entryPrice");
-            Double stopLoss = extractDoubleValue(signalData, "stopLoss");
-            Double target1 = extractDoubleValue(signalData, "target1");
-            Double target2 = extractDoubleValue(signalData, "target2");
-            Double target3 = extractDoubleValue(signalData, "target3");
-            String exchange = extractStringValue(signalData, "exchange");
-            Long timestamp = extractLongValue(signalData, "timestamp");
-            
             log.info("🎯 [BulletproofSC] Signal received: {} {} @ {} (SL: {}, T1: {}, T2: {}, T3: {})", 
-                    scripCode, signal, entryPrice, stopLoss, target1, target2, target3);
+                    signal.getScripCode(), signal.getSignal(), signal.getEntryPrice(), 
+                    signal.getStopLoss(), signal.getTarget1(), signal.getTarget2(), signal.getTarget3());
             
             // 🛡️ VALIDATE TRADING HOURS
-            LocalDateTime signalTime = timestamp != null ? 
-                LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(timestamp), 
+            LocalDateTime signalTime = signal.getTimestamp() > 0 ? 
+                LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(signal.getTimestamp()), 
                                       java.time.ZoneId.of("Asia/Kolkata")) :
                 tradingHoursService.getCurrentISTTime();
             
-            String exchangeForValidation = exchange != null ? exchange : "NSE";
+            String exchangeForValidation = signal.getExchange() != null ? signal.getExchange() : "NSE";
             
             if (!tradingHoursService.shouldProcessTrade(exchangeForValidation, signalTime)) {
                 log.warn("🚫 [BulletproofSC] Outside trading hours for {} - {}", exchangeForValidation, 
                         signalTime.format(TIME_FORMAT));
+                acknowledgment.acknowledge();
                 return;
             }
             
             // 🎯 CREATE TRADE (Only one at a time) - Use pivot-based targets
-            createTrade(scripCode, signal, entryPrice, stopLoss, target1, target2, target3, signalTime);
+            createTrade(signal.getScripCode(), signal.getNormalizedSignal(), signal.getEntryPrice(), 
+                       signal.getStopLoss(), signal.getTarget1(), signal.getTarget2(), signal.getTarget3(), signalTime);
+            
+            acknowledgment.acknowledge();
             
         } catch (Exception e) {
             log.error("🚨 [BulletproofSC] Error processing signal: {}", e.getMessage(), e);
+            acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
     }
     
@@ -631,43 +633,23 @@ public class BulletproofSignalConsumer {
         }
         
         // 🚨 FIXED: TARGET DIRECTION VALIDATION - Critical fix!
+        // BULLISH: All targets must be ABOVE entry price (ascending: entry < T1 < T2 < T3)
         if (isBullish) {
-            // BULLISH: All targets must be ABOVE entry price
             if (target1 <= entryPrice) {
-                log.error("🚨 [BulletproofSC] BULLISH TARGET 1 BELOW ENTRY: {} <= {} - GUARANTEED LOSS!", 
+                log.error("🚨 [BulletproofSC] BULLISH TARGET ERROR: Target 1 {} <= Entry {} - IMPOSSIBLE!", 
                          target1, entryPrice);
-                return false;
-            }
-            if (target2 != null && target2 > 0 && target2 <= entryPrice) {
-                log.error("🚨 [BulletproofSC] BULLISH TARGET 2 BELOW ENTRY: {} <= {} - GUARANTEED LOSS!", 
-                         target2, entryPrice);
-                return false;
-            }
-            if (target3 != null && target3 > 0 && target3 <= entryPrice) {
-                log.error("🚨 [BulletproofSC] BULLISH TARGET 3 BELOW ENTRY: {} <= {} - GUARANTEED LOSS!", 
-                         target3, entryPrice);
                 return false;
             }
         } else {
-            // BEARISH: All targets must be BELOW entry price
+            // BEARISH: All targets must be BELOW entry price (descending: entry > T1 > T2 > T3)  
             if (target1 >= entryPrice) {
-                log.error("🚨 [BulletproofSC] BEARISH TARGET 1 ABOVE ENTRY: {} >= {} - GUARANTEED LOSS!", 
+                log.error("🚨 [BulletproofSC] BEARISH TARGET ERROR: Target 1 {} >= Entry {} - IMPOSSIBLE!", 
                          target1, entryPrice);
-                return false;
-            }
-            if (target2 != null && target2 > 0 && target2 >= entryPrice) {
-                log.error("🚨 [BulletproofSC] BEARISH TARGET 2 ABOVE ENTRY: {} >= {} - GUARANTEED LOSS!", 
-                         target2, entryPrice);
-                return false;
-            }
-            if (target3 != null && target3 > 0 && target3 >= entryPrice) {
-                log.error("🚨 [BulletproofSC] BEARISH TARGET 3 ABOVE ENTRY: {} >= {} - GUARANTEED LOSS!", 
-                         target3, entryPrice);
                 return false;
             }
         }
         
-        // 🎯 FIXED: TARGET SEQUENCE VALIDATION - Ensure logical target progression
+        // VALIDATE TARGET SEQUENCE within same direction
         if (isBullish) {
             // BULLISH: Targets must be in ascending order (T1 < T2 < T3)
             if (target2 != null && target2 > 0 && target2 <= target1) {
@@ -757,7 +739,7 @@ public class BulletproofSignalConsumer {
     }
     
     private String generateTradeId(String scripCode) {
-        return "BP_" + scripCode + "_" + System.currentTimeMillis();
+        return "BT_" + scripCode + "_" + System.currentTimeMillis();
     }
     
     /**
@@ -1080,42 +1062,6 @@ public class BulletproofSignalConsumer {
         );
         
         telegramNotificationService.sendTradeNotificationMessage(message);
-    }
-    
-    // 💔 FIXED: Null-safe extraction methods
-    private String extractStringValue(Map<String, Object> data, String key) {
-        Object value = data.get(key);
-        return value != null ? value.toString() : null;
-    }
-    
-    private Double extractDoubleValue(Map<String, Object> data, String key) {
-        Object value = data.get(key);
-        if (value == null) return null;
-        
-        try {
-            if (value instanceof Number) {
-                return ((Number) value).doubleValue();
-            }
-            return Double.parseDouble(value.toString());
-        } catch (NumberFormatException e) {
-            log.warn("⚠️ [BulletproofSC] Invalid double value for {}: {}", key, value);
-            return null;
-        }
-    }
-    
-    private Long extractLongValue(Map<String, Object> data, String key) {
-        Object value = data.get(key);
-        if (value == null) return null;
-        
-        try {
-            if (value instanceof Number) {
-                return ((Number) value).longValue();
-            }
-            return Long.parseLong(value.toString());
-        } catch (NumberFormatException e) {
-            log.warn("⚠️ [BulletproofSC] Invalid long value for {}: {}", key, value);
-            return null;
-        }
     }
     
     // Public accessors

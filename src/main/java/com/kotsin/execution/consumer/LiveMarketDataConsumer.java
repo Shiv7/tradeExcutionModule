@@ -1,6 +1,6 @@
 package com.kotsin.execution.consumer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kotsin.execution.model.MarketData;
 import com.kotsin.execution.service.TradingHoursService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,12 +13,11 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 🛡️ BULLETPROOF Consumer for live market data from forwardtesting-data topic.
- * Uses latest offset and validates trading hours to avoid processing old ticks.
+ * 🔧 FIXED: Now uses MarketData POJO for proper type safety and Token-scripCode linking.
  */
 @Component
 @Slf4j
@@ -26,7 +25,6 @@ import java.util.concurrent.atomic.AtomicLong;
 public class LiveMarketDataConsumer {
     
     private final TradingHoursService tradingHoursService;
-    private final ObjectMapper objectMapper;
     private final BulletproofSignalConsumer bulletproofSignalConsumer;
     
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -37,53 +35,48 @@ public class LiveMarketDataConsumer {
     private final AtomicLong matchedTicks = new AtomicLong(0);
     
     /**
-     * Consume live market data with trading hours validation
-     * Configured to consume from earliest offset to process all today's market data
+     * 🔧 FIXED: Consume MarketData POJO directly with proper JSON deserialization
+     * Uses marketDataKafkaListenerContainerFactory for type-safe POJO conversion
+     * Token (market data) = scripCode (strategy signals) for company linking
      */
     @KafkaListener(topics = "forwardtesting-data",
-                   groupId = "kotsin-trade-execution-market-data-retest-v3",
-                   properties = {"auto.offset.reset=earliest"})
+                   groupId = "kotsin-trade-execution-market-data-retest-v4",
+                   properties = {"auto.offset.reset=earliest"},
+                   containerFactory = "marketDataKafkaListenerContainerFactory")
     public void consumeMarketData(
-            @Payload String message,
+            @Payload MarketData marketData,
             @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long timestamp,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             Acknowledgment acknowledgment) {
         
         try {
-            // Parse tick data
-            Map<String, Object> tickData = objectMapper.readValue(message, Map.class);
-            
-            // Extract basic information with multiple fallback fields
-            String scripCode = extractScripCode(tickData);
-            String exchange = extractStringValue(tickData, "Exch");
-            Double lastRate = extractDoubleValue(tickData, "LastRate");
+            // 🔗 CRITICAL: Extract unique identifier (Token as String for linking)
+            String scripCode = marketData.getUniqueIdentifier(); // Token as String
+            String exchange = marketData.getExchange();
+            double lastRate = marketData.getLastRate();
             
             // Extract or generate timestamp
-            LocalDateTime tickTime = extractTickTime(tickData, timestamp);
+            LocalDateTime tickTime = extractTickTime(marketData, timestamp);
             
-            // Enhanced debugging every 500 ticks to see what script codes we're getting
+            // Enhanced debugging every 500 ticks to see what tokens we're getting
             if (processedTicks.get() % 500 == 0) {
-                log.info("🔍 [MarketData-Debug] Sample tick data fields: {}", tickData.keySet());
-                log.info("🔍 [MarketData-Debug] Extracted: scripCode={}, exchange={}, price={}, companyName={}, Token={}", 
-                        scripCode, exchange, lastRate, 
-                        tickData.get("companyName"), tickData.get("Token"));
+                log.info("🔍 [MarketData-POJO] Sample market data: Token={}, LastRate={}, Exchange={}, CompanyName={}", 
+                        marketData.getToken(), marketData.getLastRate(), marketData.getExchange(), marketData.getCompanyName());
                 
-                // Log all possible script code fields
-                log.info("🔍 [MarketData-Debug] All potential script fields: companyName={}, scripCode={}, Token={}, token={}, instrument_token={}, symbol={}", 
-                        tickData.get("companyName"), tickData.get("scripCode"), 
-                        tickData.get("Token"), tickData.get("token"), tickData.get("instrument_token"), tickData.get("symbol"));
+                log.info("🔗 [MarketData-POJO] Linking info: scripCode={} (from Token={})", 
+                        scripCode, marketData.getToken());
             }
             
             // Enhanced logging for debugging
             if (processedTicks.get() % 100 == 0) {
-                log.debug("🔍 Market Data Sample - ScripCode: {}, Exchange: {}, Price: {}, Time: {}, Available fields: {}", 
-                        scripCode, exchange, lastRate, tickTime, tickData.keySet());
+                log.debug("🔍 Market Data POJO - Token: {}, Exchange: {}, Price: {}, Time: {}", 
+                        marketData.getToken(), exchange, lastRate, tickTime);
             }
             
             // Quick validation
-            if (scripCode == null || lastRate == null) {
-                log.debug("Skipping tick with missing data: scripCode={}, lastRate={}, fields={}", 
-                        scripCode, lastRate, tickData.keySet());
+            if (scripCode == null || lastRate <= 0) {
+                log.debug("Skipping tick with invalid data: Token={}, LastRate={}", 
+                        marketData.getToken(), lastRate);
                 acknowledgment.acknowledge();
                 return;
             }
@@ -113,8 +106,8 @@ public class LiveMarketDataConsumer {
                 return;
             }
             
-            // Process valid tick
-            boolean tickMatched = processValidTick(scripCode, lastRate, tickTime);
+            // Process valid tick with proper linking
+            boolean tickMatched = processValidTick(scripCode, lastRate, tickTime, marketData);
             if (tickMatched) {
                 matchedTicks.incrementAndGet();
             }
@@ -124,7 +117,7 @@ public class LiveMarketDataConsumer {
             
             // Enhanced progress logging
             if (processed % 1000 == 0) {
-                log.info("📊 Market Data Stats - Processed: {}, Rejected: {}, Matched to Trades: {}, Current IST: {}", 
+                log.info("📊 Market Data POJO Stats - Processed: {}, Rejected: {}, Matched to Trades: {}, Current IST: {}", 
                         processed, rejectedTicks.get(), matchedTicks.get(), 
                         tradingHoursService.getCurrentISTTime().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             }
@@ -132,53 +125,9 @@ public class LiveMarketDataConsumer {
             acknowledgment.acknowledge();
             
         } catch (Exception e) {
-            log.error("🚨 Error processing market data: {}", e.getMessage());
+            log.error("🚨 Error processing market data POJO: {}", e.getMessage());
             acknowledgment.acknowledge(); // Acknowledge to avoid reprocessing
         }
-    }
-    
-    /**
-     * Enhanced script code extraction with multiple fallback fields
-     * FIXED: Proper handling of Token as Long and conversion to String
-     */
-    private String extractScripCode(Map<String, Object> tickData) {
-        // Try multiple field names that could contain the script identifier
-        // Priority: Token first (for consistency with signal scripCode), then fallbacks
-        String[] possibleFields = {"Token", "token", "scripCode", "instrument_token", "symbol", "companyName"};
-        
-        for (String field : possibleFields) {
-            Object value = tickData.get(field);
-            if (value != null) {
-                String scripCode = null;
-                
-                if (value instanceof String) {
-                    scripCode = (String) value;
-                } else if (value instanceof Number) {
-                    // Handle numeric tokens (convert to string)
-                    scripCode = value.toString();
-                } else {
-                    scripCode = value.toString();
-                }
-                
-                // Clean and validate script code
-                if (scripCode != null && !scripCode.trim().isEmpty() && !scripCode.equalsIgnoreCase("null")) {
-                    scripCode = scripCode.trim();
-                    
-                    // Log successful extraction with field info for debugging
-                    log.debug("📊 [MarketData] Script code extracted: '{}' from field: '{}' (type: {})", 
-                             scripCode, field, value.getClass().getSimpleName());
-                    
-                    return scripCode;
-                }
-            }
-        }
-        
-        // Enhanced fallback logging
-        log.warn("⚠️ [MarketData] Could not extract script code from tick data. Available fields: {}", 
-                tickData.keySet());
-        log.debug("🔍 [MarketData] Full tick data for debugging: {}", tickData);
-        
-        return null;
     }
     
     /**
@@ -239,31 +188,34 @@ public class LiveMarketDataConsumer {
     
     /**
      * 🛡️ BULLETPROOF: Process valid tick data using bulletproof trade execution system
+     * 🔗 FIXED: Enhanced with MarketData POJO and proper Token-scripCode linking
      */
-    private boolean processValidTick(String scripCode, double price, LocalDateTime tickTime) {
+    private boolean processValidTick(String scripCode, double price, LocalDateTime tickTime, MarketData marketData) {
         try {
-            log.debug("📈 [LiveMarketData] Processing tick for {} at price {} (Time: {})", 
-                    scripCode, price, tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+            log.debug("📈 [LiveMarketData-POJO] Processing Token {} (scripCode: {}) at price {} (Time: {})", 
+                    marketData.getToken(), scripCode, price, tickTime.format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             
             // 🛡️ BULLETPROOF: Forward to bulletproof signal consumer for single trade management
+            // 🔗 CRITICAL: Use scripCode (Token as String) for linking with strategy signals
             bulletproofSignalConsumer.updatePrice(scripCode, price, tickTime);
             
             return true;
             
         } catch (Exception e) {
-            log.error("🚨 [LiveMarketData] Error processing tick for {}: {}", scripCode, e.getMessage());
+            log.error("🚨 [LiveMarketData-POJO] Error processing tick for Token {} (scripCode: {}): {}", 
+                     marketData.getToken(), scripCode, e.getMessage());
             return false;
         }
     }
     
     /**
-     * Extract tick timestamp, preferring tick data timestamp over Kafka timestamp
+     * Extract tick timestamp from MarketData POJO, preferring tick data timestamp over Kafka timestamp
      */
-    private LocalDateTime extractTickTime(Map<String, Object> tickData, long kafkaTimestamp) {
+    private LocalDateTime extractTickTime(MarketData marketData, long kafkaTimestamp) {
         try {
             // Try to extract from tick data first
-            String timestampStr = extractStringValue(tickData, "tickDt");
-            if (timestampStr != null) {
+            String timestampStr = marketData.getTickDt();
+            if (timestampStr != null && !timestampStr.trim().isEmpty()) {
                 // Try different timestamp formats
                 try {
                     // Parse as UTC and convert to IST
@@ -275,10 +227,9 @@ public class LiveMarketDataConsumer {
                 }
             }
             
-            // Try numeric timestamp
-            Object timeObj = tickData.get("time");
-            if (timeObj instanceof Number) {
-                long timeMillis = ((Number) timeObj).longValue();
+            // Try numeric timestamp from MarketData
+            long timeMillis = marketData.getTime();
+            if (timeMillis > 0) {
                 // Convert epoch millis (UTC) to IST
                 java.time.Instant instant = java.time.Instant.ofEpochMilli(timeMillis);
                 return LocalDateTime.ofInstant(instant, java.time.ZoneId.of("Asia/Kolkata"));
@@ -366,32 +317,6 @@ public class LiveMarketDataConsumer {
     }
     
     /**
-     * Extract string value from tick data
-     */
-    private String extractStringValue(Map<String, Object> data, String key) {
-        Object value = data.get(key);
-        return value != null ? value.toString().trim() : null;
-    }
-    
-    /**
-     * Extract double value from tick data
-     */
-    private Double extractDoubleValue(Map<String, Object> data, String key) {
-        Object value = data.get(key);
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
-        }
-        if (value instanceof String) {
-            try {
-                return Double.parseDouble((String) value);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return null;
-    }
-    
-    /**
      * Get processing statistics
      */
     public String getProcessingStats() {
@@ -408,6 +333,7 @@ public class LiveMarketDataConsumer {
     public void resetStats() {
         processedTicks.set(0);
         rejectedTicks.set(0);
+        matchedTicks.set(0);
         log.info("📊 Reset market data processing statistics");
     }
     
@@ -422,13 +348,13 @@ public class LiveMarketDataConsumer {
             boolean isToday = tickDate.equals(today);
             
             if (!isToday) {
-                log.debug("📅 [MarketData] Tick from {}, today is {} - skipping", tickDate, today);
+                log.debug("📅 [MarketData-POJO] Tick from {}, today is {} - skipping", tickDate, today);
             }
             
             return isToday;
             
         } catch (Exception e) {
-            log.error("🚨 [MarketData] Error checking tick date for time {}: {}", tickTime, e.getMessage());
+            log.error("🚨 [MarketData-POJO] Error checking tick date for time {}: {}", tickTime, e.getMessage());
             // If we can't parse the date, process it anyway (conservative approach)
             return true;
         }
