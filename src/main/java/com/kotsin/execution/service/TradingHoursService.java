@@ -71,15 +71,15 @@ public class TradingHoursService {
             
             // Check if message is too old (more than 5 minutes)
             if (messageTime.isBefore(currentTime.minusMinutes(5))) {
-                log.warn("🕐 Message too old - Message time: {}, Current time: {}, Age: {} minutes", 
+                log.debug("🕐 Message too old - Message time: {}, Current time: {}, Age: {} minutes", 
                         messageTime, currentTime, 
                         java.time.Duration.between(messageTime, currentTime).toMinutes());
                 return false;
             }
             
-            // Check if within trading hours
+            // Check if within trading hours - NO SPAM LOGGING
             if (!isWithinTradingHours(exchange, messageTime)) {
-                log.warn("🚫 Message outside trading hours - Exchange: {}, Message time: {}", 
+                log.debug("🚫 Message outside trading hours - Exchange: {}, Message time: {}", 
                         exchange, messageTime);
                 return false;
             }
