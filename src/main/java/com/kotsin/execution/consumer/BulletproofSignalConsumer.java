@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -88,9 +90,11 @@ public class BulletproofSignalConsumer {
      * 🎯 Group ID: Configured in application.properties via containerFactory
      */
     @KafkaListener(topics = "enhanced-30m-signals", 
-                   containerFactory = "strategySignalKafkaListenerContainerFactory",
-                   errorHandler = "bulletproofErrorHandler")
-    public void processStrategySignal(StrategySignal signal, Acknowledgment acknowledgment) {
+               containerFactory = "strategySignalKafkaListenerContainerFactory",
+               errorHandler = "bulletproofErrorHandler")
+public void processStrategySignal(StrategySignal signal, 
+                                Acknowledgment acknowledgment,
+                                @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long kafkaTimestamp) {
         try {
                     // 🛡️ BULLETPROOF: Validate signal data before processing
         if (!isValidStrategySignal(signal)) {
@@ -110,28 +114,33 @@ public class BulletproofSignalConsumer {
                     signal.getScripCode(), signal.getSignal(), signal.getEntryPrice(), 
                     signal.getStopLoss(), signal.getTarget1(), signal.getTarget2(), signal.getTarget3());
             
-            // 🛡️ VALIDATE TRADING HOURS
-            LocalDateTime signalTime = signal.getTimestamp() > 0 ? 
-                LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(signal.getTimestamp()), 
-                                      java.time.ZoneId.of("Asia/Kolkata")) :
-                tradingHoursService.getCurrentISTTime();
-            
-            String exchangeForValidation = signal.getExchange() != null ? signal.getExchange() : "NSE";
-            
-            if (!tradingHoursService.shouldProcessTrade(exchangeForValidation, signalTime)) {
-                log.warn("🚫 [BulletproofSC] OUTSIDE TRADING HOURS for {} - Signal time: {}, Current IST: {}", 
-                        exchangeForValidation, signalTime.format(TIME_FORMAT), 
-                        tradingHoursService.getCurrentISTTime().format(TIME_FORMAT));
-                acknowledgment.acknowledge();
-                return;
-            }
+                    // 🛡️ VALIDATE TRADING HOURS - Use Kafka timestamp (when message was received) converted to IST
+        LocalDateTime signalReceivedTime = kafkaTimestamp > 0 ? 
+            LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(kafkaTimestamp), 
+                                  java.time.ZoneId.of("Asia/Kolkata")) :
+            tradingHoursService.getCurrentISTTime();
+        
+        String exchangeForValidation = signal.getExchange() != null ? signal.getExchange() : "NSE";
+        
+        // 🎯 FIXED: Use proper exchange validation - MCX (M) vs NSE have different trading hours
+        if (!tradingHoursService.shouldProcessTrade(exchangeForValidation, signalReceivedTime)) {
+            log.warn("🚫 [BulletproofSC] OUTSIDE TRADING HOURS for {} - Message received at: {}, Current IST: {}", 
+                    exchangeForValidation, signalReceivedTime.format(TIME_FORMAT), 
+                    tradingHoursService.getCurrentISTTime().format(TIME_FORMAT));
+            log.info("💡 [BulletproofSC] Original signal timestamp was: {}, but using Kafka receive time for trading hours validation", 
+                    signal.getTimestamp() > 0 ? 
+                        LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(signal.getTimestamp()), 
+                                              java.time.ZoneId.of("Asia/Kolkata")).format(TIME_FORMAT) : "N/A");
+            acknowledgment.acknowledge();
+            return;
+        }
             
             // 🛡️ BULLETPROOF: Sanitize and normalize signal data
             StrategySignal sanitizedSignal = sanitizeStrategySignal(signal);
             
             // 🎯 CREATE TRADE (Only one at a time) - Use pivot-based targets
             boolean tradeCreated = createTrade(sanitizedSignal.getScripCode(), sanitizedSignal.getNormalizedSignal(), sanitizedSignal.getEntryPrice(), 
-                       sanitizedSignal.getStopLoss(), sanitizedSignal.getTarget1(), sanitizedSignal.getTarget2(), sanitizedSignal.getTarget3(), signalTime);
+                       sanitizedSignal.getStopLoss(), sanitizedSignal.getTarget1(), sanitizedSignal.getTarget2(), sanitizedSignal.getTarget3(), signalReceivedTime);
             
             if (tradeCreated) {
                 log.info("✅ [BulletproofSC] TRADE CREATED successfully for {}", sanitizedSignal.getScripCode());
@@ -152,7 +161,7 @@ public class BulletproofSignalConsumer {
      */
     public boolean createTrade(String scripCode, String signal, double entryPrice, 
                               double stopLoss, Double target1, Double target2, Double target3, 
-                              LocalDateTime signalTime) {
+                              LocalDateTime signalReceivedTime) {
         
         // 🛡️ BULLETPROOF: Only one trade at a time
         if (currentTrade.get() != null) {
@@ -168,7 +177,7 @@ public class BulletproofSignalConsumer {
         
         // 🏗️ CREATE BULLETPROOF TRADE with pivot targets
         ActiveTrade trade = createBulletproofTrade(scripCode, signal, entryPrice, stopLoss, 
-                                                 target1, target2, target3, signalTime);
+                                                 target1, target2, target3, signalReceivedTime);
         
         // 🎯 ATOMIC ASSIGNMENT - Thread-safe single trade
         boolean created = currentTrade.compareAndSet(null, trade);
@@ -730,7 +739,7 @@ public class BulletproofSignalConsumer {
     
     private ActiveTrade createBulletproofTrade(String scripCode, String signal, double signalPrice, 
                                               double stopLoss, Double target1, Double target2, 
-                                              Double target3, LocalDateTime signalTime) {
+                                              Double target3, LocalDateTime signalReceivedTime) {
         String tradeId = generateTradeId(scripCode);
         boolean isBullish = isBullishSignal(signal);
         
@@ -741,7 +750,7 @@ public class BulletproofSignalConsumer {
                 .companyName(scripCode)
                 .signalType(isBullish ? "BULLISH" : "BEARISH")
                 .strategyName("BULLETPROOF_PIVOT_RETEST")
-                .signalTime(signalTime)
+                .signalTime(signalReceivedTime)
                 .stopLoss(stopLoss)
                 .target1(target1)                    // From strategy pivot analysis
                 .target2(target2)                    // From strategy pivot analysis  
@@ -761,7 +770,7 @@ public class BulletproofSignalConsumer {
         trade.addMetadata("signalPrice", signalPrice);                  // Price when signal was generated
         trade.addMetadata("strategy", "BULLETPROOF_PIVOT_RETEST");
         trade.addMetadata("tradeAmount", TRADE_AMOUNT);
-        trade.addMetadata("createdTime", signalTime); // ⏰ FIXED: Consistent timestamp
+        trade.addMetadata("createdTime", signalReceivedTime); // ⏰ FIXED: Consistent timestamp using Kafka receive time
         
         return trade;
     }
