@@ -164,11 +164,31 @@ public void processStrategySignal(StrategySignal signal,
                               double stopLoss, Double target1, Double target2, Double target3, 
                               LocalDateTime signalReceivedTime) {
         
-        // 🛡️ BULLETPROOF: Only one trade at a time
-        if (currentTrade.get() != null) {
-            log.warn("🚫 [BulletproofSC] Cannot create trade for {} - already have active trade: {}", 
-                    scripCode, currentTrade.get().getScripCode());
-            return false;
+        // 🛡️ SMART TRADE MANAGEMENT: Allow replacement of WAITING trades with better signals
+        ActiveTrade existingTrade = currentTrade.get();
+        
+        if (existingTrade != null) {
+            // If existing trade is ACTIVE (already entered market), reject new signal
+            if (existingTrade.getEntryTriggered()) {
+                log.warn("🚫 [BulletproofSC] Cannot create trade for {} - already have ACTIVE trade: {} (entered at {})", 
+                        scripCode, existingTrade.getScripCode(), existingTrade.getEntryPrice());
+                return false;
+            }
+            
+            // If existing trade is just WAITING, compare signals for replacement
+            if (existingTrade.getStatus() == ActiveTrade.TradeStatus.WAITING_FOR_ENTRY) {
+                boolean shouldReplace = shouldReplaceWaitingTrade(existingTrade, scripCode, signal, entryPrice, target1);
+                
+                if (shouldReplace) {
+                    log.info("🔄 [BulletproofSC] REPLACING waiting trade {} with better signal {}", 
+                            existingTrade.getScripCode(), scripCode);
+                    cancelTrade(existingTrade, "Replaced with better signal");
+                } else {
+                    log.warn("🚫 [BulletproofSC] Keeping existing waiting trade for {} - new signal for {} not better", 
+                            existingTrade.getScripCode(), scripCode);
+                    return false;
+                }
+            }
         }
         
         // 🔍 VALIDATE TRADE SETUP - FIXED: Now includes target direction validation
@@ -213,6 +233,11 @@ public void processStrategySignal(StrategySignal signal,
         log.info("💹 [BulletproofSC] PRICE UPDATE: {} @ {} (Entry: {}, Status: {})", 
                 scripCode, price, trade.getEntryTriggered() ? "TRIGGERED" : "WAITING", trade.getStatus());
         
+        // 💾 STORE CURRENT PRICE for replacement logic
+        if (trade.getMetadata() != null) {
+            trade.addMetadata("lastPrice", price);
+        }
+        
         // 🧟‍♂️ BULLETPROOF: Zombie trade detection
         if (trade.getStatus() != null && 
             (trade.getStatus() == ActiveTrade.TradeStatus.CLOSED_PROFIT || 
@@ -230,6 +255,9 @@ public void processStrategySignal(StrategySignal signal,
         } else {
             checkExitConditions(trade, price, timestamp);
             updateUnrealizedPnL(trade, price);
+            
+            // 💰 LOG UNREALIZED P&L for active trades
+            logUnrealizedPnL(trade, price);
         }
         
         // 📊 Update price tracking
@@ -334,6 +362,68 @@ public void processStrategySignal(StrategySignal signal,
     }
     
     /**
+     * 🔄 SMART REPLACEMENT: Should we replace waiting trade with new signal?
+     */
+    private boolean shouldReplaceWaitingTrade(ActiveTrade existingTrade, String newScripCode, String newSignal, 
+                                            double newEntryPrice, Double newTarget1) {
+        
+        // Get current market price (we don't have it directly, so use last known price from metadata)
+        Object lastPriceObj = existingTrade.getMetadata() != null ? existingTrade.getMetadata().get("lastPrice") : null;
+        double currentPrice = lastPriceObj != null ? ((Number) lastPriceObj).doubleValue() : newEntryPrice;
+        
+        // Get existing trade details
+        double existingSignalPrice = existingTrade.getMetadata() != null ? 
+            ((Number) existingTrade.getMetadata().get("signalPrice")).doubleValue() : 0.0;
+        Double existingTarget1 = existingTrade.getTarget1();
+        
+        // Calculate distance from current price to signal prices
+        double existingDistance = Math.abs(currentPrice - existingSignalPrice);
+        double newDistance = Math.abs(currentPrice - newEntryPrice);
+        
+        // Calculate percentage distance for better comparison
+        double existingDistancePercent = (existingDistance / existingSignalPrice) * 100;
+        double newDistancePercent = (newDistance / newEntryPrice) * 100;
+        
+        log.info("🔄 [BulletproofSC] REPLACEMENT ANALYSIS:");
+        log.info("   Existing: {} signal @ {}, current price {}, distance {}%", 
+                existingTrade.getScripCode(), existingSignalPrice, currentPrice, String.format("%.1f", existingDistancePercent));
+        log.info("   New: {} signal @ {}, current price {}, distance {}%", 
+                newScripCode, newEntryPrice, currentPrice, String.format("%.1f", newDistancePercent));
+        
+        // Replacement criteria:
+        
+        // 1. Same scripCode - always replace with newer signal
+        if (newScripCode.equals(existingTrade.getScripCode())) {
+            log.info("   ✅ REPLACE: Same scripCode - newer signal preferred");
+            return true;
+        }
+        
+        // 2. New signal is much closer to current price (>50% better)
+        if (newDistancePercent < existingDistancePercent * 0.5) {
+            log.info("   ✅ REPLACE: New signal much closer ({}% vs {}%)", 
+                    String.format("%.1f", newDistancePercent), String.format("%.1f", existingDistancePercent));
+            return true;
+        }
+        
+        // 3. New signal is closer and existing is far (>5% away)
+        if (newDistancePercent < existingDistancePercent && existingDistancePercent > 5.0) {
+            log.info("   ✅ REPLACE: New signal closer and existing is far ({}% vs {}%)", 
+                    String.format("%.1f", newDistancePercent), String.format("%.1f", existingDistancePercent));
+            return true;
+        }
+        
+        // 4. New signal within 2% (near entry) and existing is far
+        if (newDistancePercent <= 2.0 && existingDistancePercent > 2.0) {
+            log.info("   ✅ REPLACE: New signal within near-entry range ({}%) and existing is not ({}%)", 
+                    String.format("%.1f", newDistancePercent), String.format("%.1f", existingDistancePercent));
+            return true;
+        }
+        
+        log.info("   ❌ KEEP EXISTING: New signal not significantly better");
+        return false;
+    }
+
+    /**
      * ❌ CANCEL TRADE - Remove trade when signal should be discarded
      */
     private void cancelTrade(ActiveTrade trade, String cancelReason) {
@@ -395,6 +485,11 @@ public void processStrategySignal(StrategySignal signal,
         log.info("🚀 [BulletproofSC] ENTRY EXECUTED: {} at {} - Position: {} shares, Amount: ₹{}, Reason: {}", 
                 trade.getScripCode(), entryPrice, positionSize, 
                 String.format("%.2f", actualInvestment), entryReason);
+        
+        // 💰 LOG INITIAL POSITION for P&L tracking baseline
+        log.info("💰 [BulletproofSC] P&L BASELINE: {} | Entry: {} | Position: {} shares | Targets: T1:{} T2:{} T3:{} | SL:{}", 
+                trade.getScripCode(), entryPrice, positionSize,
+                trade.getTarget1(), trade.getTarget2(), trade.getTarget3(), trade.getStopLoss());
         
         // 📊 PUBLISH ENTRY EVENT
         profitLossProducer.publishTradeEntry(trade, entryPrice);
@@ -945,6 +1040,101 @@ public void processStrategySignal(StrategySignal signal,
         
         double unrealizedPnL = (currentPrice - entryPrice) * currentShares;
         trade.addMetadata("unrealizedPnL", unrealizedPnL);
+    }
+    
+    /**
+     * 💰 LOG UNREALIZED P&L - Show live profit/loss tracking
+     */
+    private void logUnrealizedPnL(ActiveTrade trade, double currentPrice) {
+        double entryPrice = trade.getEntryPrice();
+        int totalShares = trade.getPositionSize();
+        
+        // Get current position size (full or remaining after partial exit)
+        int currentShares;
+        String positionStatus;
+        if (trade.isTarget1Hit()) {
+            int partialShares = calculatePartialShares(totalShares, 0.5);
+            currentShares = calculateRemainingShares(totalShares, partialShares);
+            positionStatus = String.format("50%% exited, %d/%d shares remaining", currentShares, totalShares);
+        } else {
+            currentShares = totalShares;
+            positionStatus = String.format("Full position: %d shares", currentShares);
+        }
+        
+        // Calculate P&L
+        double priceDiff = currentPrice - entryPrice;
+        double unrealizedPnL = priceDiff * currentShares;
+        double pnlPercent = (priceDiff / entryPrice) * 100;
+        
+        // Get total P&L including any partial exits
+        double totalPnL = unrealizedPnL;
+        Object partialPnLObj = trade.getMetadata() != null ? trade.getMetadata().get("partialPnL") : null;
+        if (partialPnLObj != null) {
+            double partialPnL = ((Number) partialPnLObj).doubleValue();
+            totalPnL += partialPnL;
+        }
+        
+        // Determine profit/loss emoji and color
+        String pnlEmoji = unrealizedPnL >= 0 ? "📈" : "📉";
+        String pnlSign = unrealizedPnL >= 0 ? "+" : "";
+        
+        // Calculate distance to targets
+        Double target1 = trade.getTarget1();
+        Double target2 = trade.getTarget2();
+        String targetInfo = "";
+        
+        if (target1 != null) {
+            boolean isBullish = isBullishSignal(trade.getSignalType());
+            double distanceToT1 = isBullish ? target1 - currentPrice : currentPrice - target1;
+            double percentToT1 = (distanceToT1 / currentPrice) * 100;
+            
+            if (distanceToT1 > 0) {
+                targetInfo = String.format(" | T1: %.2f (%.1f%% away)", target1, Math.abs(percentToT1));
+            } else {
+                targetInfo = String.format(" | T1: ✅ HIT");
+            }
+        }
+        
+        // Log with different frequency based on P&L magnitude
+        double pnlMagnitude = Math.abs(unrealizedPnL);
+        boolean shouldLog = false;
+        
+        // Check if this is the first P&L update after entry
+        Object firstPnLLoggedObj = trade.getMetadata() != null ? trade.getMetadata().get("firstPnLLogged") : null;
+        boolean isFirstPnLUpdate = (firstPnLLoggedObj == null);
+        
+        if (isFirstPnLUpdate) {
+            // Always log the first P&L update to show immediate feedback
+            shouldLog = true;
+            trade.addMetadata("firstPnLLogged", true);
+        }
+        // Always log if P&L > ₹100 or if significant % move (>1%)
+        else if (pnlMagnitude > 100.0 || Math.abs(pnlPercent) > 1.0) {
+            shouldLog = true;
+        }
+        // For smaller moves, log less frequently (every 5th price update)
+        else {
+            Object logCountObj = trade.getMetadata() != null ? trade.getMetadata().get("pnlLogCount") : null;
+            int logCount = logCountObj != null ? ((Number) logCountObj).intValue() + 1 : 1;
+            trade.addMetadata("pnlLogCount", logCount);
+            shouldLog = (logCount % 5 == 0);
+        }
+        
+        if (shouldLog) {
+            log.info("{} [BulletproofSC] P&L UPDATE: {} @ {} | Entry: {} | Unrealized: {}₹{} ({}{:.2f}%) | {} {}", 
+                    pnlEmoji, trade.getScripCode(), currentPrice, entryPrice, 
+                    pnlSign, String.format("%.2f", unrealizedPnL), pnlSign, pnlPercent,
+                    positionStatus, targetInfo);
+            
+            // Log total P&L if different from unrealized (i.e., partial exits occurred)
+            if (partialPnLObj != null) {
+                log.info("💰 [BulletproofSC] TOTAL P&L: {} | Partial: +₹{} | Current: {}₹{} | Total: {}₹{}", 
+                        trade.getScripCode(), 
+                        String.format("%.2f", ((Number) partialPnLObj).doubleValue()),
+                        pnlSign, String.format("%.2f", unrealizedPnL),
+                        totalPnL >= 0 ? "+" : "", String.format("%.2f", totalPnL));
+            }
+        }
     }
     
     /**
