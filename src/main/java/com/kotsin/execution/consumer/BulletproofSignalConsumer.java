@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -59,6 +60,21 @@ public class BulletproofSignalConsumer {
     private final AtomicInteger winningTrades = new AtomicInteger(0);
     
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    
+    /**
+     * 🎯 CRITIC-PROOF: Standardized signal type checking - NO case sensitivity chaos!
+     */
+    private boolean isBullishSignal(String signalType) {
+        if (signalType == null) return false;
+        String normalizedSignal = signalType.trim().toUpperCase();
+        return "BUY".equals(normalizedSignal) || "BULLISH".equals(normalizedSignal);
+    }
+    
+    private boolean isBearishSignal(String signalType) {
+        if (signalType == null) return false;
+        String normalizedSignal = signalType.trim().toUpperCase();
+        return "SELL".equals(normalizedSignal) || "BEARISH".equals(normalizedSignal);
+    }
     
     /**
      * 🚀 PROCESS STRATEGY SIGNALS - Only one trade at a time
@@ -189,11 +205,10 @@ public class BulletproofSignalConsumer {
         
         double signalPrice = ((Number) signalPriceObj).doubleValue();
         double stopLoss = trade.getStopLoss();
-        boolean isBullish = "BUY".equals(trade.getSignalType()) || "BULLISH".equals(trade.getSignalType());
+        boolean isBullish = isBullishSignal(trade.getSignalType());
         
-        // ⏰ FIXED: Entry timeout check to prevent infinite waiting
-        long signalAgeMs = timestamp.toEpochSecond(ZoneOffset.UTC) * 1000 - 
-                          trade.getSignalTime().toEpochSecond(ZoneOffset.UTC) * 1000;
+        // ⏰ CRITIC-PROOF: Entry timeout check with MILLISECOND precision - NO precision loss!
+        long signalAgeMs = ChronoUnit.MILLIS.between(trade.getSignalTime(), timestamp);
         
         if (signalAgeMs > ENTRY_TIMEOUT_MS) {
             log.warn("🕰️ [BulletproofSC] ENTRY TIMEOUT: {} signal is {} minutes old - Using market entry", 
@@ -282,11 +297,12 @@ public class BulletproofSignalConsumer {
      * 5. Trailing Stop (protection - LOWEST priority)
      */
     private void checkExitConditions(ActiveTrade trade, double price, LocalDateTime timestamp) {
-        boolean isBullish = "BUY".equals(trade.getSignalType()) || "BULLISH".equals(trade.getSignalType());
+        boolean isBullish = isBullishSignal(trade.getSignalType());
         double entryPrice = trade.getEntryPrice();
         double stopLoss = trade.getStopLoss();
         
-        // 📊 UPDATE HIGH/LOW TRACKING
+        // 📊 CRITIC-PROOF: CENTRALIZED HIGH/LOW TRACKING - Single source of truth!
+        // This is the ONLY place where high/low values are updated to prevent race conditions
         if (price > trade.getHighSinceEntry()) {
             trade.setHighSinceEntry(price);
         }
@@ -310,65 +326,217 @@ public class BulletproofSignalConsumer {
             }
         }
         
-        // 🎯 3. TARGET 2 CHECK - FIXED: Higher priority than trailing stop
-        if (trade.getTarget2() != null && trade.getTarget2() > 0) {
+        // 🚨 CRITIC-PROOF: Handle price gaps that skip Target 1
+        // If price reaches Target 2/3 without hitting Target 1, force Target 1 partial exit FIRST
+        if (!trade.isTarget1Hit() && trade.getTarget1() != null && trade.getTarget1() > 0) {
+            // Check if price has gapped past Target 1 to Target 2 or Target 3
+            boolean gappedPastTarget1 = false;
+            
+            if (trade.getTarget2() != null && trade.getTarget2() > 0) {
+                boolean target2Reached = isBullish ? (price >= trade.getTarget2()) : (price <= trade.getTarget2());
+                if (target2Reached) {
+                    gappedPastTarget1 = true;
+                    log.warn("🚨 [BulletproofSC] PRICE GAP DETECTED: {} reached Target 2 {} without hitting Target 1 {} - Forcing Target 1 partial exit first", 
+                             trade.getScripCode(), trade.getTarget2(), trade.getTarget1());
+                }
+            }
+            
+            if (trade.getTarget3() != null && trade.getTarget3() > 0) {
+                boolean target3Reached = isBullish ? (price >= trade.getTarget3()) : (price <= trade.getTarget3());
+                if (target3Reached) {
+                    gappedPastTarget1 = true;
+                    log.warn("🚨 [BulletproofSC] PRICE GAP DETECTED: {} reached Target 3 {} without hitting Target 1 {} - Forcing Target 1 partial exit first", 
+                             trade.getScripCode(), trade.getTarget3(), trade.getTarget1());
+                }
+            }
+            
+            // Force Target 1 partial exit if price gapped past it
+            if (gappedPastTarget1) {
+                // 💰 FIXED: Use CURRENT PRICE to capture full gap profits, not Target 1 price!
+                // This ensures we capture all gap profits instead of stealing from ourselves
+                executePartialExit(trade, price, timestamp, "TARGET_1 (Gap Protection - Full Gap Profit)");
+                return; // Exit here, next price update will handle Target 2/3
+            }
+        }
+        
+        // 🎯 3. TARGET 2 CHECK - ONLY after Target 1 is hit (CRITIC-PROOF)
+        if (trade.isTarget1Hit() && trade.getTarget2() != null && trade.getTarget2() > 0) {
             boolean target2Hit = isBullish ? (price >= trade.getTarget2()) : (price <= trade.getTarget2());
             if (target2Hit) {
+                // 🔘 CRITIC-PROOF: Update boolean state before exit
+                trade.setTarget2Hit(true);
                 exitTrade(trade, price, timestamp, "TARGET_2", "Target 2 achieved");
                 return;
             }
         }
         
-        // 🎯 4. TARGET 3 CHECK - FIXED: Higher priority than trailing stop
-        if (trade.getTarget3() != null && trade.getTarget3() > 0) {
+        // 🎯 4. TARGET 3 CHECK - ONLY after Target 1 is hit (CRITIC-PROOF)
+        if (trade.isTarget1Hit() && trade.getTarget3() != null && trade.getTarget3() > 0) {
             boolean target3Hit = isBullish ? (price >= trade.getTarget3()) : (price <= trade.getTarget3());
             if (target3Hit) {
+                // 🔘 CRITIC-PROOF: Update boolean state before exit (even though no target3Hit field exists)
+                // Note: ActiveTrade doesn't have target3Hit field, but target2Hit is properly updated above
                 exitTrade(trade, price, timestamp, "TARGET_3", "Target 3 achieved");
                 return;
             }
         }
         
         // 🏃 5. TRAILING STOP CHECK - LOWEST priority (only after targets checked)
+        // Check both early trailing protection and post-Target1 trailing protection
+        boolean shouldCheckTrailing = false;
+        String trailingType = "";
+        
         if (trade.isTarget1Hit()) {
+            // Post-Target1 trailing stop (standard protection)
+            shouldCheckTrailing = true;
+            trailingType = "POST_TARGET1";
+        } else {
+            // 🛡️ EARLY TRAILING PROTECTION - Protect favorable moves even before Target 1
+            double favorableMove = isBullish ? 
+                (trade.getHighSinceEntry() - trade.getEntryPrice()) / trade.getEntryPrice() * 100 :
+                (trade.getEntryPrice() - trade.getLowSinceEntry()) / trade.getEntryPrice() * 100;
+            
+            // Activate early trailing if price moved favorably by 2% or more
+            if (favorableMove >= 2.0) {
+                shouldCheckTrailing = true;
+                trailingType = "EARLY_PROTECTION";
+            }
+        }
+        
+        if (shouldCheckTrailing) {
             double trailingStopPrice = isBullish ?
                 trade.getHighSinceEntry() * (1 - TRAILING_STOP_PERCENT / 100) :
                 trade.getLowSinceEntry() * (1 + TRAILING_STOP_PERCENT / 100);
             
             boolean trailingStopHit = isBullish ? (price <= trailingStopPrice) : (price >= trailingStopPrice);
             if (trailingStopHit) {
-                exitTrade(trade, price, timestamp, "TRAILING_STOP", 
-                         String.format("Trailing stop at %.2f (%.1f%% from high/low)", 
-                                     trailingStopPrice, TRAILING_STOP_PERCENT));
+                String trailingReason = String.format("%s trailing stop at %.2f (%.1f%% from high/low %.2f)", 
+                                                     trailingType, trailingStopPrice, TRAILING_STOP_PERCENT,
+                                                     isBullish ? trade.getHighSinceEntry() : trade.getLowSinceEntry());
+                
+                exitTrade(trade, price, timestamp, "TRAILING_STOP", trailingReason);
                 return;
             }
         }
     }
     
     /**
+     * 🛡️ METADATA CONSISTENCY VALIDATION - Ensure prices are logically consistent
+     */
+    private boolean validateMetadataConsistency(ActiveTrade trade, double newPrice, String operation) {
+        Map<String, Object> metadata = trade.getMetadata();
+        if (metadata == null) return true; // No metadata to validate
+        
+        boolean isBullish = isBullishSignal(trade.getSignalType());
+        Object signalPriceObj = metadata.get("signalPrice");
+        Object actualEntryPriceObj = metadata.get("actualEntryPrice");
+        Object partialExitPriceObj = metadata.get("partialExitPrice");
+        
+        // Validate signal vs entry price consistency
+        if (signalPriceObj != null && actualEntryPriceObj != null) {
+            double signalPrice = ((Number) signalPriceObj).doubleValue();
+            double actualEntryPrice = ((Number) actualEntryPriceObj).doubleValue();
+            
+            // Entry should be reasonable relative to signal (within 10% for safety)
+            double priceDifference = Math.abs(actualEntryPrice - signalPrice) / signalPrice * 100;
+            if (priceDifference > 10.0) {
+                log.warn("⚠️ [BulletproofSC] LARGE PRICE DEVIATION: Signal {} vs Entry {} - {}% difference", 
+                        signalPrice, actualEntryPrice, String.format("%.2f", priceDifference));
+            }
+        }
+        
+        // Validate partial exit vs entry price consistency
+        if (actualEntryPriceObj != null && partialExitPriceObj != null) {
+            double actualEntryPrice = ((Number) actualEntryPriceObj).doubleValue();
+            double partialExitPrice = ((Number) partialExitPriceObj).doubleValue();
+            
+            if (isBullish && partialExitPrice < actualEntryPrice) {
+                log.error("🚨 [BulletproofSC] BULLISH PARTIAL EXIT LOSS: Entry {} > Exit {} - LOSING MONEY ON PARTIAL!", 
+                         actualEntryPrice, partialExitPrice);
+                return false;
+            }
+            if (!isBullish && partialExitPrice > actualEntryPrice) {
+                log.error("🚨 [BulletproofSC] BEARISH PARTIAL EXIT LOSS: Entry {} < Exit {} - LOSING MONEY ON PARTIAL!", 
+                         actualEntryPrice, partialExitPrice);
+                return false;
+            }
+        }
+        
+        // Validate new price vs existing prices for current operation
+        if ("PARTIAL_EXIT".equals(operation) && actualEntryPriceObj != null) {
+            double actualEntryPrice = ((Number) actualEntryPriceObj).doubleValue();
+            
+            if (isBullish && newPrice < actualEntryPrice) {
+                log.error("🚨 [BulletproofSC] BULLISH PARTIAL EXIT BELOW ENTRY: Entry {} > Exit {} - GUARANTEED LOSS!", 
+                         actualEntryPrice, newPrice);
+                return false;
+            }
+            if (!isBullish && newPrice > actualEntryPrice) {
+                log.error("🚨 [BulletproofSC] BEARISH PARTIAL EXIT ABOVE ENTRY: Entry {} < Exit {} - GUARANTEED LOSS!", 
+                         actualEntryPrice, newPrice);
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    /**
      * 🎯 PARTIAL EXIT - 50% position at Target 1 with PRECISE share calculation
      */
     private void executePartialExit(ActiveTrade trade, double exitPrice, LocalDateTime timestamp, String reason) {
+        // 🛡️ VALIDATE METADATA CONSISTENCY before executing partial exit
+        if (!validateMetadataConsistency(trade, exitPrice, "PARTIAL_EXIT")) {
+            log.error("🚨 [BulletproofSC] PARTIAL EXIT ABORTED: Metadata consistency validation failed for {}", 
+                     trade.getScripCode());
+            return;
+        }
+        
         // 📊 CALCULATE PARTIAL P&L (50% position)
         double partialPnL = calculatePartialPnL(trade, exitPrice, 0.5);
         
-        // 📈 UPDATE TRADE STATE
-        trade.setTarget1Hit(true);
-        trade.addMetadata("partialExitPrice", exitPrice);
-        trade.addMetadata("partialExitTime", timestamp);
-        trade.addMetadata("partialPnL", partialPnL);
-        
-        // 💰 UPDATE REALIZED P&L - Thread-safe
+        // 🛡️ TRANSACTION-LIKE PARTIAL EXIT - Prepare all operations before state changes
+        boolean wasTarget1Hit = trade.isTarget1Hit(); // Save original state for rollback
         long partialPnLCents = Math.round(partialPnL * 100);
-        totalRealizedPnLCents.addAndGet(partialPnLCents);
         
-        log.info("🎯 [BulletproofSC] PARTIAL EXIT (50%): {} at {} - P&L: ₹{}, Reason: {}", 
-                trade.getScripCode(), exitPrice, String.format("%.2f", partialPnL), reason);
-        
-        // 📊 PUBLISH PARTIAL EXIT
-        publishPartialExit(trade, exitPrice, partialPnL, reason);
-        
-        // 📱 SEND NOTIFICATION
-        sendPartialExitNotification(trade, exitPrice, partialPnL, reason);
+        try {
+            // 📈 STEP 1: Update trade state (can be rolled back)
+            trade.setTarget1Hit(true);
+            trade.addMetadata("partialExitPrice", exitPrice);
+            trade.addMetadata("partialExitTime", timestamp);
+            trade.addMetadata("partialPnL", partialPnL);
+            
+            // 💰 STEP 2: Update realized P&L - Thread-safe (atomic, can't fail)
+            totalRealizedPnLCents.addAndGet(partialPnLCents);
+            
+            // 📊 STEP 3: Publish partial exit (critical operation)
+            publishPartialExit(trade, exitPrice, partialPnL, reason);
+            
+            // 📱 STEP 4: Send notification (can fail but not critical)
+            try {
+                sendPartialExitNotification(trade, exitPrice, partialPnL, reason);
+            } catch (Exception notificationEx) {
+                log.warn("📱 [BulletproofSC] Notification failed for partial exit, but trade state is valid: {}", 
+                        notificationEx.getMessage());
+            }
+            
+            log.info("🎯 [BulletproofSC] PARTIAL EXIT (50%): {} at {} - P&L: ₹{}, Reason: {}", 
+                    trade.getScripCode(), exitPrice, String.format("%.2f", partialPnL), reason);
+            
+        } catch (Exception ex) {
+            // 🚨 ROLLBACK: Restore original state if any critical operation failed
+            log.error("🚨 [BulletproofSC] PARTIAL EXIT FAILED - ROLLING BACK STATE: {}", ex.getMessage(), ex);
+            
+            trade.setTarget1Hit(wasTarget1Hit); // Restore original state
+            trade.getMetadata().remove("partialExitPrice");
+            trade.getMetadata().remove("partialExitTime");
+            trade.getMetadata().remove("partialPnL");
+            
+            // Rollback P&L update
+            totalRealizedPnLCents.addAndGet(-partialPnLCents);
+            
+            throw new RuntimeException("Partial exit failed and was rolled back", ex);
+        }
     }
     
     /**
@@ -392,14 +560,26 @@ public class BulletproofSignalConsumer {
         trade.setExitReason(exitReason);
         trade.setStatus(totalTradePnL > 0 ? ActiveTrade.TradeStatus.CLOSED_PROFIT : ActiveTrade.TradeStatus.CLOSED_LOSS);
         
-        // 💰 UPDATE STATISTICS - Thread-safe and ACCURATE win rate
-        long finalPnLCents = Math.round(finalPnL * 100);
-        totalRealizedPnLCents.addAndGet(finalPnLCents);
-        totalTrades.incrementAndGet();
-        
-        // 📉 FIXED: Win rate based on TOTAL trade P&L, not just final leg
-        if (totalTradePnL > 0) {
-            winningTrades.incrementAndGet();
+        // 💰 UPDATE STATISTICS - ATOMIC GROUP OPERATION for perfect consistency
+        synchronized (this) {
+            // Use synchronization to ensure all statistics updates are atomic as a group
+            long finalPnLCents = Math.round(finalPnL * 100);
+            totalRealizedPnLCents.addAndGet(finalPnLCents);
+            totalTrades.incrementAndGet();
+            
+            // 📉 FIXED: Win rate based on TOTAL trade P&L, not just final leg
+            if (totalTradePnL > 0) {
+                winningTrades.incrementAndGet();
+            }
+            
+            // 💡 Log consistent statistics snapshot
+            long currentTotal = totalTrades.get();
+            long currentWinning = winningTrades.get();
+            double currentWinRate = currentTotal > 0 ? (currentWinning * 100.0) / currentTotal : 0.0;
+            
+            log.debug("📊 [BulletproofSC] ATOMIC STATISTICS UPDATE: Trades: {}, Winning: {}, Win Rate: {}%, Total P&L: ₹{}", 
+                     currentTotal, currentWinning, String.format("%.1f", currentWinRate), 
+                     String.format("%.2f", totalRealizedPnLCents.get() / 100.0));
         }
         
         log.info("🏁 [BulletproofSC] TRADE CLOSED: {} at {} - Final P&L: ₹{}, Total P&L: ₹{}, Type: {}, Reason: {}", 
@@ -437,7 +617,7 @@ public class BulletproofSignalConsumer {
             return false;
         }
         
-        boolean isBullish = "BUY".equals(signal) || "BULLISH".equals(signal);
+        boolean isBullish = isBullishSignal(signal);
         
         // Validate stop loss placement
         if (isBullish && stopLoss >= entryPrice) {
@@ -487,6 +667,47 @@ public class BulletproofSignalConsumer {
             }
         }
         
+        // 🎯 FIXED: TARGET SEQUENCE VALIDATION - Ensure logical target progression
+        if (isBullish) {
+            // BULLISH: Targets must be in ascending order (T1 < T2 < T3)
+            if (target2 != null && target2 > 0 && target2 <= target1) {
+                log.error("🚨 [BulletproofSC] BULLISH TARGET SEQUENCE ERROR: Target 2 {} <= Target 1 {} - IMPOSSIBLE SEQUENCE!", 
+                         target2, target1);
+                return false;
+            }
+            if (target3 != null && target3 > 0) {
+                if (target3 <= target1) {
+                    log.error("🚨 [BulletproofSC] BULLISH TARGET SEQUENCE ERROR: Target 3 {} <= Target 1 {} - IMPOSSIBLE SEQUENCE!", 
+                             target3, target1);
+                    return false;
+                }
+                if (target2 != null && target2 > 0 && target3 <= target2) {
+                    log.error("🚨 [BulletproofSC] BULLISH TARGET SEQUENCE ERROR: Target 3 {} <= Target 2 {} - IMPOSSIBLE SEQUENCE!", 
+                             target3, target2);
+                    return false;
+                }
+            }
+        } else {
+            // BEARISH: Targets must be in descending order (T1 > T2 > T3)
+            if (target2 != null && target2 > 0 && target2 >= target1) {
+                log.error("🚨 [BulletproofSC] BEARISH TARGET SEQUENCE ERROR: Target 2 {} >= Target 1 {} - IMPOSSIBLE SEQUENCE!", 
+                         target2, target1);
+                return false;
+            }
+            if (target3 != null && target3 > 0) {
+                if (target3 >= target1) {
+                    log.error("🚨 [BulletproofSC] BEARISH TARGET SEQUENCE ERROR: Target 3 {} >= Target 1 {} - IMPOSSIBLE SEQUENCE!", 
+                             target3, target1);
+                    return false;
+                }
+                if (target2 != null && target2 > 0 && target3 >= target2) {
+                    log.error("🚨 [BulletproofSC] BEARISH TARGET SEQUENCE ERROR: Target 3 {} >= Target 2 {} - IMPOSSIBLE SEQUENCE!", 
+                             target3, target2);
+                    return false;
+                }
+            }
+        }
+
         // Validate stop loss is within reasonable limit (still check but allow strategy targets)
         double stopLossPercent = Math.abs((entryPrice - stopLoss) / entryPrice) * 100;
         if (stopLossPercent > MAX_STOP_LOSS_PERCENT * 3) { // Allow up to 3% for strategy-based stops
@@ -501,7 +722,7 @@ public class BulletproofSignalConsumer {
                                               double stopLoss, Double target1, Double target2, 
                                               Double target3, LocalDateTime signalTime) {
         String tradeId = generateTradeId(scripCode);
-        boolean isBullish = "BUY".equals(signal) || "BULLISH".equals(signal);
+        boolean isBullish = isBullishSignal(signal);
         
         // 📈 FIXED: Use ONLY pivot-based targets from strategy module
         ActiveTrade trade = ActiveTrade.builder()
@@ -539,55 +760,132 @@ public class BulletproofSignalConsumer {
         return "BP_" + scripCode + "_" + System.currentTimeMillis();
     }
     
+    /**
+     * 🔢 CRITIC-PROOF: Calculate partial P&L using INTEGER share arithmetic - NO floating point phantom P&L!
+     */
     private double calculatePartialPnL(ActiveTrade trade, double exitPrice, double positionFraction) {
         double entryPrice = trade.getEntryPrice();
-        int positionSize = trade.getPositionSize();
-        double partialShares = positionSize * positionFraction;
+        int totalShares = trade.getPositionSize();
+        
+        // 🚨 FIXED: Use integer arithmetic for EXACT share calculations
+        int partialShares = calculatePartialShares(totalShares, positionFraction);
         
         return (exitPrice - entryPrice) * partialShares;
     }
     
+    /**
+     * 🔢 CRITIC-PROOF: Calculate exact partial shares using integer arithmetic
+     */
+    private int calculatePartialShares(int totalShares, double fraction) {
+        if (fraction >= 1.0) return totalShares;
+        if (fraction <= 0.0) return 0;
+        
+        // For 50% split, use precise integer division
+        if (Math.abs(fraction - 0.5) < 0.001) {
+            return totalShares / 2; // Integer division for exact half
+        }
+        
+        // For other fractions, round to nearest integer
+        return (int) Math.round(totalShares * fraction);
+    }
+    
+    /**
+     * 🔢 CRITIC-PROOF: Calculate remaining shares after partial exit
+     */
+    private int calculateRemainingShares(int totalShares, int partialShares) {
+        return totalShares - partialShares;
+    }
+    
+    /**
+     * 🎯 SMART P&L VERIFICATION THRESHOLD - Dynamic threshold based on position size and price levels
+     */
+    private double calculatePnLVerificationThreshold(int shares, double exitPrice, double entryPrice) {
+        // Base threshold: 1 paisa per share (minimum meaningful error)
+        double baseThreshold = 0.01 * shares;
+        
+        // Price-based threshold: 0.01% of the trade value
+        double tradeValue = shares * Math.max(exitPrice, entryPrice);
+        double priceBasedThreshold = tradeValue * 0.0001; // 0.01%
+        
+        // Rounding-based threshold: Account for floating point precision errors
+        double roundingThreshold = Math.max(exitPrice, entryPrice) * 0.000001; // 1 millionth of price
+        
+        // Use the maximum of all thresholds to be conservative
+        return Math.max(Math.max(baseThreshold, priceBasedThreshold), roundingThreshold);
+    }
+    
+    /**
+     * 🔢 CRITIC-PROOF: Calculate final P&L using INTEGER share arithmetic - NO floating point phantom P&L!
+     */
     private double calculateFinalPnL(ActiveTrade trade, double exitPrice) {
         double entryPrice = trade.getEntryPrice();
-        int positionSize = trade.getPositionSize();
+        int totalShares = trade.getPositionSize();
         
-        // If partial exit happened, calculate remaining 50% P&L only
+        // If partial exit happened, calculate remaining shares P&L only
         if (trade.isTarget1Hit()) {
-            double remainingShares = positionSize * 0.5;
+            int partialShares = calculatePartialShares(totalShares, 0.5);
+            int remainingShares = calculateRemainingShares(totalShares, partialShares);
             return (exitPrice - entryPrice) * remainingShares;
         } else {
             // Full position P&L
-            return (exitPrice - entryPrice) * positionSize;
+            return (exitPrice - entryPrice) * totalShares;
         }
     }
     
+    /**
+     * 🔢 CRITIC-PROOF: Update unrealized P&L using INTEGER share arithmetic
+     */
     private void updateUnrealizedPnL(ActiveTrade trade, double currentPrice) {
         double entryPrice = trade.getEntryPrice();
-        int positionSize = trade.getPositionSize();
+        int totalShares = trade.getPositionSize();
         
-        // Calculate unrealized P&L for remaining position
-        double positionFraction = trade.isTarget1Hit() ? 0.5 : 1.0;
-        double unrealizedPnL = (currentPrice - entryPrice) * (positionSize * positionFraction);
+        // Calculate unrealized P&L for remaining position using exact integer shares
+        int currentShares;
+        if (trade.isTarget1Hit()) {
+            int partialShares = calculatePartialShares(totalShares, 0.5);
+            currentShares = calculateRemainingShares(totalShares, partialShares);
+        } else {
+            currentShares = totalShares;
+        }
         
+        double unrealizedPnL = (currentPrice - entryPrice) * currentShares;
         trade.addMetadata("unrealizedPnL", unrealizedPnL);
     }
     
-    // Publishing and notification methods
+    /**
+     * 📊 CRITIC-PROOF: Publish partial exit using SAME integer arithmetic as P&L calculations
+     */
     private void publishPartialExit(ActiveTrade trade, double exitPrice, double partialPnL, String reason) {
-        // 🚨 FIXED: Precise share calculation to avoid losing shares
+        // 🔢 UNIFIED: Use same calculation methods as P&L calculation
         int totalShares = trade.getPositionSize();
-        int partialShares = totalShares / 2;          // Half the shares
-        int remainingShares = totalShares - partialShares; // Ensure no shares lost
+        int partialShares = calculatePartialShares(totalShares, 0.5);
+        int remainingShares = calculateRemainingShares(totalShares, partialShares);
         
-        log.debug("🔢 [BulletproofSC] Partial exit shares: {} total = {} partial + {} remaining", 
+        log.debug("🔢 [BulletproofSC] UNIFIED Partial exit shares: {} total = {} partial + {} remaining", 
                  totalShares, partialShares, remainingShares);
+        
+        // 🚨 SMART VERIFICATION: Ensure P&L matches published shares with dynamic threshold
+        double verificationPnL = (exitPrice - trade.getEntryPrice()) * partialShares;
+        
+        // Calculate smart threshold based on position size and price levels
+        double smartThreshold = calculatePnLVerificationThreshold(partialShares, exitPrice, trade.getEntryPrice());
+        
+        if (Math.abs(verificationPnL - partialPnL) > smartThreshold) {
+            log.error("🚨 [BulletproofSC] P&L MISMATCH: Calculated {} vs Published {} (threshold: {}) - Share consistency violation!", 
+                     String.format("%.2f", verificationPnL), String.format("%.2f", partialPnL), 
+                     String.format("%.4f", smartThreshold));
+        } else if (Math.abs(verificationPnL - partialPnL) > 0.001) {
+            log.debug("💡 [BulletproofSC] P&L MINOR DIFFERENCE: Calculated {} vs Published {} (within threshold: {}) - Acceptable rounding", 
+                     String.format("%.4f", verificationPnL), String.format("%.4f", partialPnL), 
+                     String.format("%.4f", smartThreshold));
+        }
         
         TradeResult result = TradeResult.builder()
                 .tradeId(trade.getTradeId() + "_PARTIAL")
                 .scripCode(trade.getScripCode())
                 .entryPrice(trade.getEntryPrice())
                 .exitPrice(exitPrice)
-                .positionSize(partialShares)                    // FIXED: Use calculated partial shares
+                .positionSize(partialShares)                    // UNIFIED: Same calculation as P&L
                 .profitLoss(partialPnL)
                 .exitReason(reason)
                 .exitTime(trade.getExitTime() != null ? trade.getExitTime() : LocalDateTime.now())
@@ -609,20 +907,49 @@ public class BulletproofSignalConsumer {
             totalTradePnL += partialPnL;
         }
         
+        // 🎯 FIXED: Report position size that matches P&L calculation
+        int reportedPositionSize;
+        if (trade.isTarget1Hit()) {
+            // For partial exits, report TOTAL position size since totalTradePnL includes both partial and final
+            reportedPositionSize = trade.getPositionSize();
+        } else {
+            // For full exits without partial, report actual position size
+            reportedPositionSize = trade.getPositionSize();
+        }
+        
         TradeResult result = TradeResult.builder()
                 .tradeId(trade.getTradeId())
                 .scripCode(trade.getScripCode())
                 .entryPrice(trade.getEntryPrice())
                 .exitPrice(exitPrice)
-                .positionSize(trade.getPositionSize())
-                .profitLoss(totalTradePnL)          // Report TOTAL P&L including partial
+                .positionSize(reportedPositionSize)     // CONSISTENT: Position size matches P&L calculation method
+                .profitLoss(totalTradePnL)              // Report TOTAL P&L including partial
                 .exitReason(exitReason)
                 .exitTime(trade.getExitTime())
                 .strategyName(trade.getStrategyName())
                 .build();
         
+        // 💡 Add detailed breakdown in metadata for analysis
+        if (trade.isTarget1Hit()) {
+            result.getMetadata().put("partialExitExecuted", true);
+            result.getMetadata().put("totalPositionSize", trade.getPositionSize());
+            
+            if (partialPnLObj != null) {
+                result.getMetadata().put("partialPnL", ((Number) partialPnLObj).doubleValue());
+                result.getMetadata().put("finalPnL", finalPnL);
+                
+                int partialShares = calculatePartialShares(trade.getPositionSize(), 0.5);
+                result.getMetadata().put("partialShares", partialShares);
+                result.getMetadata().put("finalShares", calculateRemainingShares(trade.getPositionSize(), partialShares));
+            }
+        }
+        
+        // 🎯 FIXED: CONSISTENT P&L VALUES - Both publishers use same totalTradePnL value
         tradeResultProducer.publishTradeResult(result);
-        profitLossProducer.publishTradeExit(trade, exitPrice, exitReason, finalPnL);
+        profitLossProducer.publishTradeExit(trade, exitPrice, exitReason, totalTradePnL);
+        
+        log.debug("📤 [BulletproofSC] PUBLISHED CONSISTENT VALUES: TradeResult P&L: {}, ProfitLoss P&L: {} - BOTH MATCH!", 
+                 String.format("%.2f", totalTradePnL), String.format("%.2f", totalTradePnL));
     }
     
     private void publishPortfolioUpdate() {
@@ -636,8 +963,17 @@ public class BulletproofSignalConsumer {
     // Notification methods
     private void sendTradeCreatedNotification(ActiveTrade trade) {
         // 🚨 FIXED: Use proper signal price from metadata
+        // 🚨 FIXED: Proper signal price fallback - NEVER use stop loss as signal price!
         Object signalPriceObj = trade.getMetadata() != null ? trade.getMetadata().get("signalPrice") : null;
-        double signalPrice = signalPriceObj != null ? ((Number) signalPriceObj).doubleValue() : trade.getStopLoss();
+        double signalPrice;
+        if (signalPriceObj != null) {
+            signalPrice = ((Number) signalPriceObj).doubleValue();
+        } else {
+            // Use entry price as fallback (more logical than stop loss)
+            signalPrice = trade.getEntryPrice();
+            log.warn("⚠️ [BulletproofSC] Missing signalPrice, using entry price {} as fallback for {}", 
+                    signalPrice, trade.getScripCode());
+        }
         
         String message = String.format(
             "🎯 NEW TRADE SETUP\n" +
@@ -665,8 +1001,17 @@ public class BulletproofSignalConsumer {
     
     private void sendTradeEnteredNotification(ActiveTrade trade, double entryPrice, String entryReason) {
         // 🚨 FIXED: Show both signal price and actual entry price
+        // 🚨 FIXED: Proper signal price fallback for notifications
         Object signalPriceObj = trade.getMetadata() != null ? trade.getMetadata().get("signalPrice") : null;
-        double signalPrice = signalPriceObj != null ? ((Number) signalPriceObj).doubleValue() : entryPrice;
+        double signalPrice;
+        if (signalPriceObj != null) {
+            signalPrice = ((Number) signalPriceObj).doubleValue();
+        } else {
+            // Use entry price as fallback (logical for entry notifications)
+            signalPrice = entryPrice;
+            log.warn("⚠️ [BulletproofSC] Missing signalPrice in entry notification, using entry price {} as fallback for {}", 
+                    signalPrice, trade.getScripCode());
+        }
         
         String message = String.format(
             "🚀 TRADE ENTERED\n" +

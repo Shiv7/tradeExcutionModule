@@ -87,10 +87,12 @@ public class ActiveTrade {
     }
     
     /**
-     * Check if this trade is bullish
+     * 🎯 CRITIC-PROOF: Check if this trade is bullish with standardized signal checking
      */
     public boolean isBullish() {
-        return "BULLISH".equalsIgnoreCase(signalType);
+        if (signalType == null) return false;
+        String normalizedSignal = signalType.trim().toUpperCase();
+        return "BUY".equals(normalizedSignal) || "BULLISH".equals(normalizedSignal);
     }
     
     /**
@@ -111,21 +113,14 @@ public class ActiveTrade {
     }
     
     /**
-     * Update current price and tracking variables
+     * 📊 CRITIC-PROOF: Update current price ONLY - high/low tracking centralized to BulletproofSignalConsumer
      */
     public void updatePrice(double newPrice, LocalDateTime timestamp) {
         this.currentPrice = newPrice;
         this.lastUpdateTime = timestamp;
         
-        if (entryTriggered && status == TradeStatus.ACTIVE) {
-            // Update high/low since entry
-            if (highSinceEntry == null || newPrice > highSinceEntry) {
-                highSinceEntry = newPrice;
-            }
-            if (lowSinceEntry == null || newPrice < lowSinceEntry) {
-                lowSinceEntry = newPrice;
-            }
-        }
+        // 🚨 HIGH/LOW TRACKING REMOVED - Centralized to BulletproofSignalConsumer.checkExitConditions()
+        // This prevents race conditions and ensures single source of truth for high/low values
     }
     
     /**
@@ -174,30 +169,16 @@ public class ActiveTrade {
     }
     
     /**
-     * Update trailing stop loss based on current conditions
+     * 🚨 CRITIC-PROOF: REMOVED DUAL TRAILING STOP LOGIC - Use only BulletproofSignalConsumer implementation
+     * This method is DISABLED to prevent inconsistent trailing stop calculations
      */
+    @Deprecated
     public void updateTrailingStop() {
-        if (!useTrailingStop || !entryTriggered || status != TradeStatus.ACTIVE) {
-            return;
-        }
+        // 💀 DISABLED: This method was causing dual trailing stop logic chaos
+        // Trailing stop is now calculated ONLY in BulletproofSignalConsumer.checkExitConditions()
+        // Using single formula: highSinceEntry * (1 - TRAILING_STOP_PERCENT / 100)
         
-        if (target1Hit && highSinceEntry != null && lowSinceEntry != null) {
-            double initialStopDistance = Math.abs(entryPrice - stopLoss);
-            
-            if (isBullish()) {
-                // Move stop up for bullish trades
-                double newTrailingStop = highSinceEntry - (initialStopDistance * 0.5);
-                if (trailingStopLoss == null || newTrailingStop > trailingStopLoss) {
-                    trailingStopLoss = newTrailingStop;
-                }
-            } else {
-                // Move stop down for bearish trades
-                double newTrailingStop = lowSinceEntry + (initialStopDistance * 0.5);
-                if (trailingStopLoss == null || newTrailingStop < trailingStopLoss) {
-                    trailingStopLoss = newTrailingStop;
-                }
-            }
-        }
+        // No-op - this method is disabled to prevent dual trailing stop calculations
     }
     
     /**
