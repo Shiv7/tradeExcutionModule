@@ -38,9 +38,9 @@ public class LiveMarketDataConsumer {
      * 🔧 FIXED: Consume MarketData POJO directly with proper JSON deserialization
      * Uses marketDataKafkaListenerContainerFactory for type-safe POJO conversion
      * Token (market data) = scripCode (strategy signals) for company linking
+     * 🎯 Group ID: Configured in application.properties via containerFactory
      */
     @KafkaListener(topics = "forwardtesting-data",
-                   groupId = "kotsin-trade-execution-market-data-retest-v4",
                    properties = {"auto.offset.reset=earliest"},
                    containerFactory = "marketDataKafkaListenerContainerFactory")
     public void consumeMarketData(
@@ -62,14 +62,7 @@ public class LiveMarketDataConsumer {
             boolean hasActiveTradeForScript = bulletproofSignalConsumer.getCurrentTrade() != null &&
                 scripCode.equals(bulletproofSignalConsumer.getCurrentTrade().getScripCode());
             
-            // Enhanced debugging only for active trades
-            if (hasActiveTradeForScript && processedTicks.get() % 10 == 0) {
-                log.info("📈 [ACTIVE-TRADE] Market data for ACTIVE trade: Token={}, LastRate={}, Exchange={}, CompanyName={}", 
-                        marketData.getToken(), marketData.getLastRate(), marketData.getExchange(), marketData.getCompanyName());
-                
-                log.info("🔗 [ACTIVE-TRADE] Linking: scripCode={} (from Token={}) - PROCESSING!", 
-                        scripCode, marketData.getToken());
-            }
+            // 🔇 REMOVED SPAM LOGS: No more sample market data or linking info on every tick
             
             // Quick validation
             if (scripCode == null || lastRate <= 0) {

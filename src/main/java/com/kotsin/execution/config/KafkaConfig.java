@@ -2,6 +2,7 @@ package com.kotsin.execution.config;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
@@ -14,18 +15,32 @@ import org.springframework.kafka.support.serializer.JsonDeserializer;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 🛡️ BULLETPROOF Kafka Configuration with Centralized Consumer Groups
+ * Uses application.properties for all consumer group IDs
+ */
 @Configuration
 @EnableKafka
 public class KafkaConfig {
 
-    private String bootstrapServers = "172.31.12.118:9092";
-    private String groupId = "trade-execution-group-v1";
+    @Value("${spring.kafka.bootstrap-servers}")
+    private String bootstrapServers;
+
+    // 🎯 CENTRALIZED CONSUMER GROUP CONFIGURATION
+    @Value("${app.kafka.consumer.default-group-id}")
+    private String defaultGroupId;
+    
+    @Value("${app.kafka.consumer.bulletproof-signal-group-id}")
+    private String bulletproofSignalGroupId;
+    
+    @Value("${app.kafka.consumer.market-data-group-id}")
+    private String marketDataGroupId;
 
     @Bean
     public ConsumerFactory<String, Object> consumerFactory() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, defaultGroupId);
         configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         
         // 🔧 FIXED: Use JsonDeserializer for proper JSON to POJO conversion
@@ -57,13 +72,14 @@ public class KafkaConfig {
     }
     
     /**
-     * Specific consumer factory for StrategySignal objects
+     * 🎯 BULLETPROOF SIGNAL CONSUMER FACTORY
+     * Uses centralized group ID from application.properties
      */
     @Bean("strategySignalConsumerFactory")
     public ConsumerFactory<String, com.kotsin.execution.model.StrategySignal> strategySignalConsumerFactory() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, "bulletproof-trade-execution");
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, bulletproofSignalGroupId); // 🎯 From properties
         configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
         
@@ -94,13 +110,14 @@ public class KafkaConfig {
     }
 
     /**
-     * Specific consumer factory for MarketData objects
+     * 🎯 MARKET DATA CONSUMER FACTORY
+     * Uses centralized group ID from application.properties
      */
     @Bean("marketDataConsumerFactory")
     public ConsumerFactory<String, com.kotsin.execution.model.MarketData> marketDataConsumerFactory() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, "kotsin-trade-execution-market-data-retest-v4");
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, marketDataGroupId); // 🎯 From properties
         configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
         
@@ -111,7 +128,7 @@ public class KafkaConfig {
         
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 50); // Higher for market data
+        configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 50);
         configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000);
         configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10000);
         

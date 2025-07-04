@@ -82,9 +82,9 @@ public class BulletproofSignalConsumer {
     /**
      * 🚀 PROCESS STRATEGY SIGNALS - Only one trade at a time
      * 🔧 FIXED: Use StrategySignal POJO with proper JSON deserialization
+     * 🎯 Group ID: Configured in application.properties via containerFactory
      */
     @KafkaListener(topics = "enhanced-30m-signals", 
-                   groupId = "bulletproof-trade-execution",
                    containerFactory = "strategySignalKafkaListenerContainerFactory")
     public void processStrategySignal(StrategySignal signal, Acknowledgment acknowledgment) {
         try {
