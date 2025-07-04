@@ -1140,10 +1140,9 @@ public class BulletproofSignalConsumer {
             return false;
         }
         
-        // Validate signal type
-        String normalizedSignal = signal.getNormalizedSignal();
-        if (!"BUY".equals(normalizedSignal) && !"SELL".equals(normalizedSignal)) {
-            log.error("🚫 [VALIDATION] Invalid signal type '{}' for {} - must be BUY or SELL", 
+        // Validate signal type using the built-in methods instead of string comparison
+        if (!signal.isBullish() && !signal.isBearish()) {
+            log.error("🚫 [VALIDATION] Invalid signal type '{}' for {} - must be BULLISH/BUY or BEARISH/SELL", 
                     signal.getSignal(), signal.getScripCode());
             return false;
         }
@@ -1169,30 +1168,30 @@ public class BulletproofSignalConsumer {
         }
         
         // Validate business logic: targets and stop loss direction
-        if ("BUY".equals(normalizedSignal)) {
-            // For BUY signals: targets should be > entry, stop loss should be < entry
+        if (signal.isBullish()) {
+            // For BULLISH signals: targets should be > entry, stop loss should be < entry
             if (signal.getStopLoss() >= signal.getEntryPrice()) {
-                log.error("🚫 [VALIDATION] BUY signal stop loss {} should be < entry price {} for {}", 
+                log.error("🚫 [VALIDATION] BULLISH signal stop loss {} should be < entry price {} for {}", 
                         signal.getStopLoss(), signal.getEntryPrice(), signal.getScripCode());
                 return false;
             }
             
             if (signal.getTarget1() > 0 && signal.getTarget1() <= signal.getEntryPrice()) {
-                log.error("🚫 [VALIDATION] BUY signal target1 {} should be > entry price {} for {}", 
+                log.error("🚫 [VALIDATION] BULLISH signal target1 {} should be > entry price {} for {}", 
                         signal.getTarget1(), signal.getEntryPrice(), signal.getScripCode());
                 return false;
             }
             
-        } else if ("SELL".equals(normalizedSignal)) {
-            // For SELL signals: targets should be < entry, stop loss should be > entry
+        } else if (signal.isBearish()) {
+            // For BEARISH signals: targets should be < entry, stop loss should be > entry
             if (signal.getStopLoss() <= signal.getEntryPrice()) {
-                log.error("🚫 [VALIDATION] SELL signal stop loss {} should be > entry price {} for {}", 
+                log.error("🚫 [VALIDATION] BEARISH signal stop loss {} should be > entry price {} for {}", 
                         signal.getStopLoss(), signal.getEntryPrice(), signal.getScripCode());
                 return false;
             }
             
             if (signal.getTarget1() > 0 && signal.getTarget1() >= signal.getEntryPrice()) {
-                log.error("🚫 [VALIDATION] SELL signal target1 {} should be < entry price {} for {}", 
+                log.error("🚫 [VALIDATION] BEARISH signal target1 {} should be < entry price {} for {}", 
                         signal.getTarget1(), signal.getEntryPrice(), signal.getScripCode());
                 return false;
             }
