@@ -59,7 +59,8 @@ public class BulletproofSignalConsumer {
     private static final double TRADE_AMOUNT = 100000.0;    // ₹1 lakh per trade
     private static final double MAX_STOP_LOSS_PERCENT = 1.0; // Max 1% stop loss validation only
     private static final double TRAILING_STOP_PERCENT = 1.0; // 1% trailing stop
-    private static final long ENTRY_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour timeout for entry
+    private static final long ENTRY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes timeout for entry
+    private static final double NEAR_ENTRY_PERCENT = 2.0; // 2% range around signal price for immediate entry
     
     // 📊 THREAD-SAFE P&L TRACKING - Fixed with atomic operations
     private final AtomicLong totalRealizedPnLCents = new AtomicLong(0); // Store in paisa for precision
@@ -250,43 +251,81 @@ public void processStrategySignal(StrategySignal signal,
         double stopLoss = trade.getStopLoss();
         boolean isBullish = isBullishSignal(trade.getSignalType());
         
-        // ⏰ CRITIC-PROOF: Entry timeout check with MILLISECOND precision - NO precision loss!
+        // ⏰ ENTRY TIMEOUT CHECK - Cancel signal if too old
         long signalAgeMs = ChronoUnit.MILLIS.between(trade.getSignalTime(), timestamp);
         
         if (signalAgeMs > ENTRY_TIMEOUT_MS) {
-            log.warn("🕰️ [BulletproofSC] ENTRY TIMEOUT: {} signal is {} minutes old - Using market entry", 
+            log.warn("🕰️ [BulletproofSC] SIGNAL TIMEOUT: {} signal is {} minutes old - CANCELING trade", 
                      trade.getScripCode(), signalAgeMs / 60000);
-            executeEntry(trade, price, timestamp, "Market entry (timeout after " + (signalAgeMs/60000) + " minutes)");
+            cancelTrade(trade, "Signal timeout after " + (signalAgeMs/60000) + " minutes");
             return;
         }
         
         log.info("🎯 [BulletproofSC] ENTRY CHECK: {} - Current: {}, Signal: {}, SL: {}, Bullish: {}, Age: {}min", 
                  trade.getScripCode(), price, signalPrice, stopLoss, isBullish, signalAgeMs / 60000);
         
-        // 🕳️ FIXED: Gap handling - wait for retest if price comes back above stop loss
+        // 🎯 SMART ENTRY LOGIC: Based on user requirements
         boolean shouldEnter = false;
+        boolean shouldCancel = false;
         String entryReason = "";
+        String cancelReason = "";
         
         if (isBullish) {
-            // 🟢 BULLISH ENTRY: Price retests near stop loss (pivot) then moves toward target
+            // 🟢 BULLISH SIGNAL LOGIC
             double retestZone = stopLoss + ((signalPrice - stopLoss) * 0.2); // 20% above stop loss
-            log.info("🎯 [BulletproofSC] BULLISH RETEST: Current {}, RetestZone {}, StopLoss {}, InZone: {}", 
-                    price, String.format("%.2f", retestZone), stopLoss, (price <= retestZone && price > stopLoss));
+            double target1 = trade.getTarget1() != null ? trade.getTarget1() : signalPrice * 1.04;
+            double nearEntryLow = signalPrice * (1 - NEAR_ENTRY_PERCENT / 100);  // 2% below signal
+            double nearEntryHigh = signalPrice * (1 + NEAR_ENTRY_PERCENT / 100); // 2% above signal
             
-            if (price <= retestZone && price > stopLoss) {
+            log.info("🎯 [BulletproofSC] BULLISH ANALYSIS: Current {}, Signal {}, Target1 {}, NearRange [{}-{}], RetestZone {}", 
+                    price, signalPrice, target1, String.format("%.2f", nearEntryLow), String.format("%.2f", nearEntryHigh), String.format("%.2f", retestZone));
+            
+            if (price >= target1) {
+                // Rule 1: Price above target → DISCARD
+                shouldCancel = true;
+                cancelReason = String.format("Price %.2f above Target1 %.2f - signal chased", price, target1);
+            } else if (price >= nearEntryLow && price <= nearEntryHigh) {
+                // Rule 2: Price near signal → ENTER immediately
+                shouldEnter = true;
+                entryReason = String.format("Near entry at %.2f (signal: %.2f, ±2%% range)", price, signalPrice);
+            } else if (price <= retestZone && price > stopLoss) {
+                // Rule 3: Perfect retest → ENTER
                 shouldEnter = true;
                 entryReason = String.format("Bullish retest at %.2f (near pivot SL: %.2f)", price, stopLoss);
             }
-        } else {
-            // 🔴 BEARISH ENTRY: Price retests near stop loss (pivot) then moves toward target  
-            double retestZone = stopLoss - ((stopLoss - signalPrice) * 0.2); // 20% below stop loss
-            log.info("🎯 [BulletproofSC] BEARISH RETEST: Current {}, RetestZone {}, StopLoss {}, InZone: {}", 
-                    price, String.format("%.2f", retestZone), stopLoss, (price >= retestZone && price < stopLoss));
+            // Rule 4: Otherwise → WAIT (no action)
             
-            if (price >= retestZone && price < stopLoss) {
+        } else {
+            // 🔴 BEARISH SIGNAL LOGIC  
+            double retestZone = stopLoss - ((stopLoss - signalPrice) * 0.2); // 20% below stop loss
+            double target1 = trade.getTarget1() != null ? trade.getTarget1() : signalPrice * 0.96;
+            double nearEntryLow = signalPrice * (1 - NEAR_ENTRY_PERCENT / 100);  // 2% below signal
+            double nearEntryHigh = signalPrice * (1 + NEAR_ENTRY_PERCENT / 100); // 2% above signal
+            
+            log.info("🎯 [BulletproofSC] BEARISH ANALYSIS: Current {}, Signal {}, Target1 {}, NearRange [{}-{}], RetestZone {}", 
+                    price, signalPrice, target1, String.format("%.2f", nearEntryLow), String.format("%.2f", nearEntryHigh), String.format("%.2f", retestZone));
+            
+            if (price <= target1) {
+                // Rule 1: Price below target → DISCARD
+                shouldCancel = true;
+                cancelReason = String.format("Price %.2f below Target1 %.2f - signal chased", price, target1);
+            } else if (price >= nearEntryLow && price <= nearEntryHigh) {
+                // Rule 2: Price near signal → ENTER immediately
+                shouldEnter = true;
+                entryReason = String.format("Near entry at %.2f (signal: %.2f, ±2%% range)", price, signalPrice);
+            } else if (price >= retestZone && price < stopLoss) {
+                // Rule 3: Perfect retest → ENTER
                 shouldEnter = true;
                 entryReason = String.format("Bearish retest at %.2f (near pivot SL: %.2f)", price, stopLoss);
             }
+            // Rule 4: Otherwise → WAIT (no action)
+        }
+        
+        // Execute the decision
+        if (shouldCancel) {
+            log.warn("❌ [BulletproofSC] CANCELING SIGNAL: {}", cancelReason);
+            cancelTrade(trade, cancelReason);
+            return;
         }
         
         if (shouldEnter) {
@@ -294,6 +333,33 @@ public void processStrategySignal(StrategySignal signal,
         }
     }
     
+    /**
+     * ❌ CANCEL TRADE - Remove trade when signal should be discarded
+     */
+    private void cancelTrade(ActiveTrade trade, String cancelReason) {
+        log.info("❌ [BulletproofSC] CANCELING TRADE: {} - Reason: {}", trade.getScripCode(), cancelReason);
+        
+        // Clean removal
+        ActiveTrade removed = currentTrade.getAndSet(null);
+        if (removed == null) {
+            log.warn("⚠️ [BulletproofSC] Trade already removed during cancel");
+        }
+        
+        // Send cancellation notification
+        String message = String.format("❌ TRADE CANCELED\n" +
+                "📈 Script: %s\n" +
+                "💰 Signal: %s @ %.2f\n" +
+                "❌ Reason: %s\n" +
+                "⏰ Time: %s IST",
+                trade.getScripCode(),
+                trade.getSignalType(),
+                trade.getMetadata() != null ? (Double) trade.getMetadata().get("signalPrice") : 0.0,
+                cancelReason,
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+        
+        telegramNotificationService.sendTradeNotificationMessage(message);
+    }
+
     /**
      * 🚀 EXECUTE ENTRY - Perfect entry execution with precise position sizing + overflow protection
      */
