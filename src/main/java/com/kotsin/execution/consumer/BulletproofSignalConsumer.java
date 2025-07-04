@@ -7,6 +7,7 @@ import com.kotsin.execution.producer.TradeResultProducer;
 import com.kotsin.execution.producer.ProfitLossProducer;
 import com.kotsin.execution.service.TelegramNotificationService;
 import com.kotsin.execution.service.TradingHoursService;
+import com.kotsin.execution.service.ErrorMonitoringService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -46,6 +47,7 @@ public class BulletproofSignalConsumer {
     private final ProfitLossProducer profitLossProducer;
     private final TelegramNotificationService telegramNotificationService;
     private final TradingHoursService tradingHoursService;
+    private final ErrorMonitoringService errorMonitoringService;
     
     // 🎯 BULLETPROOF: Single trade storage (eliminates dual storage)
     private final AtomicReference<ActiveTrade> currentTrade = new AtomicReference<>();
@@ -82,12 +84,28 @@ public class BulletproofSignalConsumer {
     /**
      * 🚀 PROCESS STRATEGY SIGNALS - Only one trade at a time
      * 🔧 FIXED: Use StrategySignal POJO with proper JSON deserialization
+     * 🛡️ BULLETPROOF: Added comprehensive validation and error handling
      * 🎯 Group ID: Configured in application.properties via containerFactory
      */
     @KafkaListener(topics = "enhanced-30m-signals", 
-                   containerFactory = "strategySignalKafkaListenerContainerFactory")
+                   containerFactory = "strategySignalKafkaListenerContainerFactory",
+                   errorHandler = "bulletproofErrorHandler")
     public void processStrategySignal(StrategySignal signal, Acknowledgment acknowledgment) {
         try {
+                    // 🛡️ BULLETPROOF: Validate signal data before processing
+        if (!isValidStrategySignal(signal)) {
+            String scripCode = signal != null ? signal.getScripCode() : "null";
+            String errorMessage = "Invalid signal data - failed validation checks";
+            
+            log.warn("🚫 [BulletproofSC] INVALID SIGNAL DATA - Skipping: {}", scripCode);
+            
+            // 📊 Record validation error in monitoring service
+            errorMonitoringService.recordValidationError("enhanced-30m-signals", scripCode, errorMessage);
+            
+            acknowledgment.acknowledge();
+            return;
+        }
+            
             log.info("🎯 [BulletproofSC] STRATEGY SIGNAL RECEIVED: {} {} @ {} (SL: {}, T1: {}, T2: {}, T3: {})", 
                     signal.getScripCode(), signal.getSignal(), signal.getEntryPrice(), 
                     signal.getStopLoss(), signal.getTarget1(), signal.getTarget2(), signal.getTarget3());
@@ -108,14 +126,17 @@ public class BulletproofSignalConsumer {
                 return;
             }
             
+            // 🛡️ BULLETPROOF: Sanitize and normalize signal data
+            StrategySignal sanitizedSignal = sanitizeStrategySignal(signal);
+            
             // 🎯 CREATE TRADE (Only one at a time) - Use pivot-based targets
-            boolean tradeCreated = createTrade(signal.getScripCode(), signal.getNormalizedSignal(), signal.getEntryPrice(), 
-                       signal.getStopLoss(), signal.getTarget1(), signal.getTarget2(), signal.getTarget3(), signalTime);
+            boolean tradeCreated = createTrade(sanitizedSignal.getScripCode(), sanitizedSignal.getNormalizedSignal(), sanitizedSignal.getEntryPrice(), 
+                       sanitizedSignal.getStopLoss(), sanitizedSignal.getTarget1(), sanitizedSignal.getTarget2(), sanitizedSignal.getTarget3(), signalTime);
             
             if (tradeCreated) {
-                log.info("✅ [BulletproofSC] TRADE CREATED successfully for {}", signal.getScripCode());
+                log.info("✅ [BulletproofSC] TRADE CREATED successfully for {}", sanitizedSignal.getScripCode());
             } else {
-                log.warn("❌ [BulletproofSC] TRADE CREATION FAILED for {}", signal.getScripCode());
+                log.warn("❌ [BulletproofSC] TRADE CREATION FAILED for {}", sanitizedSignal.getScripCode());
             }
             
             acknowledgment.acknowledge();
@@ -1096,5 +1117,164 @@ public class BulletproofSignalConsumer {
     public double getWinRate() {
         int total = totalTrades.get();
         return total > 0 ? (winningTrades.get() * 100.0 / total) : 0.0;
+    }
+
+    /**
+     * 🛡️ BULLETPROOF: Comprehensive validation of strategy signal data
+     * Checks for null values, invalid ranges, and business logic consistency
+     */
+    private boolean isValidStrategySignal(StrategySignal signal) {
+        if (signal == null) {
+            log.error("🚫 [VALIDATION] Received null strategy signal");
+            return false;
+        }
+        
+        // Validate essential fields
+        if (isNullOrEmpty(signal.getScripCode())) {
+            log.error("🚫 [VALIDATION] Missing scripCode in signal: {}", signal);
+            return false;
+        }
+        
+        if (isNullOrEmpty(signal.getSignal())) {
+            log.error("🚫 [VALIDATION] Missing signal type in signal for {}", signal.getScripCode());
+            return false;
+        }
+        
+        // Validate signal type
+        String normalizedSignal = signal.getNormalizedSignal();
+        if (!"BUY".equals(normalizedSignal) && !"SELL".equals(normalizedSignal)) {
+            log.error("🚫 [VALIDATION] Invalid signal type '{}' for {} - must be BUY or SELL", 
+                    signal.getSignal(), signal.getScripCode());
+            return false;
+        }
+        
+        // Validate price fields (primitive doubles)
+        if (signal.getEntryPrice() <= 0) {
+            log.error("🚫 [VALIDATION] Invalid entry price {} for {}", 
+                    signal.getEntryPrice(), signal.getScripCode());
+            return false;
+        }
+        
+        if (signal.getStopLoss() <= 0) {
+            log.error("🚫 [VALIDATION] Invalid stop loss {} for {}", 
+                    signal.getStopLoss(), signal.getScripCode());
+            return false;
+        }
+        
+        // Validate at least one target exists (primitive doubles default to 0.0)
+        if (signal.getTarget1() <= 0 && signal.getTarget2() <= 0 && signal.getTarget3() <= 0) {
+            log.error("🚫 [VALIDATION] No valid targets found for {} - at least one target required", 
+                    signal.getScripCode());
+            return false;
+        }
+        
+        // Validate business logic: targets and stop loss direction
+        if ("BUY".equals(normalizedSignal)) {
+            // For BUY signals: targets should be > entry, stop loss should be < entry
+            if (signal.getStopLoss() >= signal.getEntryPrice()) {
+                log.error("🚫 [VALIDATION] BUY signal stop loss {} should be < entry price {} for {}", 
+                        signal.getStopLoss(), signal.getEntryPrice(), signal.getScripCode());
+                return false;
+            }
+            
+            if (signal.getTarget1() > 0 && signal.getTarget1() <= signal.getEntryPrice()) {
+                log.error("🚫 [VALIDATION] BUY signal target1 {} should be > entry price {} for {}", 
+                        signal.getTarget1(), signal.getEntryPrice(), signal.getScripCode());
+                return false;
+            }
+            
+        } else if ("SELL".equals(normalizedSignal)) {
+            // For SELL signals: targets should be < entry, stop loss should be > entry
+            if (signal.getStopLoss() <= signal.getEntryPrice()) {
+                log.error("🚫 [VALIDATION] SELL signal stop loss {} should be > entry price {} for {}", 
+                        signal.getStopLoss(), signal.getEntryPrice(), signal.getScripCode());
+                return false;
+            }
+            
+            if (signal.getTarget1() > 0 && signal.getTarget1() >= signal.getEntryPrice()) {
+                log.error("🚫 [VALIDATION] SELL signal target1 {} should be < entry price {} for {}", 
+                        signal.getTarget1(), signal.getEntryPrice(), signal.getScripCode());
+                return false;
+            }
+        }
+        
+        // Validate reasonable price ranges (basic sanity check)
+        double maxPrice = Math.max(signal.getEntryPrice(), 
+                         Math.max(signal.getStopLoss(), 
+                         signal.getTarget1() > 0 ? signal.getTarget1() : 0));
+        
+        if (maxPrice > 1000000) { // 10 lakh per share seems unreasonable
+            log.warn("⚠️ [VALIDATION] Unusually high price detected for {} - max price: {}", 
+                    signal.getScripCode(), maxPrice);
+        }
+        
+        if (signal.getEntryPrice() < 0.01) { // Less than 1 paisa seems unreasonable
+            log.error("🚫 [VALIDATION] Unusually low entry price {} for {}", 
+                    signal.getEntryPrice(), signal.getScripCode());
+            return false;
+        }
+        
+        log.debug("✅ [VALIDATION] Strategy signal validation passed for {}", signal.getScripCode());
+        return true;
+    }
+    
+    /**
+     * 🛡️ BULLETPROOF: Sanitize and normalize strategy signal data
+     * Cleans up data inconsistencies and provides safe defaults
+     */
+    private StrategySignal sanitizeStrategySignal(StrategySignal signal) {
+        // Create a defensive copy
+        StrategySignal sanitized = new StrategySignal();
+        
+        // Sanitize scripCode
+        sanitized.setScripCode(signal.getScripCode() != null ? signal.getScripCode().trim() : null);
+        
+        // Sanitize and normalize signal type
+        sanitized.setSignal(signal.getSignal() != null ? signal.getSignal().trim().toUpperCase() : null);
+        
+        // Copy company name with trimming
+        sanitized.setCompanyName(signal.getCompanyName() != null ? signal.getCompanyName().trim() : null);
+        
+        // Copy strategy and timeframe
+        sanitized.setStrategy(signal.getStrategy() != null ? signal.getStrategy().trim() : null);
+        sanitized.setTimeframe(signal.getTimeframe() != null ? signal.getTimeframe().trim() : null);
+        
+        // Copy price fields (already validated)
+        sanitized.setEntryPrice(signal.getEntryPrice());
+        sanitized.setStopLoss(signal.getStopLoss());
+        sanitized.setTarget1(signal.getTarget1());
+        sanitized.setTarget2(signal.getTarget2());
+        sanitized.setTarget3(signal.getTarget3());
+        
+        // Copy metadata
+        sanitized.setTimestamp(signal.getTimestamp());
+        sanitized.setExchange(signal.getExchange() != null ? signal.getExchange().trim() : "NSE");
+        sanitized.setReason(signal.getReason() != null ? signal.getReason().trim() : null);
+        sanitized.setRiskReward(signal.getRiskReward());
+        sanitized.setRiskAmount(signal.getRiskAmount());
+        sanitized.setRewardAmount(signal.getRewardAmount());
+        
+        // Provide safe defaults for missing optional fields
+        if (sanitized.getStrategy() == null || sanitized.getStrategy().isEmpty()) {
+            sanitized.setStrategy("ENHANCED_30M");
+        }
+        
+        if (sanitized.getTimeframe() == null || sanitized.getTimeframe().isEmpty()) {
+            sanitized.setTimeframe("30m");
+        }
+        
+        if (sanitized.getTimestamp() <= 0) {
+            sanitized.setTimestamp(System.currentTimeMillis());
+        }
+        
+        log.debug("🔧 [SANITIZATION] Strategy signal sanitized for {}", sanitized.getScripCode());
+        return sanitized;
+    }
+    
+    /**
+     * Helper method to check if string is null or empty
+     */
+    private boolean isNullOrEmpty(String str) {
+        return str == null || str.trim().isEmpty();
     }
 } 

@@ -10,14 +10,17 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 🛡️ BULLETPROOF Kafka Configuration with Centralized Consumer Groups
- * Uses application.properties for all consumer group IDs
+ * 🛡️ BULLETPROOF Kafka Configuration with ROBUST Error Handling
+ * Uses ErrorHandlingDeserializer to gracefully handle malformed JSON messages
  */
 @Configuration
 @EnableKafka
@@ -33,25 +36,31 @@ public class KafkaConfig {
     @Value("${app.kafka.consumer.market-data-group-id}")
     private String marketDataGroupId;
 
-
     
     /**
-     * 🎯 BULLETPROOF SIGNAL CONSUMER FACTORY
-     * Uses centralized group ID from application.properties
+     * 🛡️ BULLETPROOF SIGNAL CONSUMER FACTORY with ERROR HANDLING
+     * Uses ErrorHandlingDeserializer to gracefully handle malformed JSON
      */
     @Bean("strategySignalConsumerFactory")
     public ConsumerFactory<String, com.kotsin.execution.model.StrategySignal> strategySignalConsumerFactory() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, bulletproofSignalGroupId); // 🎯 From properties
-        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, bulletproofSignalGroupId);
         
-        // 🔧 FIXED: Configure JsonDeserializer specifically for StrategySignal
+        // 🛡️ BULLETPROOF: Use ErrorHandlingDeserializer for keys and values
+        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        
+        // Configure the actual deserializers that ErrorHandlingDeserializer will use
+        configProps.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
+        
+        // 🔧 Configure JsonDeserializer specifically for StrategySignal
         configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
         configProps.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "com.kotsin.execution.model.StrategySignal");
         configProps.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
         
+        // 🛡️ BULLETPROOF: Configure error handling behavior
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
@@ -67,29 +76,44 @@ public class KafkaConfig {
             new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(strategySignalConsumerFactory());
         
-        // 🔧 CRITICAL FIX: Enable manual acknowledgment mode
+        // 🔧 Enable manual acknowledgment mode
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        
+        // 🛡️ BULLETPROOF: Configure error handler for deserialization failures
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(1000L, 3L));
+        errorHandler.addNotRetryableExceptions(
+            org.springframework.kafka.support.serializer.DeserializationException.class,
+            org.apache.kafka.common.errors.SerializationException.class
+        );
+        factory.setCommonErrorHandler(errorHandler);
         
         return factory;
     }
 
     /**
-     * 🎯 MARKET DATA CONSUMER FACTORY
-     * Uses centralized group ID from application.properties
+     * 🛡️ BULLETPROOF MARKET DATA CONSUMER FACTORY with ERROR HANDLING
+     * Uses ErrorHandlingDeserializer to gracefully handle malformed JSON
      */
     @Bean("marketDataConsumerFactory")
     public ConsumerFactory<String, com.kotsin.execution.model.MarketData> marketDataConsumerFactory() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, marketDataGroupId); // 🎯 From properties
-        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, marketDataGroupId);
         
-        // 🔧 FIXED: Configure JsonDeserializer specifically for MarketData
+        // 🛡️ BULLETPROOF: Use ErrorHandlingDeserializer for keys and values
+        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        
+        // Configure the actual deserializers that ErrorHandlingDeserializer will use
+        configProps.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
+        
+        // 🔧 Configure JsonDeserializer specifically for MarketData
         configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
         configProps.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "com.kotsin.execution.model.MarketData");
         configProps.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
         
+        // 🛡️ BULLETPROOF: Configure error handling behavior
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 50);
@@ -105,8 +129,16 @@ public class KafkaConfig {
             new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(marketDataConsumerFactory());
         
-        // 🔧 CRITICAL FIX: Enable manual acknowledgment mode
+        // 🔧 Enable manual acknowledgment mode
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        
+        // 🛡️ BULLETPROOF: Configure error handler for deserialization failures
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(1000L, 3L));
+        errorHandler.addNotRetryableExceptions(
+            org.springframework.kafka.support.serializer.DeserializationException.class,
+            org.apache.kafka.common.errors.SerializationException.class
+        );
+        factory.setCommonErrorHandler(errorHandler);
         
         return factory;
     }
