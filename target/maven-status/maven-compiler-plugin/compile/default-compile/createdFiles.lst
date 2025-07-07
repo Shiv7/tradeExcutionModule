@@ -1,6 +1,7 @@
 com/kotsin/execution/config/WebConfig.class
 com/kotsin/execution/config/SchedulingConfig.class
 com/kotsin/execution/consumer/BulletproofSignalConsumer.class
+com/kotsin/execution/service/ErrorMonitoringService.class
 com/kotsin/execution/model/PortfolioInsights.class
 com/kotsin/execution/model/PendingSignal.class
 com/kotsin/execution/controller/BulletproofTradeController.class
@@ -16,8 +17,10 @@ com/kotsin/execution/controller/TradeExecutionMonitorController.class
 com/kotsin/execution/model/ActiveTrade$ActiveTradeBuilder.class
 com/kotsin/execution/model/PortfolioSummary$PortfolioSummaryBuilder.class
 com/kotsin/execution/service/TradingHoursService.class
+com/kotsin/execution/controller/ErrorMonitoringController.class
 com/kotsin/execution/config/KafkaConfig.class
 com/kotsin/execution/model/ActiveTrade$1.class
+com/kotsin/execution/config/BulletproofErrorHandler.class
 com/kotsin/execution/service/BulletproofTradeManager.class
 com/kotsin/execution/model/PendingSignal$PendingSignalBuilder.class
 com/kotsin/execution/model/PortfolioInsights$PortfolioInsightsBuilder.class

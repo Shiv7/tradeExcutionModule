@@ -1,6 +1,7 @@
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/SchedulingConfig.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/producer/ProfitLossProducer.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/PortfolioSummary.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/ErrorMonitoringService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/PortfolioInsights.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/MarketData.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/TradeExecutionApplication.java
@@ -15,7 +16,9 @@
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/TelegramNotificationService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/OpenApiConfig.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/TradeResult.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/ErrorMonitoringController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/consumer/BulletproofSignalConsumer.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/BulletproofErrorHandler.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/BulletproofTradeManager.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/KafkaConfig.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/ActiveTrade.java

@@ -108,7 +108,9 @@ public class BulletproofTradeController {
             log.info("🎯 [BulletproofTC] Manual trade creation requested: {} {} @ {} (SL: {}, T1: {}, T2: {}, T3: {})", 
                     scripCode, signal, entryPrice, stopLoss, target1, target2, target3);
             
-            boolean created = bulletproofSignalConsumer.createTrade(scripCode, signal, entryPrice, stopLoss, target1, target2, target3, LocalDateTime.now());
+            // For manual trades, extract companyName from request or use scripCode as fallback
+            String companyName = (String) tradeRequest.getOrDefault("companyName", scripCode);
+            boolean created = bulletproofSignalConsumer.createTrade(scripCode, companyName, signal, entryPrice, stopLoss, target1, target2, target3, LocalDateTime.now());
             
             Map<String, Object> response = new HashMap<>();
             if (created) {
