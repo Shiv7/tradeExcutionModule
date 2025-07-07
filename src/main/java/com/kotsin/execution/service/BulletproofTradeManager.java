@@ -520,21 +520,25 @@ public class BulletproofTradeManager {
     }
     
     private void sendPartialExitNotification(ActiveTrade trade, double exitPrice, double partialPnL, String reason) {
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format(
             "🎯 TARGET 1 HIT - 50%% EXIT\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Exit Price: %.2f\n" +
             "Partial P&L: ₹%.2f\n" +
             "Remaining: 50%% position\n" +
             "Trailing stop now active\n" +
             "Time: %s",
+            companyName,
             trade.getScripCode(),
             exitPrice,
             partialPnL,
             LocalDateTime.now().format(TIME_FORMAT)
         );
         
-        telegramNotificationService.sendTradeNotificationMessage(message);
+        // 🚨 FIX: Send P&L messages to correct chat ID (-4924122957)
+        telegramNotificationService.sendTimeoutNotification(message);
     }
     
     private void sendTradeClosedNotification(ActiveTrade trade, double finalPnL, String exitType, String exitReason) {
@@ -548,9 +552,11 @@ public class BulletproofTradeManager {
         
         String emoji = totalPnL > 0 ? "💰" : "🔴";
         String status = totalPnL > 0 ? "PROFIT" : "LOSS";
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         
         String message = String.format(
             "%s TRADE CLOSED - %s\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Entry: %.2f → Exit: %.2f\n" +
             "Total P&L: ₹%.2f\n" +
@@ -560,6 +566,7 @@ public class BulletproofTradeManager {
             "Win Rate: %.1f%% (%d/%d)\n" +
             "Time: %s",
             emoji, status,
+            companyName,
             trade.getScripCode(),
             trade.getEntryPrice(), trade.getExitPrice(),
             totalPnL,
@@ -571,7 +578,8 @@ public class BulletproofTradeManager {
             LocalDateTime.now().format(TIME_FORMAT)
         );
         
-        telegramNotificationService.sendTradeNotificationMessage(message);
+        // 🚨 FIX: Send P&L messages to correct chat ID (-4924122957)
+        telegramNotificationService.sendTimeoutNotification(message);
     }
     
     /**

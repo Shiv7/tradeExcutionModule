@@ -529,6 +529,13 @@ public void processStrategySignal(StrategySignal signal,
         
         // 🎯 2. TARGET 1 CHECK - 50% position exit using PIVOT TARGET
         if (!trade.isTarget1Hit() && trade.getTarget1() != null && trade.getTarget1() > 0) {
+            // 🔒 EXTRA SAFETY: Check if partial exit is already in progress to prevent loops
+            Object partialExitInProgress = trade.getMetadata() != null ? trade.getMetadata().get("partialExitInProgress") : null;
+            if (partialExitInProgress != null && (Boolean) partialExitInProgress) {
+                log.debug("🔒 [BulletproofSC] Partial exit already in progress for {} - skipping", trade.getScripCode());
+                return;
+            }
+            
             boolean target1Hit = isBullish ? (price >= trade.getTarget1()) : (price <= trade.getTarget1());
             if (target1Hit) {
                 executePartialExit(trade, price, timestamp, "TARGET_1");
@@ -693,8 +700,16 @@ public void processStrategySignal(StrategySignal signal,
 
     /**
      * 🎯 PARTIAL EXIT - 50% position at Target 1 with PRECISE share calculation
+     * 🚨 BULLETPROOF: Synchronized to prevent infinite loops from concurrent execution
      */
-    private void executePartialExit(ActiveTrade trade, double exitPrice, LocalDateTime timestamp, String reason) {
+    private synchronized void executePartialExit(ActiveTrade trade, double exitPrice, LocalDateTime timestamp, String reason) {
+        // 🔒 CRITICAL: Double-check target1Hit status inside synchronized block to prevent race conditions
+        if (trade.isTarget1Hit()) {
+            log.warn("🚨 [BulletproofSC] PARTIAL EXIT ALREADY EXECUTED for {} - Preventing infinite loop!", 
+                     trade.getScripCode());
+            return;
+        }
+        
         // 🛡️ VALIDATE METADATA CONSISTENCY before executing partial exit
         if (!validateMetadataConsistency(trade, exitPrice, "PARTIAL_EXIT")) {
             log.error("🚨 [BulletproofSC] PARTIAL EXIT ABORTED: Metadata consistency validation failed for {}", 
@@ -710,11 +725,14 @@ public void processStrategySignal(StrategySignal signal,
         long partialPnLCents = Math.round(partialPnL * 100);
         
         try {
-            // 📈 STEP 1: Update trade state (can be rolled back)
+            // 📈 STEP 1: Update trade state IMMEDIATELY to prevent re-execution (can be rolled back)
             trade.setTarget1Hit(true);
             trade.addMetadata("partialExitPrice", exitPrice);
             trade.addMetadata("partialExitTime", timestamp);
             trade.addMetadata("partialPnL", partialPnL);
+            trade.addMetadata("partialExitInProgress", true); // Flag to prevent concurrent execution
+            
+            log.info("🔒 [BulletproofSC] PARTIAL EXIT STARTED - Target1Hit=true set immediately for {}", trade.getScripCode());
             
             // 💰 STEP 2: Update realized P&L - Thread-safe (atomic, can't fail)
             totalRealizedPnLCents.addAndGet(partialPnLCents);
@@ -730,7 +748,11 @@ public void processStrategySignal(StrategySignal signal,
                         notificationEx.getMessage());
             }
             
-            log.info("🎯 [BulletproofSC] PARTIAL EXIT (50%): {} at {} - P&L: ₹{}, Reason: {}", 
+            // Mark partial exit as completed
+            trade.addMetadata("partialExitInProgress", false);
+            trade.addMetadata("partialExitCompleted", true);
+            
+            log.info("🎯 [BulletproofSC] PARTIAL EXIT COMPLETED (50%): {} at {} - P&L: ₹{}, Reason: {}", 
                     trade.getScripCode(), exitPrice, String.format("%.2f", partialPnL), reason);
             
         } catch (Exception ex) {
@@ -741,6 +763,7 @@ public void processStrategySignal(StrategySignal signal,
             trade.getMetadata().remove("partialExitPrice");
             trade.getMetadata().remove("partialExitTime");
             trade.getMetadata().remove("partialPnL");
+            trade.getMetadata().remove("partialExitInProgress");
             
             // Rollback P&L update
             totalRealizedPnLCents.addAndGet(-partialPnLCents);
@@ -1320,14 +1343,17 @@ public void processStrategySignal(StrategySignal signal,
     }
     
     private void sendPartialExitNotification(ActiveTrade trade, double exitPrice, double partialPnL, String reason) {
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format(
             "🎯 PARTIAL EXIT (50%%)\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Exit: %.2f\n" +
             "Partial P&L: ₹%.2f\n" +
             "Reason: %s\n" +
             "Remaining: 50%% position\n" +
             "Time: %s",
+            companyName,
             trade.getScripCode(),
             exitPrice,
             partialPnL,
@@ -1335,16 +1361,19 @@ public void processStrategySignal(StrategySignal signal,
             LocalDateTime.now().format(TIME_FORMAT)
         );
         
-        telegramNotificationService.sendTradeNotificationMessage(message);
+        // 🚨 FIX: Send P&L messages to correct chat ID (-4924122957)
+        telegramNotificationService.sendTimeoutNotification(message);
     }
     
     private void sendTradeClosedNotification(ActiveTrade trade, double totalPnL, String exitType, String exitReason) {
         int currentTotalTrades = totalTrades.get();
         int currentWinningTrades = winningTrades.get();
         double winRate = currentTotalTrades > 0 ? (currentWinningTrades * 100.0 / currentTotalTrades) : 0.0;
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         
         String message = String.format(
             "🏁 TRADE CLOSED\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Exit: %.2f\n" +
             "Total P&L: ₹%.2f %s\n" +
@@ -1352,6 +1381,7 @@ public void processStrategySignal(StrategySignal signal,
             "Reason: %s\n" +
             "Win Rate: %.1f%% (%d/%d)\n" +
             "Time: %s",
+            companyName,
             trade.getScripCode(),
             trade.getExitPrice(),
             totalPnL,
@@ -1364,7 +1394,8 @@ public void processStrategySignal(StrategySignal signal,
             LocalDateTime.now().format(TIME_FORMAT)
         );
         
-        telegramNotificationService.sendTradeNotificationMessage(message);
+        // 🚨 FIX: Send P&L messages to correct chat ID (-4924122957)
+        telegramNotificationService.sendTimeoutNotification(message);
     }
     
     // Public accessors
