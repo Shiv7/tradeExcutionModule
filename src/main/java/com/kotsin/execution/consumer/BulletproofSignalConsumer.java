@@ -140,7 +140,7 @@ public void processStrategySignal(StrategySignal signal,
             StrategySignal sanitizedSignal = sanitizeStrategySignal(signal);
             
             // 🎯 CREATE TRADE (Only one at a time) - Use pivot-based targets
-            boolean tradeCreated = createTrade(sanitizedSignal.getScripCode(), sanitizedSignal.getNormalizedSignal(), sanitizedSignal.getEntryPrice(), 
+            boolean tradeCreated = createTrade(sanitizedSignal.getScripCode(), sanitizedSignal.getCompanyName(), sanitizedSignal.getNormalizedSignal(), sanitizedSignal.getEntryPrice(), 
                        sanitizedSignal.getStopLoss(), sanitizedSignal.getTarget1(), sanitizedSignal.getTarget2(), sanitizedSignal.getTarget3(), signalReceivedTime);
             
             if (tradeCreated) {
@@ -160,7 +160,7 @@ public void processStrategySignal(StrategySignal signal,
     /**
      * 🚀 CREATE NEW TRADE - Only one at a time with pivot-based targets
      */
-    public boolean createTrade(String scripCode, String signal, double entryPrice, 
+    public boolean createTrade(String scripCode, String companyName, String signal, double entryPrice, 
                               double stopLoss, Double target1, Double target2, Double target3, 
                               LocalDateTime signalReceivedTime) {
         
@@ -197,7 +197,7 @@ public void processStrategySignal(StrategySignal signal,
         }
         
         // 🏗️ CREATE BULLETPROOF TRADE with pivot targets
-        ActiveTrade trade = createBulletproofTrade(scripCode, signal, entryPrice, stopLoss, 
+        ActiveTrade trade = createBulletproofTrade(scripCode, companyName, signal, entryPrice, stopLoss, 
                                                  target1, target2, target3, signalReceivedTime);
         
         // 🎯 ATOMIC ASSIGNMENT - Thread-safe single trade
@@ -436,11 +436,14 @@ public void processStrategySignal(StrategySignal signal,
         }
         
         // Send cancellation notification
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format("❌ TRADE CANCELED\n" +
+                "🏢 Company: %s\n" +
                 "📈 Script: %s\n" +
                 "💰 Signal: %s @ %.2f\n" +
                 "❌ Reason: %s\n" +
                 "⏰ Time: %s IST",
+                companyName,
                 trade.getScripCode(),
                 trade.getSignalType(),
                 trade.getMetadata() != null ? (Double) trade.getMetadata().get("signalPrice") : 0.0,
@@ -931,7 +934,7 @@ public void processStrategySignal(StrategySignal signal,
         return true;
     }
     
-    private ActiveTrade createBulletproofTrade(String scripCode, String signal, double signalPrice, 
+    private ActiveTrade createBulletproofTrade(String scripCode, String companyName, String signal, double signalPrice, 
                                               double stopLoss, Double target1, Double target2, 
                                               Double target3, LocalDateTime signalReceivedTime) {
         String tradeId = generateTradeId(scripCode);
@@ -941,7 +944,7 @@ public void processStrategySignal(StrategySignal signal,
         ActiveTrade trade = ActiveTrade.builder()
                 .tradeId(tradeId)
                 .scripCode(scripCode)
-                .companyName(scripCode)
+                .companyName(companyName != null ? companyName : scripCode)
                 .signalType(isBullish ? "BULLISH" : "BEARISH")
                 .strategyName("BULLETPROOF_PIVOT_RETEST")
                 .signalTime(signalReceivedTime)
@@ -1283,8 +1286,10 @@ public void processStrategySignal(StrategySignal signal,
                     signalPrice, trade.getScripCode());
         }
         
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format(
             "🎯 NEW TRADE SETUP\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Signal: %s\n" +
             "Signal Price: %.2f\n" +
@@ -1294,6 +1299,7 @@ public void processStrategySignal(StrategySignal signal,
             "Target 3: %s\n" +
             "Amount: ₹%.0f\n" +
             "Status: Waiting for pivot retest entry",
+            companyName,
             trade.getScripCode(),
             trade.getSignalType(),
             signalPrice,
@@ -1321,8 +1327,10 @@ public void processStrategySignal(StrategySignal signal,
                     signalPrice, trade.getScripCode());
         }
         
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format(
             "🚀 TRADE ENTERED\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Signal Price: %.2f\n" +
             "Entry Price: %.2f\n" +
@@ -1330,6 +1338,7 @@ public void processStrategySignal(StrategySignal signal,
             "Amount: ₹%.2f\n" +
             "Reason: %s\n" +
             "Time: %s",
+            companyName,
             trade.getScripCode(),
             signalPrice,
             entryPrice,

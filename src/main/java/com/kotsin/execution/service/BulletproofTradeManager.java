@@ -54,7 +54,7 @@ public class BulletproofTradeManager {
     /**
      * 🚀 CREATE NEW TRADE - Only one at a time
      */
-    public boolean createTrade(String scripCode, String signal, double entryPrice, 
+    public boolean createTrade(String scripCode, String companyName, String signal, double entryPrice, 
                               double stopLoss, double target1, LocalDateTime signalTime) {
         
         // 🛡️ BULLETPROOF: Only one trade at a time
@@ -70,7 +70,7 @@ public class BulletproofTradeManager {
         }
         
         // 🏗️ CREATE BULLETPROOF TRADE
-        ActiveTrade trade = createBulletproofTrade(scripCode, signal, entryPrice, stopLoss, target1, signalTime);
+        ActiveTrade trade = createBulletproofTrade(scripCode, companyName, signal, entryPrice, stopLoss, target1, signalTime);
         
         // 🎯 ATOMIC ASSIGNMENT - Thread-safe single trade
         boolean created = currentTrade.compareAndSet(null, trade);
@@ -381,7 +381,7 @@ public class BulletproofTradeManager {
         return true;
     }
     
-    private ActiveTrade createBulletproofTrade(String scripCode, String signal, double entryPrice, 
+    private ActiveTrade createBulletproofTrade(String scripCode, String companyName, String signal, double entryPrice, 
                                               double stopLoss, double target1, LocalDateTime signalTime) {
         String tradeId = generateTradeId(scripCode);
         boolean isBullish = "BUY".equals(signal) || "BULLISH".equals(signal);
@@ -394,7 +394,7 @@ public class BulletproofTradeManager {
         ActiveTrade trade = ActiveTrade.builder()
                 .tradeId(tradeId)
                 .scripCode(scripCode)
-                .companyName(scripCode)
+                .companyName(companyName != null ? companyName : scripCode)
                 .signalType(isBullish ? "BULLISH" : "BEARISH")
                 .strategyName("BULLETPROOF_PIVOT_RETEST")
                 .signalTime(signalTime)
@@ -479,8 +479,10 @@ public class BulletproofTradeManager {
      * 📱 NOTIFICATION METHODS
      */
     private void sendTradeCreatedNotification(ActiveTrade trade) {
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format(
             "🎯 NEW TRADE SETUP\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Signal: %s\n" +
             "Entry Zone: %.2f\n" +
@@ -488,6 +490,7 @@ public class BulletproofTradeManager {
             "Target 1: %.2f\n" +
             "Amount: ₹%.0f\n" +
             "Status: Waiting for pivot retest entry",
+            companyName,
             trade.getScripCode(),
             trade.getSignalType(),
             (Double) trade.getMetadata().get("signalPrice"),
@@ -500,14 +503,17 @@ public class BulletproofTradeManager {
     }
     
     private void sendTradeEnteredNotification(ActiveTrade trade, double entryPrice, String entryReason) {
+        String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format(
             "🚀 TRADE ENTERED\n" +
+            "Company: %s\n" +
             "Script: %s\n" +
             "Entry: %.2f\n" +
             "Position: %d shares\n" +
             "Amount: ₹%.0f\n" +
             "Reason: %s\n" +
             "Time: %s",
+            companyName,
             trade.getScripCode(),
             entryPrice,
             trade.getPositionSize(),
