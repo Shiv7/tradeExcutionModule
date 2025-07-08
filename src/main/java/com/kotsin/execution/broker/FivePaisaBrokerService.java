@@ -59,7 +59,16 @@ public class FivePaisaBrokerService implements BrokerOrderService {
 
         restClient = new RestClient(appConfig, new Properties());
         try {
-            restClient.getTotpSession(loginId, totp, pin);
+            String cleanTotp = totp != null ? totp.trim() : "";
+            String cleanPin  = pin  != null ? pin.trim()  : "";
+            if (cleanTotp.isBlank() || cleanPin.isBlank()) {
+                throw new IllegalStateException("fivepaisa.totp or fivepaisa.pin is blank – cannot establish session");
+            }
+
+            String tokenResp = restClient.getTotpSession(loginId.trim(), cleanTotp, cleanPin);
+            if (tokenResp == null || tokenResp.isBlank()) {
+                throw new IllegalStateException("5Paisa TOTP session response was empty – check credentials / TOTP validity");
+            }
             log.info("✅ 5Paisa session initialised successfully");
         } catch (Exception e) {
             throw new RuntimeException("Failed to obtain 5Paisa session", e);
