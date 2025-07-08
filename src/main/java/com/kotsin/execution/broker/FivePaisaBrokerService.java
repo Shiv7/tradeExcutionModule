@@ -1,7 +1,8 @@
 package com.kotsin.execution.broker;
 
-import com.kotsin.optionDataProducer.config.AppConfig;
-import com.kotsin.optionDataProducer.controller.fivePaisaApi.RestClient;
+import com.FivePaisa.config.AppConfig;
+import com.FivePaisa.api.RestClient;
+import com.FivePaisa.service.Properties;
 import lombok.extern.slf4j.Slf4j;
 import org.json.simple.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,7 +57,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
         appConfig.setAppVer(appVer);
         appConfig.setOsName(osName);
 
-        restClient = new RestClient(appConfig, new com.kotsin.optionDataProducer.service.fivePaisa.Properties());
+        restClient = new RestClient(appConfig, new Properties());
         try {
             restClient.getTotpSession(loginId, totp, pin);
             log.info("✅ 5Paisa session initialised successfully");

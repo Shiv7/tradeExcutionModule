@@ -68,11 +68,11 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- 5Paisa Open API client (optionProducerJava module) -->
+        <!-- 5Paisa Java SDK pulled from GitHub via JitPack -->
         <dependency>
-            <groupId>com.FivePaisa</groupId>
-            <artifactId>FivePaisa</artifactId>
-            <version>0.0.2-SNAPSHOT</version>
+            <groupId>com.github.OpenApi-5p</groupId>
+            <artifactId>5paisa-java</artifactId>
+            <version>main-SNAPSHOT</version>
         </dependency>
 
         <!-- Monitoring -->
@@ -101,6 +101,14 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!-- JitPack repository for GitHub-built artifacts -->
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+    </repositories>
 
     <build>
         <plugins>
