@@ -142,30 +142,40 @@ public class ActiveTrade {
      * Check if target1 is hit at current price
      */
     public boolean isTarget1Hit() {
-        if (currentPrice == null || target1 == null || target1Hit || status != TradeStatus.ACTIVE) {
+        // ✅ First guard: if we have *already* executed the T1 partial exit, never trigger again
+        if (Boolean.TRUE.equals(target1Hit)) {
+            return true;
+        }
+
+        // Normal validity checks
+        if (currentPrice == null || target1 == null || status != TradeStatus.ACTIVE) {
             return false;
         }
-        
-        if (isBullish()) {
-            return currentPrice >= target1 && target1 > entryPrice;
-        } else {
-            return currentPrice <= target1 && target1 < entryPrice;
-        }
+
+        // Evaluate live price only if the exit hasn’t happened yet
+        return isBullish()
+                ? currentPrice >= target1 && target1 > entryPrice
+                : currentPrice <= target1 && target1 < entryPrice;
     }
     
     /**
      * Check if target2 is hit at current price
      */
     public boolean isTarget2Hit() {
-        if (currentPrice == null || target2 == null || target2Hit || !target1Hit || status != TradeStatus.ACTIVE) {
+        // ✅ If Target 2 has already been executed, short-circuit to prevent duplicates
+        if (Boolean.TRUE.equals(target2Hit)) {
+            return true;
+        }
+
+        // Must have hit Target 1 first and still be an active trade
+        if (currentPrice == null || target2 == null || !Boolean.TRUE.equals(target1Hit) || status != TradeStatus.ACTIVE) {
             return false;
         }
-        
-        if (isBullish()) {
-            return currentPrice >= target2 && target2 > entryPrice;
-        } else {
-            return currentPrice <= target2 && target2 < entryPrice;
-        }
+
+        // Live price evaluation when eligible
+        return isBullish()
+                ? currentPrice >= target2 && target2 > entryPrice
+                : currentPrice <= target2 && target2 < entryPrice;
     }
     
     /**
