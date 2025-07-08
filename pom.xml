@@ -68,6 +68,13 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- 5Paisa Open API client (optionProducerJava module) -->
+        <dependency>
+            <groupId>com.FivePaisa</groupId>
+            <artifactId>FivePaisa</artifactId>
+            <version>0.0.2-SNAPSHOT</version>
+        </dependency>
+
         <!-- Monitoring -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

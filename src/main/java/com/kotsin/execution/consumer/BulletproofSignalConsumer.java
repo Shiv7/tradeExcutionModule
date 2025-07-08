@@ -8,6 +8,8 @@ import com.kotsin.execution.producer.ProfitLossProducer;
 import com.kotsin.execution.service.TelegramNotificationService;
 import com.kotsin.execution.service.TradingHoursService;
 import com.kotsin.execution.service.ErrorMonitoringService;
+import com.kotsin.execution.broker.BrokerOrderService;
+import com.kotsin.execution.broker.BrokerOrderService.Side;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -50,6 +52,7 @@ public class BulletproofSignalConsumer {
     private final TelegramNotificationService telegramNotificationService;
     private final TradingHoursService tradingHoursService;
     private final ErrorMonitoringService errorMonitoringService;
+    private final BrokerOrderService brokerOrderService;
     
     // 🎯 BULLETPROOF: Single trade storage (eliminates dual storage)
     private final AtomicReference<ActiveTrade> currentTrade = new AtomicReference<>();
@@ -499,6 +502,18 @@ public void processStrategySignal(StrategySignal signal,
         
         // 📱 SEND NOTIFICATION
         sendTradeEnteredNotification(trade, entryPrice, entryReason);
+
+        // 🔗 5Paisa – Place market entry order
+        try {
+            Side side = trade.isBullish() ? Side.BUY : Side.SELL;
+            brokerOrderService.placeMarketOrder(trade.getScripCode(),
+                    trade.getExchange() != null ? trade.getExchange() : "N",
+                    trade.getExchangeType() != null ? trade.getExchangeType() : "C",
+                    side,
+                    trade.getPositionSize());
+        } catch (Exception ex) {
+            log.error("❌ Broker entry order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+        }
     }
     
     /**
@@ -838,6 +853,25 @@ public void processStrategySignal(StrategySignal signal,
         double currentTotalPnL = totalRealizedPnLCents.get() / 100.0;
         log.info("✅ [BulletproofSC] CLEANUP COMPLETE - Ready for next trade (Total P&L: ₹{})", 
                 String.format("%.2f", currentTotalPnL));
+
+        // 🔗 5Paisa – square-off remaining position
+        try {
+            Side exitSide = trade.isBullish() ? Side.SELL : Side.BUY;
+            int remainingShares = trade.getPositionSize();
+            if (trade.isTarget1Hit()) {
+                int partialShares = calculatePartialShares(remainingShares, 0.5);
+                remainingShares = calculateRemainingShares(remainingShares, partialShares);
+            }
+            if (remainingShares > 0) {
+                brokerOrderService.placeMarketOrder(trade.getScripCode(),
+                        trade.getExchange() != null ? trade.getExchange() : "N",
+                        trade.getExchangeType() != null ? trade.getExchangeType() : "C",
+                        exitSide,
+                        remainingShares);
+            }
+        } catch (Exception ex) {
+            log.error("❌ Broker exit order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+        }
     }
     
     // Helper methods
@@ -917,7 +951,7 @@ public void processStrategySignal(StrategySignal signal,
                     return false;
                 }
                 if (target2 != null && target2 > 0 && target3 >= target2) {
-                    log.error("🚨 [BulletproofSC] BEARISH TARGET SEQUENCE ERROR: Target 3 {} >= Target 2 {} - IMPOSSIBLE SEQUENCE!", 
+                    log.error("�� [BulletproofSC] BEARISH TARGET SEQUENCE ERROR: Target 3 {} >= Target 2 {} - IMPOSSIBLE SEQUENCE!", 
                              target3, target2);
                     return false;
                 }
@@ -1372,6 +1406,19 @@ public void processStrategySignal(StrategySignal signal,
         
         // 🚨 FIX: Send P&L messages to correct chat ID (-4924122957)
         telegramNotificationService.sendTimeoutNotification(message);
+
+        // 🔗 5Paisa – execute sell/buy for partial shares
+        try {
+            Side exitSide = trade.isBullish() ? Side.SELL : Side.BUY;
+            int partialShares = calculatePartialShares(trade.getPositionSize(), 0.5);
+            brokerOrderService.placeMarketOrder(trade.getScripCode(),
+                    trade.getExchange() != null ? trade.getExchange() : "N",
+                    trade.getExchangeType() != null ? trade.getExchangeType() : "C",
+                    exitSide,
+                    partialShares);
+        } catch (Exception ex) {
+            log.error("❌ Broker partial exit order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+        }
     }
     
     private void sendTradeClosedNotification(ActiveTrade trade, double totalPnL, String exitType, String exitReason) {

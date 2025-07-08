@@ -2,6 +2,7 @@ package com.kotsin.execution.controller;
 
 import com.kotsin.execution.consumer.BulletproofSignalConsumer;
 import com.kotsin.execution.model.ActiveTrade;
+import com.kotsin.execution.broker.BrokerOrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +29,7 @@ import java.util.Map;
 public class BulletproofTradeController {
     
     private final BulletproofSignalConsumer bulletproofSignalConsumer;
+    private final BrokerOrderService brokerOrderService;
     
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     
@@ -247,6 +249,24 @@ public class BulletproofTradeController {
             log.error("🚨 [BulletproofTC] Error processing emergency exit: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError()
                     .body(Map.of("error", "Failed to process emergency exit", "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/broker/square-off-all")
+    public ResponseEntity<Map<String, String>> squareOffAll() {
+        try {
+            brokerOrderService.squareOffAll();
+            // also force internal emergency exit if active trade
+            if (bulletproofSignalConsumer.hasActiveTrade()) {
+                // Close internal trade state after broker square-off
+                // For now, simply cancel the trade to unblock new entries
+                bulletproofSignalConsumer.updatePrice(bulletproofSignalConsumer.getCurrentTrade().getScripCode(),
+                        bulletproofSignalConsumer.getCurrentTrade().getCurrentPrice() != null ? bulletproofSignalConsumer.getCurrentTrade().getCurrentPrice() : 0.0,
+                        java.time.LocalDateTime.now());
+            }
+            return ResponseEntity.ok(Map.of("status", "ALL_POSITIONS_SQUARE_OFF_TRIGGERED"));
+        } catch (Exception ex) {
+            return ResponseEntity.internalServerError().body(Map.of("error", ex.getMessage()));
         }
     }
     

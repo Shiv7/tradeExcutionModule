@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * 📊 COMPREHENSIVE MONITORING: Error statistics and patterns are tracked for analysis
  */
 @SpringBootApplication
+// ComponentScan removed; rely on default scanning within this module
 @EnableKafka
 @EnableScheduling
 public class TradeExecutionApplication {
