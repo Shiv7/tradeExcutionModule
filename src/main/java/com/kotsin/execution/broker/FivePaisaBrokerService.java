@@ -30,6 +30,12 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     @Value("${fivepaisa.pin}")
     private String pin;
 
+    // If fivepaisa.totp is empty we fetch a fresh value from this URL (same micro-service used by Option Producer)
+    @Value("${fivepaisa.totp-url:http://localhost:8002/getToto}")
+    private String totpUrl;
+
+    private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+
     @Value("${fivepaisa.encrypt-key}")
     private String encryptKey;
     @Value("${fivepaisa.key}")
@@ -59,10 +65,27 @@ public class FivePaisaBrokerService implements BrokerOrderService {
 
         restClient = new RestClient(appConfig, new Properties());
         try {
-            String cleanTotp = totp != null ? totp.trim() : "";
             String cleanPin  = pin  != null ? pin.trim()  : "";
-            if (cleanTotp.isBlank() || cleanPin.isBlank()) {
-                throw new IllegalStateException("fivepaisa.totp or fivepaisa.pin is blank – cannot establish session");
+            if (cleanPin.isBlank()) {
+                throw new IllegalStateException("fivepaisa.pin is blank – cannot establish session");
+            }
+
+            String cleanTotp;
+            if (totp != null && !totp.trim().isEmpty()) {
+                cleanTotp = totp.trim();
+            } else {
+                // Fetch fresh TOTP from micro-service
+                try {
+                    String res = restTemplate.getForObject(totpUrl, String.class);
+                    cleanTotp = res != null ? res.replace("\"", "").trim() : "";
+                    log.info("Fetched TOTP '{}' from {}", cleanTotp, totpUrl);
+                } catch (Exception e) {
+                    throw new IllegalStateException("Unable to fetch TOTP from " + totpUrl + ": " + e.getMessage(), e);
+                }
+            }
+
+            if (cleanTotp.isBlank()) {
+                throw new IllegalStateException("TOTP is blank even after fetch – cannot establish session");
             }
 
             String tokenResp = restClient.getTotpSession(loginId.trim(), cleanTotp, cleanPin);
