@@ -17,6 +17,7 @@ import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -506,6 +507,10 @@ public void processStrategySignal(StrategySignal signal,
         // 🔗 5Paisa – Place market entry order
         try {
             Side side = trade.isBullish() ? Side.BUY : Side.SELL;
+            log.info("📤 [5Paisa-ENTRY] Placing MARKET {} order for {} | Qty {} | Exch {}{}", side,
+                    trade.getScripCode(), trade.getPositionSize(),
+                    trade.getExchange() != null ? trade.getExchange() : "N",
+                    trade.getExchangeType() != null ? "/" + trade.getExchangeType() : "");
             brokerOrderService.placeMarketOrder(trade.getScripCode(),
                     trade.getExchange() != null ? trade.getExchange() : "N",
                     trade.getExchangeType() != null ? trade.getExchangeType() : "C",
@@ -863,6 +868,10 @@ public void processStrategySignal(StrategySignal signal,
                 remainingShares = calculateRemainingShares(remainingShares, partialShares);
             }
             if (remainingShares > 0) {
+                log.info("📤 [5Paisa-EXIT] Placing MARKET {} order for {} | Qty {} | Exch {}{} (market close or final exit)", exitSide,
+                        trade.getScripCode(), remainingShares,
+                        trade.getExchange() != null ? trade.getExchange() : "N",
+                        trade.getExchangeType() != null ? "/" + trade.getExchangeType() : "");
                 brokerOrderService.placeMarketOrder(trade.getScripCode(),
                         trade.getExchange() != null ? trade.getExchange() : "N",
                         trade.getExchangeType() != null ? trade.getExchangeType() : "C",
@@ -951,7 +960,7 @@ public void processStrategySignal(StrategySignal signal,
                     return false;
                 }
                 if (target2 != null && target2 > 0 && target3 >= target2) {
-                    log.error("�� [BulletproofSC] BEARISH TARGET SEQUENCE ERROR: Target 3 {} >= Target 2 {} - IMPOSSIBLE SEQUENCE!", 
+                    log.error("🚨 [BulletproofSC] BEARISH TARGET SEQUENCE ERROR: Target 3 {} >= Target 2 {} - IMPOSSIBLE SEQUENCE!", 
                              target3, target2);
                     return false;
                 }
@@ -1411,6 +1420,10 @@ public void processStrategySignal(StrategySignal signal,
         try {
             Side exitSide = trade.isBullish() ? Side.SELL : Side.BUY;
             int partialShares = calculatePartialShares(trade.getPositionSize(), 0.5);
+            log.info("📤 [5Paisa-PARTIAL] Placing MARKET {} order for {} | Qty {} | Exch {}{}", exitSide,
+                    trade.getScripCode(), partialShares,
+                    trade.getExchange() != null ? trade.getExchange() : "N",
+                    trade.getExchangeType() != null ? "/" + trade.getExchangeType() : "");
             brokerOrderService.placeMarketOrder(trade.getScripCode(),
                     trade.getExchange() != null ? trade.getExchange() : "N",
                     trade.getExchangeType() != null ? trade.getExchangeType() : "C",
@@ -1637,5 +1650,36 @@ public void processStrategySignal(StrategySignal signal,
      */
     private boolean isNullOrEmpty(String str) {
         return str == null || str.trim().isEmpty();
+    }
+
+    /**
+     * ⏰ AUTO SQUARE-OFF / CANCEL at market close
+     * Runs every minute in IST timezone.
+     */
+    @Scheduled(cron = "0 0/1 * * * *", zone = "Asia/Kolkata")
+    public void autoSquareOffAtMarketClose() {
+        ActiveTrade trade = currentTrade.get();
+        if (trade == null) return;
+
+        LocalDateTime now = tradingHoursService.getCurrentISTTime();
+        String exch = trade.getExchange() != null ? trade.getExchange() : "N";
+
+        if (tradingHoursService.isWithinTradingHours(exch, now)) {
+            return; // market still open
+        }
+
+        try {
+            if (trade.getStatus() == ActiveTrade.TradeStatus.WAITING_FOR_ENTRY) {
+                log.info("⏰ Auto-cancelling waiting trade {} – market closed for {}", trade.getScripCode(), exch);
+                cancelTrade(trade, "Market closed – signal expired");
+            } else if (trade.getStatus() == ActiveTrade.TradeStatus.ACTIVE ||
+                       trade.getStatus() == ActiveTrade.TradeStatus.PARTIAL_EXIT) {
+                double lastPrice = trade.getCurrentPrice() != null ? trade.getCurrentPrice() : trade.getEntryPrice();
+                log.info("⏰ Auto-exiting active trade {} at market close price {} (exchange {})", trade.getScripCode(), lastPrice, exch);
+                exitTrade(trade, lastPrice, now, "MARKET_CLOSE", "Auto square-off at market close");
+            }
+        } catch (Exception ex) {
+            log.error("🚨 Error during auto square-off: {}", ex.getMessage(), ex);
+        }
     }
 } 
