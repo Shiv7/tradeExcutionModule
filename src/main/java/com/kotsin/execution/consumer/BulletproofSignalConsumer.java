@@ -530,7 +530,8 @@ public void processStrategySignal(StrategySignal signal,
                     side,
                     trade.getPositionSize());
         } catch (Exception ex) {
-            log.error("❌ Broker entry order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+            String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
+            log.error("❌ Broker entry order failed for {}: {} | Cause: {}", trade.getScripCode(), ex.getMessage(), causeMsg);
         }
     }
     
@@ -892,7 +893,8 @@ public void processStrategySignal(StrategySignal signal,
                         remainingShares);
             }
         } catch (Exception ex) {
-            log.error("❌ Broker exit order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+            String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
+            log.error("❌ Broker exit order failed for {}: {} | Cause: {}", trade.getScripCode(), ex.getMessage(), causeMsg);
         }
     }
     
@@ -1448,7 +1450,8 @@ public void processStrategySignal(StrategySignal signal,
                     exitSide,
                     partialShares);
         } catch (Exception ex) {
-            log.error("❌ Broker partial exit order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+            String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
+            log.error("❌ Broker partial exit order failed for {}: {} | Cause: {}", trade.getScripCode(), ex.getMessage(), causeMsg);
         }
     }
     
