@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.simple.JSONArray;
+import com.kotsin.execution.model.NetPosition;
 
 @Service
 @Slf4j
@@ -586,6 +587,90 @@ public class FivePaisaBrokerService implements BrokerOrderService {
 
     private void scheduleWsReconnect() {
         scheduler.schedule(this::startOrderWebSocket,5,TimeUnit.SECONDS);
+    }
+
+    // ---------------------------------------------------------------------
+    // 🗒️  NET POSITIONS (V2/NetPositionNetWise)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Fetch today\'s net positions (all segments).
+     */
+    public java.util.List<NetPosition> fetchNetPositions() throws BrokerException {
+        ensureAuthenticated();
+
+        JSONObject head = new JSONObject();
+        head.put("key", apiKey);
+
+        JSONObject body = new JSONObject();
+        body.put("ClientCode", loginId);
+
+        JSONObject reqObj = new JSONObject();
+        reqObj.put("head", head);
+        reqObj.put("body", body);
+
+        Request req = new Request.Builder()
+                .url(BASE_URL + "V2/NetPositionNetWise")
+                .addHeader("Authorization", "Bearer " + accessToken)
+                .post(RequestBody.create(reqObj.toJSONString(), MediaType.parse("application/json")))
+                .build();
+
+        long startNano = System.nanoTime();
+        try (Response res = http.newCall(req).execute()) {
+            requestTotal.increment();
+            String resp = res.body() != null ? res.body().string() : "";
+            if (!res.isSuccessful()) {
+                requestFailed.increment();
+                throw new IOException("HTTP " + res.code() + ": " + resp);
+            }
+
+            JSONParser parser = new JSONParser();
+            JSONObject respJson = (JSONObject) parser.parse(resp);
+            JSONObject headResp = (JSONObject) respJson.get("head");
+            JSONObject bodyResp = (JSONObject) respJson.get("body");
+            decodeBrokerError(headResp, bodyResp);
+
+            org.json.simple.JSONArray arr = (org.json.simple.JSONArray) bodyResp.get("NetPositionDetail");
+            java.util.List<NetPosition> list = new java.util.ArrayList<>();
+            if (arr != null) {
+                for (Object o : arr) {
+                    JSONObject jo = (JSONObject) o;
+                    try {
+                        String scrip = String.valueOf(jo.get("ScripCode"));
+                        String ex = String.valueOf(jo.get("Exch"));
+                        String exType = String.valueOf(jo.get("ExchType"));
+                        long netQty = ((Number) jo.getOrDefault("NetQty", 0)).longValue();
+                        double buyAvg = jo.get("BuyAvgRate") != null ? ((Number) jo.get("BuyAvgRate")).doubleValue() : 0.0;
+                        double sellAvg = jo.get("SellAvgRate") != null ? ((Number) jo.get("SellAvgRate")).doubleValue() : 0.0;
+                        double mtm = jo.get("MTM") != null ? ((Number) jo.get("MTM")).doubleValue() : 0.0;
+                        list.add(new NetPosition(scrip, ex, exType, netQty, buyAvg, sellAvg, mtm));
+                    } catch (Exception ignored) { /* skip malformed row */ }
+                }
+            }
+
+            if (log.isDebugEnabled()) {
+                log.debug("📥 Fetched {} net positions", list.size());
+            }
+            return list;
+        } catch (Exception e) {
+            requestFailed.increment();
+            throw new BrokerException("Failed to fetch net positions", e);
+        } finally {
+            requestLatency.record(System.nanoTime() - startNano, java.util.concurrent.TimeUnit.NANOSECONDS);
+        }
+    }
+
+    /** Convenience helper – find a single position by scrip. */
+    public NetPosition findPosition(String exch, String exchType, String scripCode) throws BrokerException {
+        java.util.List<NetPosition> all = fetchNetPositions();
+        for (NetPosition p : all) {
+            if (p.scripCode().equalsIgnoreCase(scripCode)
+                    && (exch == null || exch.equalsIgnoreCase(p.exch()))
+                    && (exchType == null || exchType.equalsIgnoreCase(p.exchType()))) {
+                return p;
+            }
+        }
+        return null;
     }
 
     @PreDestroy

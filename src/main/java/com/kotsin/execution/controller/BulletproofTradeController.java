@@ -3,6 +3,8 @@ package com.kotsin.execution.controller;
 import com.kotsin.execution.consumer.BulletproofSignalConsumer;
 import com.kotsin.execution.model.ActiveTrade;
 import com.kotsin.execution.broker.BrokerOrderService;
+import com.kotsin.execution.service.NetPositionService;
+import com.kotsin.execution.model.NetPosition;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +32,7 @@ public class BulletproofTradeController {
     
     private final BulletproofSignalConsumer bulletproofSignalConsumer;
     private final BrokerOrderService brokerOrderService;
+    private final NetPositionService netPositionService;
     
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     
@@ -364,6 +367,21 @@ public class BulletproofTradeController {
         docs.put("examples", examples);
         
         return ResponseEntity.ok(docs);
+    }
+    
+    /**
+     * 📊 BROKER NET POSITIONS – diagnostic endpoint.
+     */
+    @GetMapping("/broker/positions")
+    public ResponseEntity<?> getBrokerPositions() {
+        try {
+            java.util.List<NetPosition> list = netPositionService.fetchAll();
+            return ResponseEntity.ok(list);
+        } catch (Exception e) {
+            log.error("🚨 [BulletproofTC] Error fetching broker positions: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("error", "Failed to fetch positions", "message", e.getMessage()));
+        }
     }
     
     // Helper method
