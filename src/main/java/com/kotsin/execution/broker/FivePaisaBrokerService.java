@@ -344,11 +344,23 @@ public class FivePaisaBrokerService implements BrokerOrderService {
         JSONObject req = new JSONObject();
         req.put("head", head);
         req.put("body", body);
+
+        // 🔍 DEBUG: Log full payload details before sending
+        if (log.isDebugEnabled()) {
+            log.debug("📝 BuildOrderPayload – Exchange: {}, Type: {}, Side: {}, Qty: {}, Price: {}, Intraday: {}, Scrip: {}",
+                    exch, exchType, side, qty, price, isIntraday, scripCode);
+            log.debug("📝 Payload JSON: {}", req.toJSONString());
+        }
         return req;
     }
 
     private String sendOrderRequest(String exch, JSONObject payload) throws Exception {
         ensureAuthenticated();
+        // 🔍 DEBUG: Log outgoing request
+        if (log.isDebugEnabled()) {
+            log.debug("📤 Sending order request for exch {}: {}", exch, payload.toJSONString());
+        }
+
         Request req = new Request.Builder()
                 .url(BASE_URL + "V1/PlaceOrderRequest")
                 .addHeader("Authorization", "Bearer " + accessToken)
@@ -367,6 +379,10 @@ public class FivePaisaBrokerService implements BrokerOrderService {
             JSONObject respJson = (JSONObject) parser.parse(respStr);
             JSONObject head = (JSONObject) respJson.get("head");
             JSONObject body = (JSONObject) respJson.get("body");
+
+            if (log.isDebugEnabled()) {
+                log.debug("📥 Broker raw response (HTTP {}): {}", res.code(), respStr);
+            }
             decodeBrokerError(head, body);
 
             String remoteId = String.valueOf(body.get("RemoteOrderID"));
@@ -374,6 +390,9 @@ public class FivePaisaBrokerService implements BrokerOrderService {
             return remoteId;
         } catch (Exception e) {
             requestFailed.increment();
+            if (log.isDebugEnabled()) {
+                log.debug("❌ Broker request failed: {}", e.getMessage(), e);
+            }
             throw e;
         } finally {
             requestLatency.record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
