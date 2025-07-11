@@ -107,7 +107,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     @Override
     public String placeLimitOrder(String scripCode, String exch, String exchType, Side side, int quantity, double price) throws BrokerException {
         try {
-            boolean intraday = "D".equalsIgnoreCase(exchType); // Commodity/Option -> intraday
+            boolean intraday = "D".equalsIgnoreCase(exchType) && "N".equalsIgnoreCase(exch);
             JSONObject payload = buildOrderPayload(scripCode, exch, exchType, side, quantity, price, intraday);
             return sendOrderRequest(exch, payload);
         } catch (Exception e) {
@@ -123,7 +123,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     public String placeStopLossLimitOrder(String scripCode, String exch, String exchType, Side side,
                                           int quantity, double price) throws BrokerException {
         try {
-            boolean intraday = "D".equalsIgnoreCase(exchType);
+            boolean intraday = "D".equalsIgnoreCase(exchType) && "N".equalsIgnoreCase(exch);
             JSONObject payload = buildOrderPayload(scripCode, exch, exchType, side, quantity, price, intraday);
             // Inject SL fields
             JSONObject body = (JSONObject) payload.get("body");
