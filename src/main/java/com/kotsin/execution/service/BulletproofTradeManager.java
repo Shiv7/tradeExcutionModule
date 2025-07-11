@@ -4,6 +4,8 @@ import com.kotsin.execution.model.ActiveTrade;
 import com.kotsin.execution.model.TradeResult;
 import com.kotsin.execution.producer.TradeResultProducer;
 import com.kotsin.execution.producer.ProfitLossProducer;
+import com.kotsin.execution.broker.BrokerOrderService;
+import com.kotsin.execution.broker.BrokerOrderService.Side;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,13 +35,14 @@ public class BulletproofTradeManager {
     private final TradeResultProducer tradeResultProducer;
     private final ProfitLossProducer profitLossProducer;
     private final TelegramNotificationService telegramNotificationService;
+    private final BrokerOrderService brokerOrderService;
     
     // 🎯 SINGLE SOURCE OF TRUTH - Only one trade allowed at a time
     private final AtomicReference<ActiveTrade> currentTrade = new AtomicReference<>();
     
     // 💰 Capital Management - Simple and bulletproof
-    private static final double INITIAL_CAPITAL = 100000.0; // ₹1 lakh
-    private static final double TRADE_AMOUNT = 100000.0;    // ₹1 lakh per trade
+    private static final double INITIAL_CAPITAL = 0.0; // Capital tracking disabled (single-share model)
+    private static final int POSITION_SIZE = 1;       // Always 1 share per trade
     private static final double MAX_STOP_LOSS_PERCENT = 1.0; // Max 1% stop loss
     private static final double TARGET_1_PERCENT = 1.5;     // 1.5% for target 1
     private static final double TRAILING_STOP_PERCENT = 1.0; // 1% trailing stop
@@ -76,9 +79,9 @@ public class BulletproofTradeManager {
         boolean created = currentTrade.compareAndSet(null, trade);
         
         if (created) {
-            log.info("🎯 [BulletproofTM] TRADE CREATED: {} {} @ {} (SL: {}, T1: {}) - Amount: ₹{}", 
-                    scripCode, signal, entryPrice, stopLoss, target1, 
-                    String.format("%.0f", TRADE_AMOUNT));
+            log.info("🎯 [BulletproofTM] TRADE CREATED: {} {} @ {} (SL: {}, T1: {}) - Position: {} share", 
+                    scripCode, signal, entryPrice, stopLoss, target1,
+                    POSITION_SIZE);
             
             // 📱 Send notification
             sendTradeCreatedNotification(trade);
@@ -161,8 +164,7 @@ public class BulletproofTradeManager {
      */
     private void executeEntry(ActiveTrade trade, double entryPrice, LocalDateTime timestamp, String entryReason) {
         // 🎯 CALCULATE POSITION SIZE - Fixed ₹1 lakh per trade
-        double riskPerShare = Math.abs(entryPrice - trade.getStopLoss());
-        int positionSize = (int) (TRADE_AMOUNT / entryPrice);
+        int positionSize = POSITION_SIZE;
         
         // 📈 UPDATE TRADE STATE
         trade.setEntryTriggered(true);
@@ -173,15 +175,27 @@ public class BulletproofTradeManager {
         trade.setHighSinceEntry(entryPrice);
         trade.setLowSinceEntry(entryPrice);
         
-        log.info("🚀 [BulletproofTM] ENTRY EXECUTED: {} at {} - Position: {} shares, Amount: ₹{}, Reason: {}", 
+        log.info("🚀 [BulletproofTM] ENTRY EXECUTED: {} at {} - Position: {} share, Amount: ₹{}, Reason: {}", 
                 trade.getScripCode(), entryPrice, positionSize, 
-                String.format("%.0f", positionSize * entryPrice), entryReason);
+                String.format("%.2f", positionSize * entryPrice), entryReason);
         
         // 📊 PUBLISH ENTRY EVENT
         profitLossProducer.publishTradeEntry(trade, entryPrice);
         
         // 📱 SEND NOTIFICATION
         sendTradeEnteredNotification(trade, entryPrice, entryReason);
+        
+        // 🔗 Broker – Place market entry order
+        try {
+            Side side = trade.isBullish() ? Side.BUY : Side.SELL;
+            brokerOrderService.placeMarketOrder(trade.getScripCode(),
+                    trade.getExchange() != null ? trade.getExchange() : "N",
+                    trade.getExchangeType() != null ? trade.getExchangeType() : "C",
+                    side,
+                    positionSize);
+        } catch (Exception ex) {
+            log.error("❌ Broker entry order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+        }
     }
     
     /**
@@ -411,7 +425,7 @@ public class BulletproofTradeManager {
         // Add metadata
         trade.addMetadata("signalPrice", entryPrice);
         trade.addMetadata("strategy", "BULLETPROOF_PIVOT_RETEST");
-        trade.addMetadata("tradeAmount", TRADE_AMOUNT);
+        trade.addMetadata("tradeAmount", entryPrice * POSITION_SIZE);
         trade.addMetadata("createdTime", LocalDateTime.now());
         
         return trade;
@@ -470,7 +484,7 @@ public class BulletproofTradeManager {
     
     private void publishPortfolioUpdate() {
         double currentCapital = INITIAL_CAPITAL + totalRealizedPnL;
-        double roi = (totalRealizedPnL / INITIAL_CAPITAL) * 100;
+        double roi = INITIAL_CAPITAL > 0 ? (totalRealizedPnL / INITIAL_CAPITAL) * 100 : 0.0;
         
         profitLossProducer.publishPortfolioUpdate(currentCapital, totalRealizedPnL, roi);
     }
@@ -488,7 +502,7 @@ public class BulletproofTradeManager {
             "Entry Zone: %.2f\n" +
             "Stop Loss: %.2f\n" +
             "Target 1: %.2f\n" +
-            "Amount: ₹%.0f\n" +
+            "Position: %d share\n" +
             "Status: Waiting for pivot retest entry",
             companyName,
             trade.getScripCode(),
@@ -496,7 +510,7 @@ public class BulletproofTradeManager {
             (Double) trade.getMetadata().get("signalPrice"),
             trade.getStopLoss(),
             trade.getTarget1(),
-            TRADE_AMOUNT
+            POSITION_SIZE
         );
         
         telegramNotificationService.sendTradeNotificationMessage(message);

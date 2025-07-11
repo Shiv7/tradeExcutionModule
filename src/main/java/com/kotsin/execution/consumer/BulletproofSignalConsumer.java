@@ -59,8 +59,8 @@ public class BulletproofSignalConsumer {
     private final AtomicReference<ActiveTrade> currentTrade = new AtomicReference<>();
     
     // 💰 BULLETPROOF CAPITAL MANAGEMENT
-    private static final double INITIAL_CAPITAL = 100000.0; // ₹1 lakh
-    private static final double TRADE_AMOUNT = 100000.0;    // ₹1 lakh per trade
+    private static final double INITIAL_CAPITAL = 0.0; // Capital tracking disabled (single-share model)
+    private static final int POSITION_SIZE = 1;       // Always 1 share per trade
     private static final double MAX_STOP_LOSS_PERCENT = 1.0; // Max 1% stop loss validation only
     private static final double TRAILING_STOP_PERCENT = 1.0; // 1% trailing stop
     private static final long ENTRY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes timeout for entry
@@ -208,9 +208,9 @@ public void processStrategySignal(StrategySignal signal,
         boolean created = currentTrade.compareAndSet(null, trade);
         
         if (created) {
-            log.info("🎯 [BulletproofSC] TRADE CREATED: {} {} @ {} (SL: {}, T1: {}, T2: {}, T3: {}) - Amount: ₹{}", 
+            log.info("🎯 [BulletproofSC] TRADE CREATED: {} {} @ {} (SL: {}, T1: {}, T2: {}, T3: {}) - Position: {} share", 
                     scripCode, signal, entryPrice, stopLoss, target1, target2, target3,
-                    String.format("%.0f", TRADE_AMOUNT));
+                    POSITION_SIZE);
             
             // 📱 Send notification
             sendTradeCreatedNotification(trade);
@@ -462,7 +462,7 @@ public void processStrategySignal(StrategySignal signal,
      */
     private void executeEntry(ActiveTrade trade, double entryPrice, LocalDateTime timestamp, String entryReason) {
         // 💸 FIXED: Precise position sizing with overflow protection
-        long positionSize = Math.round(TRADE_AMOUNT / entryPrice);
+        long positionSize = POSITION_SIZE;
         
         // 🚨 FIXED: Position size overflow protection for very cheap stocks
         if (positionSize > Integer.MAX_VALUE) {
@@ -1009,7 +1009,7 @@ public void processStrategySignal(StrategySignal signal,
         // 🚨 FIXED: Separate signal price from entry price
         trade.addMetadata("signalPrice", signalPrice);                  // Price when signal was generated
         trade.addMetadata("strategy", "BULLETPROOF_PIVOT_RETEST");
-        trade.addMetadata("tradeAmount", TRADE_AMOUNT);
+        trade.addMetadata("tradeAmount", signalPrice * POSITION_SIZE);
         trade.addMetadata("createdTime", signalReceivedTime); // ⏰ FIXED: Consistent timestamp using Kafka receive time
         
         return trade;
@@ -1309,7 +1309,7 @@ public void processStrategySignal(StrategySignal signal,
     private void publishPortfolioUpdate() {
         double currentTotalPnL = totalRealizedPnLCents.get() / 100.0;
         double currentCapital = INITIAL_CAPITAL + currentTotalPnL;
-        double roi = (currentTotalPnL / INITIAL_CAPITAL) * 100;
+        double roi = INITIAL_CAPITAL > 0 ? (currentTotalPnL / INITIAL_CAPITAL) * 100 : 0.0;
         
         profitLossProducer.publishPortfolioUpdate(currentCapital, currentTotalPnL, roi);
     }
@@ -1340,7 +1340,7 @@ public void processStrategySignal(StrategySignal signal,
             "Target 1: %.2f\n" +
             "Target 2: %s\n" +
             "Target 3: %s\n" +
-            "Amount: ₹%.0f\n" +
+            "Position: %d share\n" +
             "Status: Waiting for pivot retest entry",
             companyName,
             trade.getScripCode(),
@@ -1350,7 +1350,7 @@ public void processStrategySignal(StrategySignal signal,
             trade.getTarget1(),
             trade.getTarget2() != null ? String.format("%.2f", trade.getTarget2()) : "Not set",
             trade.getTarget3() != null ? String.format("%.2f", trade.getTarget3()) : "Not set",
-            TRADE_AMOUNT
+            POSITION_SIZE
         );
         
         telegramNotificationService.sendTradeNotificationMessage(message);
