@@ -62,7 +62,8 @@ public class BulletproofSignalConsumer {
     private static final double INITIAL_CAPITAL = 0.0; // Capital tracking disabled (single-share model)
     private static final int POSITION_SIZE = 1;       // Always 1 share per trade
     private static final double MAX_STOP_LOSS_PERCENT = 1.0; // Max 1% stop loss validation only
-    private static final double TRAILING_STOP_PERCENT = 1.0; // 1% trailing stop
+    private static final double TRAILING_STOP_PERCENT_CASH = 1.0; // for cash (C)
+    private static final double TRAILING_STOP_PERCENT_DERIV = 5.0; // for options/derivatives (D)
     private static final long ENTRY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes timeout for entry
     private static final double NEAR_ENTRY_PERCENT = 2.0; // 2% range around signal price for immediate entry
     
@@ -654,14 +655,15 @@ public void processStrategySignal(StrategySignal signal,
         }
         
         if (shouldCheckTrailing) {
+            double tsp = getTrailingStopPercent(trade);
             double trailingStopPrice = isBullish ?
-                trade.getHighSinceEntry() * (1 - TRAILING_STOP_PERCENT / 100) :
-                trade.getLowSinceEntry() * (1 + TRAILING_STOP_PERCENT / 100);
+                trade.getHighSinceEntry() * (1 - tsp / 100) :
+                trade.getLowSinceEntry() * (1 + tsp / 100);
             
             boolean trailingStopHit = isBullish ? (price <= trailingStopPrice) : (price >= trailingStopPrice);
             if (trailingStopHit) {
                 String trailingReason = String.format("%s trailing stop at %.2f (%.1f%% from high/low %.2f)", 
-                                                     trailingType, trailingStopPrice, TRAILING_STOP_PERCENT,
+                                                     trailingType, trailingStopPrice, tsp,
                                                      isBullish ? trade.getHighSinceEntry() : trade.getLowSinceEntry());
                 
                 exitTrade(trade, price, timestamp, "TRAILING_STOP", trailingReason);
@@ -1710,5 +1712,11 @@ public void processStrategySignal(StrategySignal signal,
             String cause = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
             log.error("❌ Broker order failed for {} ({} {}): {} | Cause: {}", trade.getScripCode(), side, quantity, ex.getMessage(), cause);
         }
+    }
+
+    private double getTrailingStopPercent(ActiveTrade trade) {
+        String et = trade.getExchangeType();
+        if ("D".equalsIgnoreCase(et)) return TRAILING_STOP_PERCENT_DERIV;
+        return TRAILING_STOP_PERCENT_CASH;
     }
 } 
