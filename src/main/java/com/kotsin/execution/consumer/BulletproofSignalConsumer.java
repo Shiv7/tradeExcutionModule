@@ -1643,7 +1643,8 @@ public void processStrategySignal(StrategySignal signal,
         
         // Copy metadata
         sanitized.setTimestamp(signal.getTimestamp());
-        sanitized.setExchange(signal.getExchange() != null ? signal.getExchange().trim() : "NSE");
+        sanitized.setExchange(signal.getExchange() != null ? signal.getExchange().trim() : "N");
+        sanitized.setExchangeType(signal.getExchangeType() != null ? signal.getExchangeType().trim() : "C");
         sanitized.setReason(signal.getReason() != null ? signal.getReason().trim() : null);
         sanitized.setRiskReward(signal.getRiskReward());
         sanitized.setRiskAmount(signal.getRiskAmount());
