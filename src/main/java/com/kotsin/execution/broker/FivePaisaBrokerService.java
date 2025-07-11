@@ -153,8 +153,9 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     private JSONObject buildOrderPayload(String scripCode, String exch, String exchType, Side side, int qty, double price, boolean atMarket) {
         JSONObject obj = new JSONObject();
         obj.put("ClientCode", loginId);
-        obj.put("Exch", exch);          // "N" or "B" etc.
-        obj.put("ExchType", exchType);  // "C" cash, "D" derivative
+        // Per 5Paisa API docs the keys are "Exchange" and "ExchangeType" (not Exch/ExchType)
+        obj.put("Exchange", exch);          // "N" = NSE Cash, "B" = BSE etc.
+        obj.put("ExchangeType", exchType);  // "C" = Cash, "D" = Derivative
         obj.put("ScripCode", Integer.parseInt(scripCode));
         obj.put("Qty", qty);
         obj.put("Price", price);
