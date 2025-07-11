@@ -19,6 +19,7 @@ com/kotsin/execution/model/TradeResult$TradeResultBuilder.class
 com/kotsin/execution/controller/TradeExecutionMonitorController.class
 com/kotsin/execution/model/ActiveTrade$ActiveTradeBuilder.class
 com/kotsin/execution/model/PortfolioSummary$PortfolioSummaryBuilder.class
+com/kotsin/execution/broker/FivePaisaBrokerService$1.class
 com/kotsin/execution/service/TradingHoursService.class
 com/kotsin/execution/controller/ErrorMonitoringController.class
 com/kotsin/execution/config/KafkaConfig.class

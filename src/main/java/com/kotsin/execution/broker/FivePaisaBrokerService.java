@@ -398,41 +398,47 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     // Optional helper – fetch today's order book (V4) for future extensions
     // ---------------------------------------------------------------------
     public JSONObject fetchOrderBook() throws BrokerException {
-        try {
-            ensureAuthenticated();
-            JSONObject head = new JSONObject();
-            head.put("key", apiKey);
-            JSONObject body = new JSONObject();
-            body.put("ClientCode", loginId);
-            JSONObject reqObj = new JSONObject();
-            reqObj.put("head", head);
-            reqObj.put("body", body);
+        ensureAuthenticated();
 
-            Request req = new Request.Builder()
-                    .url(BASE_URL + "V4/OrderBook")
-                    .addHeader("Authorization", "Bearer " + accessToken)
-                    .post(RequestBody.create(reqObj.toJSONString(), MediaType.parse("application/json")))
-                    .build();
-            long startNano = System.nanoTime();
-            try (Response res = http.newCall(req).execute()) {
-                requestTotal.increment();
-                String resp = res.body() != null ? res.body().string() : "";
-                if (!res.isSuccessful()) {
-                    requestFailed.increment();
-                    throw new IOException("HTTP " + res.code() + ": " + resp);
-                }
+        JSONObject head = new JSONObject();
+        head.put("key", apiKey);
 
-                JSONParser parser = new JSONParser();
-                JSONObject respJson = (JSONObject) parser.parse(resp);
-                JSONObject headResp = (JSONObject) respJson.get("head");
-                JSONObject bodyResp = (JSONObject) respJson.get("body");
-                decodeBrokerError(headResp, bodyResp);
+        JSONObject body = new JSONObject();
+        body.put("ClientCode", loginId);
 
-                return (JSONObject) bodyResp.get("OrderBookDetail");
-            } catch (Exception e) {
+        JSONObject reqObj = new JSONObject();
+        reqObj.put("head", head);
+        reqObj.put("body", body);
+
+        Request req = new Request.Builder()
+                .url(BASE_URL + "V4/OrderBook")
+                .addHeader("Authorization", "Bearer " + accessToken)
+                .post(RequestBody.create(reqObj.toJSONString(), MediaType.parse("application/json")))
+                .build();
+
+        long startNano = System.nanoTime();
+        try (Response res = http.newCall(req).execute()) {
+            requestTotal.increment();
+            String resp = res.body() != null ? res.body().string() : "";
+            if (!res.isSuccessful()) {
                 requestFailed.increment();
-                throw new BrokerException("Failed to fetch order book", e);
-            } finally { requestLatency.record(System.nanoTime()-startNano,TimeUnit.NANOSECONDS);} }
+                throw new IOException("HTTP " + res.code() + ": " + resp);
+            }
+
+            JSONParser parser = new JSONParser();
+            JSONObject respJson = (JSONObject) parser.parse(resp);
+            JSONObject headResp = (JSONObject) respJson.get("head");
+            JSONObject bodyResp = (JSONObject) respJson.get("body");
+            decodeBrokerError(headResp, bodyResp);
+
+            return (JSONObject) bodyResp.get("OrderBookDetail");
+        } catch (Exception e) {
+            requestFailed.increment();
+            throw new BrokerException("Failed to fetch order book", e);
+        } finally {
+            requestLatency.record(System.nanoTime() - startNano, TimeUnit.NANOSECONDS);
+        }
+    }
 
     private void startOrderWebSocket() {
         try {
