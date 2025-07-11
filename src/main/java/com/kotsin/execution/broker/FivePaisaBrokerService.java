@@ -51,6 +51,10 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     @Value("${fivepaisa.password}")
     private String password;
 
+    // Configurable AppSource; default 6 for API usage, override via fivepaisa.app-source property
+    @Value("${fivepaisa.app-source:6}")
+    private int appSource;
+
     @PostConstruct
     private void init() {
         // populate AppConfig fields
@@ -169,7 +173,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
         obj.put("iOrderValidity", 0);
         obj.put("OrderRequesterCode", loginId);
         obj.put("TradedQty", 0);
-        obj.put("AppSource", 11033);
+        obj.put("AppSource", appSource);
         return obj;
     }
 } 
