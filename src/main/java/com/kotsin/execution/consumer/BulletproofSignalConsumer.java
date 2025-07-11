@@ -1041,7 +1041,9 @@ public void processStrategySignal(StrategySignal signal,
         
         // For 50% split, use precise integer division
         if (Math.abs(fraction - 0.5) < 0.001) {
-            return totalShares / 2; // Integer division for exact half
+            int half = totalShares / 2;
+            // 👤 SINGLE-SHARE MODEL: Ensure at least one share for partial exit to avoid zero-qty orders
+            return half == 0 ? 1 : half;
         }
         
         // For other fractions, round to nearest integer
