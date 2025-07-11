@@ -24,6 +24,16 @@ public interface BrokerOrderService {
                            double price) throws BrokerException;
 
     /**
+     * Places a stop-loss LIMIT order (WithSL=Y) and returns broker order-id.
+     */
+    String placeStopLossLimitOrder(String scripCode,
+                                   String exch,
+                                   String exchType,
+                                   Side side,
+                                   int quantity,
+                                   double price) throws BrokerException;
+
+    /**
      * Close an existing position with opposite side.
      */
     void squareOffPosition(String scripCode,

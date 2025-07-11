@@ -524,11 +524,7 @@ public void processStrategySignal(StrategySignal signal,
                     trade.getScripCode(), trade.getPositionSize(),
                     trade.getExchange() != null ? trade.getExchange() : "N",
                     trade.getExchangeType() != null ? "/" + trade.getExchangeType() : "");
-            brokerOrderService.placeMarketOrder(trade.getScripCode(),
-                    trade.getExchange() != null ? trade.getExchange() : "N",
-                    trade.getExchangeType() != null ? trade.getExchangeType() : "C",
-                    side,
-                    trade.getPositionSize());
+            placeOrderSmart(trade, side, (int) positionSize, entryPrice);
         } catch (Exception ex) {
             String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
             log.error("❌ Broker entry order failed for {}: {} | Cause: {}", trade.getScripCode(), ex.getMessage(), causeMsg);
@@ -886,11 +882,7 @@ public void processStrategySignal(StrategySignal signal,
                         trade.getScripCode(), remainingShares,
                         trade.getExchange() != null ? trade.getExchange() : "N",
                         trade.getExchangeType() != null ? "/" + trade.getExchangeType() : "");
-                brokerOrderService.placeMarketOrder(trade.getScripCode(),
-                        trade.getExchange() != null ? trade.getExchange() : "N",
-                        trade.getExchangeType() != null ? trade.getExchangeType() : "C",
-                        exitSide,
-                        remainingShares);
+                placeOrderSmart(trade, exitSide, remainingShares, exitPrice);
             }
         } catch (Exception ex) {
             String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
@@ -1444,11 +1436,7 @@ public void processStrategySignal(StrategySignal signal,
                     trade.getScripCode(), partialShares,
                     trade.getExchange() != null ? trade.getExchange() : "N",
                     trade.getExchangeType() != null ? "/" + trade.getExchangeType() : "");
-            brokerOrderService.placeMarketOrder(trade.getScripCode(),
-                    trade.getExchange() != null ? trade.getExchange() : "N",
-                    trade.getExchangeType() != null ? trade.getExchangeType() : "C",
-                    exitSide,
-                    partialShares);
+            placeOrderSmart(trade, exitSide, partialShares, exitPrice);
         } catch (Exception ex) {
             String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
             log.error("❌ Broker partial exit order failed for {}: {} | Cause: {}", trade.getScripCode(), ex.getMessage(), causeMsg);
@@ -1702,6 +1690,25 @@ public void processStrategySignal(StrategySignal signal,
             }
         } catch (Exception ex) {
             log.error("🚨 Error during auto square-off: {}", ex.getMessage(), ex);
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Broker order helper – FNO/Option (ExchangeType D) must use LIMIT orders
+    // ---------------------------------------------------------------------
+    private void placeOrderSmart(ActiveTrade trade, Side side, int quantity, double referencePrice) {
+        String exch = trade.getExchange() != null ? trade.getExchange() : "N";
+        String exchType = trade.getExchangeType() != null ? trade.getExchangeType() : "C";
+        try {
+            if ("D".equalsIgnoreCase(exchType)) {
+                // Options/commodity: use stop-loss limit (WithSL)
+                brokerOrderService.placeStopLossLimitOrder(trade.getScripCode(), exch, exchType, side, quantity, referencePrice);
+            } else {
+                brokerOrderService.placeMarketOrder(trade.getScripCode(), exch, exchType, side, quantity);
+            }
+        } catch (Exception ex) {
+            String cause = ex.getCause() != null ? ex.getCause().getMessage() : "n/a";
+            log.error("❌ Broker order failed for {} ({} {}): {} | Cause: {}", trade.getScripCode(), side, quantity, ex.getMessage(), cause);
         }
     }
 } 

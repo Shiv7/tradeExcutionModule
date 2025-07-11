@@ -107,10 +107,31 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     @Override
     public String placeLimitOrder(String scripCode, String exch, String exchType, Side side, int quantity, double price) throws BrokerException {
         try {
-            JSONObject payload = buildOrderPayload(scripCode, exch, exchType, side, quantity, price, /*isIntraday*/ false);
+            boolean intraday = "D".equalsIgnoreCase(exchType); // Commodity/Option -> intraday
+            JSONObject payload = buildOrderPayload(scripCode, exch, exchType, side, quantity, price, intraday);
             return sendOrderRequest(exch, payload);
         } catch (Exception e) {
             throw new BrokerException("Limit order failed", e);
+        }
+    }
+
+    /**
+     * Place Stop-Loss LIMIT order (WithSL=Y, SLTriggerRate=price).
+     * Used for commodity / options where market orders are not allowed.
+     */
+    @Override
+    public String placeStopLossLimitOrder(String scripCode, String exch, String exchType, Side side,
+                                          int quantity, double price) throws BrokerException {
+        try {
+            boolean intraday = "D".equalsIgnoreCase(exchType);
+            JSONObject payload = buildOrderPayload(scripCode, exch, exchType, side, quantity, price, intraday);
+            // Inject SL fields
+            JSONObject body = (JSONObject) payload.get("body");
+            body.put("WithSL", "Y");
+            body.put("SLTriggerRate", price);
+            return sendOrderRequest(exch, payload);
+        } catch (Exception e) {
+            throw new BrokerException("Stop-loss limit order failed", e);
         }
     }
 
