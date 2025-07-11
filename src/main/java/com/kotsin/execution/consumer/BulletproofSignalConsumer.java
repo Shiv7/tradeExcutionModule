@@ -144,8 +144,18 @@ public void processStrategySignal(StrategySignal signal,
             StrategySignal sanitizedSignal = sanitizeStrategySignal(signal);
             
             // 🎯 CREATE TRADE (Only one at a time) - Use pivot-based targets
-            boolean tradeCreated = createTrade(sanitizedSignal.getScripCode(), sanitizedSignal.getCompanyName(), sanitizedSignal.getNormalizedSignal(), sanitizedSignal.getEntryPrice(), 
-                       sanitizedSignal.getStopLoss(), sanitizedSignal.getTarget1(), sanitizedSignal.getTarget2(), sanitizedSignal.getTarget3(), signalReceivedTime);
+            boolean tradeCreated = createTrade(
+                    sanitizedSignal.getScripCode(),
+                    sanitizedSignal.getCompanyName(),
+                    sanitizedSignal.getNormalizedSignal(),
+                    sanitizedSignal.getEntryPrice(),
+                    sanitizedSignal.getStopLoss(),
+                    sanitizedSignal.getTarget1(),
+                    sanitizedSignal.getTarget2(),
+                    sanitizedSignal.getTarget3(),
+                    sanitizedSignal.getExchange(),
+                    sanitizedSignal.getExchangeType(),
+                    signalReceivedTime);
             
             if (tradeCreated) {
                 log.info("✅ [BulletproofSC] TRADE CREATED successfully for {}", sanitizedSignal.getScripCode());
@@ -166,6 +176,7 @@ public void processStrategySignal(StrategySignal signal,
      */
     public boolean createTrade(String scripCode, String companyName, String signal, double entryPrice, 
                               double stopLoss, Double target1, Double target2, Double target3, 
+                              String exchange, String exchangeType,
                               LocalDateTime signalReceivedTime) {
         
         // 🛡️ SMART TRADE MANAGEMENT: Allow replacement of WAITING trades with better signals
@@ -202,7 +213,9 @@ public void processStrategySignal(StrategySignal signal,
         
         // 🏗️ CREATE BULLETPROOF TRADE with pivot targets
         ActiveTrade trade = createBulletproofTrade(scripCode, companyName, signal, entryPrice, stopLoss, 
-                                                 target1, target2, target3, signalReceivedTime);
+                                                 target1, target2, target3,
+                                                 exchange, exchangeType,
+                                                 signalReceivedTime);
         
         // 🎯 ATOMIC ASSIGNMENT - Thread-safe single trade
         boolean created = currentTrade.compareAndSet(null, trade);
@@ -979,7 +992,8 @@ public void processStrategySignal(StrategySignal signal,
     
     private ActiveTrade createBulletproofTrade(String scripCode, String companyName, String signal, double signalPrice, 
                                               double stopLoss, Double target1, Double target2, 
-                                              Double target3, LocalDateTime signalReceivedTime) {
+                                              Double target3, String exchange, String exchangeType,
+                                              LocalDateTime signalReceivedTime) {
         String tradeId = generateTradeId(scripCode);
         boolean isBullish = isBullishSignal(signal);
         
@@ -1000,6 +1014,8 @@ public void processStrategySignal(StrategySignal signal,
                 .target1Hit(false)
                 .target2Hit(false)
                 .useTrailingStop(true)
+                .exchange(exchange)
+                .exchangeType(exchangeType)
                 .build();
         
         // Add metadata with null safety
