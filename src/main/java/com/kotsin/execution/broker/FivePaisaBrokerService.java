@@ -1,138 +1,77 @@
 package com.kotsin.execution.broker;
 
-import com.FivePaisa.config.AppConfig;
-import com.FivePaisa.api.RestClient;
-import com.FivePaisa.service.Properties;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.*;
 import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
-import java.util.Collections;
-import java.util.Map;
+import java.io.IOException;
+import java.time.Duration;
 
-/**
- * Thin wrapper around 5Paisa RestClient jar – converts our domain calls to broker REST payloads.
- */
 @Service
 @Slf4j
 public class FivePaisaBrokerService implements BrokerOrderService {
 
-    private final AppConfig appConfig = new AppConfig();
-    private RestClient restClient;
+    private static final String BASE_URL = "https://Openapi.5paisa.com/VendorsAPI/Service1.svc/";
 
-    // Injected from application.properties
+    private final OkHttpClient http = new OkHttpClient.Builder()
+            .callTimeout(Duration.ofSeconds(15))
+            .build();
+
+    // ---------------------------------------------------------------------
+    // Credentials injected from application.properties
     @Value("${fivepaisa.login-id}")
     private String loginId;
-    @Value("${fivepaisa.totp}")
-    private String totp;
-    @Value("${fivepaisa.pin}")
-    private String pin;
-
-    // If fivepaisa.totp is empty we fetch a fresh value from this URL (same micro-service used by Option Producer)
-    @Value("${fivepaisa.totp-url:http://localhost:8002/getToto}")
-    private String totpUrl;
-
-    private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
-
-    @Value("${fivepaisa.encrypt-key}")
-    private String encryptKey;
-    @Value("${fivepaisa.key}")
-    private String apiKey;
-    @Value("${fivepaisa.app-name}")
-    private String appName;
-    @Value("${fivepaisa.app-ver}")
-    private String appVer;
-    @Value("${fivepaisa.os-name}")
-    private String osName;
     @Value("${fivepaisa.user-id}")
     private String userId;
     @Value("${fivepaisa.password}")
-    private String password;
+    private String password; // password is currently unused in TOTP flow but kept for completeness
+    @Value("${fivepaisa.key}")
+    private String apiKey;
+    @Value("${fivepaisa.encrypt-key}")
+    private String encryptKey;
+    @Value("${fivepaisa.pin}")
+    private String pin;
+    @Value("${fivepaisa.totp}")
+    private String totp; // optional static totp (mostly kept empty so we fetch dynamically)
+    @Value("${fivepaisa.totp-url:http://localhost:8002/getToto}")
+    private String totpUrl;
 
-    // Configurable AppSource; default 6 for API usage, override via fivepaisa.app-source property
+    // Configurable AppSource; default 6 (public API) – overridden to 23312 via properties
     @Value("${fivepaisa.app-source:6}")
     private int appSource;
 
+    private String accessToken; // Bearer token for subsequent calls
+
+    // ---------------------------------------------------------------------
     @PostConstruct
     private void init() {
-        // populate AppConfig fields
-        appConfig.setLoginId(loginId);
-        appConfig.setUserId(userId);
-        appConfig.setPassword(password);
-        appConfig.setKey(apiKey);
-        appConfig.setEncryptKey(encryptKey);
-        appConfig.setAppName(appName);
-        appConfig.setAppVer(appVer);
-        appConfig.setOsName(osName);
-
-        restClient = new RestClient(appConfig, new Properties());
-        try {
-            String cleanPin  = pin  != null ? pin.trim()  : "";
-            if (cleanPin.isBlank()) {
-                throw new IllegalStateException("fivepaisa.pin is blank – cannot establish session");
-            }
-
-            String cleanTotp;
-            if (totp != null && !totp.trim().isEmpty()) {
-                cleanTotp = totp.trim();
-            } else {
-                // Fetch fresh TOTP from micro-service
-                try {
-                    String res = restTemplate.getForObject(totpUrl, String.class);
-                    cleanTotp = res != null ? res.replace("\"", "").trim() : "";
-                    log.info("Fetched TOTP '{}' from {}", cleanTotp, totpUrl);
-                } catch (Exception e) {
-                    throw new IllegalStateException("Unable to fetch TOTP from " + totpUrl + ": " + e.getMessage(), e);
-                }
-            }
-
-            if (cleanTotp.isBlank()) {
-                throw new IllegalStateException("TOTP is blank even after fetch – cannot establish session");
-            }
-
-            String tokenResp = restClient.getTotpSession(loginId.trim(), cleanTotp, cleanPin);
-            if (tokenResp == null || tokenResp.isBlank()) {
-                throw new IllegalStateException("5Paisa TOTP session response was empty – check credentials / TOTP validity");
-            }
-            log.info("✅ 5Paisa session initialised successfully");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to obtain 5Paisa session", e);
-        }
+        authenticate();
     }
 
+    // ---------------------------------------------------------------------
+    // Public API (BrokerOrderService)
+    // ---------------------------------------------------------------------
     @Override
     public String placeMarketOrder(String scripCode, String exch, String exchType, Side side, int quantity) throws BrokerException {
         try {
-            JSONObject order = buildOrderPayload(scripCode, exch, exchType, side, quantity, /*price*/0, /*atMarket*/ true);
-            okhttp3.Response resp = restClient.placeOrderRequest(order);
-            if (!resp.isSuccessful()) {
-                throw new BrokerException("Order failed HTTP status " + resp.code());
-            }
-            String body = resp.body() != null ? resp.body().string() : "";
-            log.info("🚀 5Paisa order placed. Response: {}", body);
-            // In real use parse JSON and extract order ID; placeholder here
-            return body;
-        } catch (Exception ex) {
-            log.error("❌ Broker order failed: {}", ex.getMessage());
-            throw new BrokerException("Broker order failed", ex);
+            JSONObject payload = buildOrderPayload(scripCode, exch, exchType, side, quantity, 0, /*isIntraday*/ false);
+            return sendOrderRequest(payload);
+        } catch (Exception e) {
+            throw new BrokerException("Market order failed", e);
         }
     }
 
     @Override
     public String placeLimitOrder(String scripCode, String exch, String exchType, Side side, int quantity, double price) throws BrokerException {
         try {
-            JSONObject order = buildOrderPayload(scripCode, exch, exchType, side, quantity, price, /*atMarket*/ false);
-            okhttp3.Response resp = restClient.placeOrderRequest(order);
-            if (!resp.isSuccessful()) {
-                throw new BrokerException("Order failed HTTP status " + resp.code());
-            }
-            String body = resp.body() != null ? resp.body().string() : "";
-            log.info("🚀 5Paisa limit order placed. Response: {}", body);
-            return body;
-        } catch (Exception ex) {
-            throw new BrokerException("Broker limit order failed", ex);
+            JSONObject payload = buildOrderPayload(scripCode, exch, exchType, side, quantity, price, /*isIntraday*/ false);
+            return sendOrderRequest(payload);
+        } catch (Exception e) {
+            throw new BrokerException("Limit order failed", e);
         }
     }
 
@@ -144,37 +83,174 @@ public class FivePaisaBrokerService implements BrokerOrderService {
 
     @Override
     public void squareOffAll() throws BrokerException {
-        // VERY SIMPLE IMPLEMENTATION – send squareOffPosition for each open trade via option "NetPosition" if needed.
-        // For now, rely on internal ActiveTrade context (single trade) – call through consumer later.
-        log.warn("squareOffAll() called but not yet fully implemented – no-op");
+        // TODO: full portfolio square-off via OrderBook once implemented
+        log.warn("squareOffAll() not yet implemented – skipping");
     }
 
     // ---------------------------------------------------------------------
-    private JSONObject buildOrderPayload(String scripCode, String exch, String exchType, Side side, int qty, double price, boolean atMarket) {
-        JSONObject obj = new JSONObject();
-        obj.put("ClientCode", loginId);
-        // Per 5Paisa API docs the keys are "Exchange" and "ExchangeType" (not Exch/ExchType)
-        obj.put("Exchange", exch);          // "N" = NSE Cash, "B" = BSE etc.
-        obj.put("ExchangeType", exchType);  // "C" = Cash, "D" = Derivative
-        obj.put("ScripCode", Integer.parseInt(scripCode));
-        obj.put("Qty", qty);
-        obj.put("Price", price);
-        obj.put("OrderType", side == Side.BUY ? "BUY" : "SELL");
-        obj.put("OrderFor", "P");       // New order
-        obj.put("AtMarket", atMarket);
-        obj.put("RemoteOrderID", "kotsin-" + System.currentTimeMillis());
-        obj.put("DisQty", 0);
-        obj.put("IsStopLossOrder", false);
-        obj.put("IsVTD", false);
-        obj.put("IOCOrder", false);
-        obj.put("IsIntraday", false);
-        obj.put("PublicIP", "127.0.0.1");
-        obj.put("AHPlaced", "N");
-        obj.put("ValidTillDate", "/Date(0)/");
-        obj.put("iOrderValidity", 0);
-        obj.put("OrderRequesterCode", loginId);
-        obj.put("TradedQty", 0);
-        obj.put("AppSource", appSource);
-        return obj;
+    // Authentication helpers
+    // ---------------------------------------------------------------------
+    private void authenticate() {
+        try {
+            String currentTotp = (totp != null && !totp.trim().isEmpty()) ? totp.trim() : fetchTotp();
+            String requestToken = totpLogin(currentTotp);
+            this.accessToken = getAccessToken(requestToken);
+            if (accessToken == null || accessToken.isBlank()) {
+                throw new IllegalStateException("AccessToken was blank – auth failed");
+            }
+            log.info("✅ 5Paisa authentication successful");
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to authenticate with 5Paisa", e);
+        }
+    }
+
+    private void ensureAuthenticated() {
+        if (accessToken == null || accessToken.isBlank()) {
+            authenticate();
+        }
+    }
+
+    private String fetchTotp() throws IOException {
+        Request req = new Request.Builder().url(totpUrl).build();
+        try (Response res = http.newCall(req).execute()) {
+            if (!res.isSuccessful()) throw new IOException("TOTP service HTTP " + res.code());
+            return res.body() != null ? res.body().string().replace("\"", "").trim() : "";
+        }
+    }
+
+    private String totpLogin(String currentTotp) throws Exception {
+        JSONObject head = new JSONObject();
+        head.put("Key", apiKey);
+        JSONObject body = new JSONObject();
+        body.put("Email_ID", loginId);
+        body.put("TOTP", currentTotp);
+        body.put("PIN", pin);
+        body.put("PublicIP", "127.0.0.1");
+        body.put("LocalIP", "127.0.0.1");
+        JSONObject reqObj = new JSONObject();
+        reqObj.put("head", head);
+        reqObj.put("body", body);
+
+        Request req = new Request.Builder()
+                .url(BASE_URL + "TOTPLogin")
+                .post(RequestBody.create(reqObj.toJSONString(), MediaType.parse("application/json")))
+                .build();
+        try (Response res = http.newCall(req).execute()) {
+            String resp = res.body() != null ? res.body().string() : "";
+            JSONParser parser = new JSONParser();
+            JSONObject json = (JSONObject) parser.parse(resp);
+            JSONObject h = (JSONObject) json.get("head");
+            if (h == null || !"0".equals(String.valueOf(h.get("Status")))) {
+                throw new IOException("TOTPLogin failed: " + resp);
+            }
+            return (String) ((JSONObject) json.get("body")).get("RequestToken");
+        }
+    }
+
+    private String getAccessToken(String requestToken) throws Exception {
+        JSONObject head = new JSONObject();
+        head.put("Key", apiKey);
+        JSONObject body = new JSONObject();
+        body.put("RequestToken", requestToken);
+        body.put("EncryKey", encryptKey);
+        body.put("UserId", userId);
+        body.put("PublicIP", "127.0.0.1");
+        body.put("LocalIP", "127.0.0.1");
+        JSONObject reqObj = new JSONObject();
+        reqObj.put("head", head);
+        reqObj.put("body", body);
+
+        Request req = new Request.Builder()
+                .url(BASE_URL + "GetAccessToken")
+                .post(RequestBody.create(reqObj.toJSONString(), MediaType.parse("application/json")))
+                .build();
+        try (Response res = http.newCall(req).execute()) {
+            String resp = res.body() != null ? res.body().string() : "";
+            JSONParser parser = new JSONParser();
+            JSONObject json = (JSONObject) parser.parse(resp);
+            JSONObject b = (JSONObject) json.get("body");
+            if (b == null) throw new IOException("No body in AccessToken response");
+            return (String) b.get("AccessToken");
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Order helpers
+    // ---------------------------------------------------------------------
+    private JSONObject buildOrderPayload(String scripCode, String exch, String exchType, Side side, int qty, double price, boolean isIntraday) {
+        JSONObject head = new JSONObject();
+        head.put("key", apiKey);
+
+        JSONObject body = new JSONObject();
+        body.put("Exchange", exch);
+        body.put("ExchangeType", exchType);
+        body.put("ScripCode", scripCode);
+        body.put("Price", price);
+        body.put("OrderType", side == Side.BUY ? "Buy" : "Sell");
+        body.put("Qty", qty);
+        body.put("DisQty", 0);
+        body.put("IsIntraday", isIntraday);
+        body.put("AHPlaced", "N");
+        body.put("RemoteOrderID", "kotsin-" + System.currentTimeMillis());
+        body.put("AppSource", appSource);
+        body.put("iOrderValidity", 0);
+
+        JSONObject req = new JSONObject();
+        req.put("head", head);
+        req.put("body", body);
+        return req;
+    }
+
+    private String sendOrderRequest(JSONObject payload) throws Exception {
+        ensureAuthenticated();
+        Request req = new Request.Builder()
+                .url(BASE_URL + "V1/PlaceOrderRequest")
+                .addHeader("Authorization", "Bearer " + accessToken)
+                .post(RequestBody.create(payload.toJSONString(), MediaType.parse("application/json")))
+                .build();
+        try (Response res = http.newCall(req).execute()) {
+            String respStr = res.body() != null ? res.body().string() : "";
+            if (!res.isSuccessful()) throw new IOException("HTTP " + res.code() + ": " + respStr);
+            JSONParser parser = new JSONParser();
+            JSONObject respJson = (JSONObject) parser.parse(respStr);
+            JSONObject body = (JSONObject) respJson.get("body");
+            if (body == null) throw new IOException("Malformed response: " + respStr);
+            Number status = (Number) body.get("Status");
+            if (status != null && status.intValue() == 0) {
+                return String.valueOf(body.get("BrokerOrderID"));
+            } else {
+                String msg = String.valueOf(body.get("Message"));
+                throw new IOException("Order rejected: " + msg);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Optional helper – fetch today's order book (V4) for future extensions
+    // ---------------------------------------------------------------------
+    public JSONObject fetchOrderBook() throws BrokerException {
+        try {
+            ensureAuthenticated();
+            JSONObject head = new JSONObject();
+            head.put("key", apiKey);
+            JSONObject body = new JSONObject();
+            body.put("ClientCode", loginId);
+            JSONObject reqObj = new JSONObject();
+            reqObj.put("head", head);
+            reqObj.put("body", body);
+
+            Request req = new Request.Builder()
+                    .url(BASE_URL + "V4/OrderBook")
+                    .addHeader("Authorization", "Bearer " + accessToken)
+                    .post(RequestBody.create(reqObj.toJSONString(), MediaType.parse("application/json")))
+                    .build();
+            try (Response res = http.newCall(req).execute()) {
+                String resp = res.body() != null ? res.body().string() : "";
+                JSONParser parser = new JSONParser();
+                return (JSONObject) parser.parse(resp);
+            }
+        } catch (Exception e) {
+            throw new BrokerException("Failed to fetch order book", e);
+        }
     }
 } 

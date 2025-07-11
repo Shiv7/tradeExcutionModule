@@ -68,13 +68,6 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- 5Paisa Java SDK pulled from GitHub via JitPack -->
-        <dependency>
-            <groupId>com.github.OpenApi-5p</groupId>
-            <artifactId>5paisa-java</artifactId>
-            <version>main-SNAPSHOT</version>
-        </dependency>
-
         <!-- Monitoring -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -99,6 +92,20 @@
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- OkHttp for HTTP requests -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.11.0</version>
+        </dependency>
+
+        <!-- json-simple for JSON parsing -->
+        <dependency>
+            <groupId>com.googlecode.json-simple</groupId>
+            <artifactId>json-simple</artifactId>
+            <version>1.1.1</version>
         </dependency>
     </dependencies>
 
