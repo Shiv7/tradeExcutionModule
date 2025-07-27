@@ -7,6 +7,7 @@ import com.kotsin.execution.model.TradeResult;
 import com.kotsin.execution.producer.ProfitLossProducer;
 import com.kotsin.execution.producer.TradeResultProducer;
 import com.kotsin.execution.service.ErrorMonitoringService;
+import com.kotsin.execution.service.HistoricalDataClient;
 import com.kotsin.execution.service.PivotServiceClient;
 import com.kotsin.execution.service.TelegramNotificationService;
 import com.kotsin.execution.service.TradeAnalysisService;
@@ -23,6 +24,7 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -47,6 +49,7 @@ public class BulletproofSignalConsumer {
     private final BrokerOrderService brokerOrderService;
     private final PivotServiceClient pivotServiceClient;
     private final TradeAnalysisService tradeAnalysisService;
+    private final HistoricalDataClient historicalDataClient;
 
     // --- STATE MANAGEMENT REFACTORED ---
     private final Map<String, ActiveTrade> waitingTrades = new ConcurrentHashMap<>();
@@ -177,6 +180,14 @@ public class BulletproofSignalConsumer {
         );
         waitingTrades.put(trade.getScripCode(), trade);
         log.info("Added/Updated trade for {} to watchlist. Total watchlist size: {}", trade.getScripCode(), waitingTrades.size());
+
+        // Fetch historical data to pre-populate candles
+        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        List<Candlestick> historicalCandles = historicalDataClient.getHistorical5MinCandles(signal.getScripCode(), today);
+        if (historicalCandles != null && !historicalCandles.isEmpty()) {
+            recentCandles.put(signal.getScripCode(), new ArrayList<>(historicalCandles));
+            log.info("Pre-populated {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
+        }
     }
 
     private void executeEntry(ActiveTrade trade, Candlestick confirmationCandle) {
