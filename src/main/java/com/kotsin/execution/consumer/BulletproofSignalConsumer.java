@@ -100,6 +100,7 @@ public class BulletproofSignalConsumer {
 
     @EventListener
     public void handleCandle(Candlestick candle) {
+        log.info("Processing candle: {}", candle);
         if (activeTrade.get() != null || !tradeAnalysisService.isWithinGoldenWindows()) {
             return;
         }
