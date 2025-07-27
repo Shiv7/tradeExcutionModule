@@ -189,7 +189,8 @@ public class LiveMarketDataConsumer {
             
             // 🛡️ BULLETPROOF: Forward to bulletproof signal consumer for single trade management
             // 🔗 CRITICAL: Use scripCode (Token as String) for linking with strategy signals
-            bulletproofSignalConsumer.updatePrice(scripCode, price, tickTime);
+            // DEPRECATED: This logic is now handled by the 5-minute candle consumer.
+            // bulletproofSignalConsumer.updatePrice(scripCode, price, tickTime);
             
             return true;
             
@@ -351,4 +352,4 @@ public class LiveMarketDataConsumer {
             return true;
         }
     }
-} 
+}

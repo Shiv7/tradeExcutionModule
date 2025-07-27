@@ -92,7 +92,9 @@ public class BulletproofTradeController {
     
     /**
      * 🎯 CREATE TEST TRADE - For manual testing
+     * DEPRECATED: Manual trade creation is disabled in the new candle-based strategy.
      */
+    /*
     @PostMapping("/trade/create")
     public ResponseEntity<Map<String, Object>> createTestTrade(@RequestBody Map<String, Object> tradeRequest) {
         try {
@@ -153,10 +155,13 @@ public class BulletproofTradeController {
                     .body(Map.of("error", "Failed to create trade", "message", e.getMessage()));
         }
     }
+    */
     
     /**
      * 💹 SIMULATE PRICE UPDATE - For testing entry/exit logic
+     * DEPRECATED: Price updates are now driven by the 5-minute candle consumer.
      */
+    /*
     @PostMapping("/trade/update-price")
     public ResponseEntity<Map<String, Object>> updatePrice(@RequestBody Map<String, Object> priceUpdate) {
         try {
@@ -224,6 +229,7 @@ public class BulletproofTradeController {
                     .body(Map.of("error", "Failed to update price", "message", e.getMessage()));
         }
     }
+    */
     
     /**
      * 🚨 EMERGENCY EXIT - Force close active trade
@@ -270,10 +276,8 @@ public class BulletproofTradeController {
             // also force internal emergency exit if active trade
             if (bulletproofSignalConsumer.hasActiveTrade()) {
                 // Close internal trade state after broker square-off
-                // For now, simply cancel the trade to unblock new entries
-                bulletproofSignalConsumer.updatePrice(bulletproofSignalConsumer.getCurrentTrade().getScripCode(),
-                        bulletproofSignalConsumer.getCurrentTrade().getCurrentPrice() != null ? bulletproofSignalConsumer.getCurrentTrade().getCurrentPrice() : 0.0,
-                        java.time.LocalDateTime.now());
+                // DEPRECATED: updatePrice is removed. A new method in the consumer is needed for emergency exits.
+                log.warn("Square-off initiated, but internal state clearing needs a new method in BulletproofSignalConsumer.");
             }
             return ResponseEntity.ok(Map.of("status", "ALL_POSITIONS_SQUARE_OFF_TRIGGERED"));
         } catch (Exception ex) {
@@ -399,4 +403,4 @@ public class BulletproofTradeController {
             return null;
         }
     }
-} 
+}

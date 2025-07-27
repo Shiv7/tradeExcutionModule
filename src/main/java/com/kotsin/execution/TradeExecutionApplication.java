@@ -2,6 +2,7 @@ package com.kotsin.execution;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -18,6 +19,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 // ComponentScan removed; rely on default scanning within this module
 @EnableKafka
 @EnableScheduling
+@EnableCaching
 public class TradeExecutionApplication {
     
     public static void main(String[] args) {
@@ -26,4 +28,4 @@ public class TradeExecutionApplication {
         System.out.println("📊 Listening for strategy signals and market data...");
         System.out.println("🛡️ Bulletproof error handling enabled - malformed messages will be discarded gracefully");
     }
-} 
+}

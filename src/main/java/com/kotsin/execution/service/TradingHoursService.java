@@ -30,6 +30,9 @@ public class TradingHoursService {
     
     @Value("${app.trading.hours.timezone:Asia/Kolkata}")
     private String timezone;
+
+    @Value("${trading.mode:LIVE}")
+    private String tradingMode;
     
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
     
@@ -174,13 +177,19 @@ public class TradingHoursService {
      * Comprehensive validation for trade processing
      */
     public boolean shouldProcessTrade(String exchange, LocalDateTime messageTime) {
-        // Don't process on weekends
+        // If not in LIVE mode, bypass all time-based checks for simulation purposes
+        if (!"LIVE".equalsIgnoreCase(tradingMode)) {
+            log.warn("SIMULATION MODE: Bypassing trading hours and weekend checks.");
+            return true;
+        }
+
+        // Don't process on weekends in LIVE mode
         if (isWeekend()) {
             log.warn("🚫 Weekend detected - not processing trades");
             return false;
         }
         
-        // Validate message timing and trading hours
+        // Validate message timing and trading hours in LIVE mode
         return isValidForProcessing(exchange, messageTime);
     }
     
@@ -190,8 +199,8 @@ public class TradingHoursService {
     public void logTradingHoursStatus() {
         LocalDateTime currentTime = getCurrentISTTime();
         
-        log.info("🕐 Trading Hours Status at {}:", currentTime);
-        log.info("📈 NSE Trading Hours: {} - {} (Status: {})", 
+        log.info("� Trading Hours Status at {}:", currentTime);
+        log.info("�📈 NSE Trading Hours: {} - {} (Status: {})", 
                 nseStartTime, nseEndTime, 
                 isWithinTradingHours("NSE") ? "OPEN 🟢" : "CLOSED 🔴");
         log.info("🏷️ MCX Trading Hours: {} - {} (Status: {})", 
@@ -202,4 +211,4 @@ public class TradingHoursService {
             log.info("📅 Weekend Status: WEEKEND 🚫");
         }
     }
-} 
+}

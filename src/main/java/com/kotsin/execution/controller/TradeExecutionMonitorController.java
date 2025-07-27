@@ -108,7 +108,9 @@ public class TradeExecutionMonitorController {
     
     /**
      * 🛡️ BULLETPROOF: Manual price update for testing
+     * DEPRECATED: Price updates are now driven by the 5-minute candle consumer.
      */
+    /*
     @PostMapping("/manual-price-update")
     public ResponseEntity<Map<String, String>> manualPriceUpdate(
             @RequestParam String scripCode,
@@ -134,6 +136,7 @@ public class TradeExecutionMonitorController {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }
+    */
     
     /**
      * Force entry for testing purposes
@@ -171,4 +174,4 @@ public class TradeExecutionMonitorController {
         
         return ResponseEntity.ok(health);
     }
-} 
+}
