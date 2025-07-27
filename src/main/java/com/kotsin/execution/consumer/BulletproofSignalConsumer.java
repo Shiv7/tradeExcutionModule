@@ -116,7 +116,7 @@ public class BulletproofSignalConsumer {
             log.debug("An active trade already exists. Skipping candle processing.");
             return;
         }
-        if (!tradeAnalysisService.isWithinGoldenWindows()) {
+        if (!tradeAnalysisService.isWithinGoldenWindows(candle.getWindowStartMillis())) {
             log.debug("Outside golden windows. Skipping candle processing.");
             return;
         }
