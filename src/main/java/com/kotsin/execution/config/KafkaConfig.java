@@ -36,6 +36,9 @@ public class KafkaConfig {
     @Value("${app.kafka.consumer.market-data-group-id}")
     private String marketDataGroupId;
 
+    @Value("${app.kafka.consumer.candlestick-group-id}")
+    private String candlestickGroupId;
+
     
     /**
      * 🛡️ BULLETPROOF SIGNAL CONSUMER FACTORY with ERROR HANDLING
@@ -142,4 +145,36 @@ public class KafkaConfig {
         
         return factory;
     }
-} 
+
+    @Bean("candlestickConsumerFactory")
+    public ConsumerFactory<String, com.kotsin.execution.model.Candlestick> candlestickConsumerFactory() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, candlestickGroupId);
+        configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
+        configProps.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
+        configProps.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
+        configProps.put(JsonDeserializer.VALUE_DEFAULT_TYPE, "com.kotsin.execution.model.Candlestick");
+        configProps.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
+        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        return new DefaultKafkaConsumerFactory<>(configProps);
+    }
+
+    @Bean("candlestickKafkaListenerContainerFactory")
+    public ConcurrentKafkaListenerContainerFactory<String, com.kotsin.execution.model.Candlestick> candlestickKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, com.kotsin.execution.model.Candlestick> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(candlestickConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(1000L, 3L));
+        errorHandler.addNotRetryableExceptions(
+                org.springframework.kafka.support.serializer.DeserializationException.class,
+                org.apache.kafka.common.errors.SerializationException.class
+        );
+        factory.setCommonErrorHandler(errorHandler);
+        return factory;
+    }
+}

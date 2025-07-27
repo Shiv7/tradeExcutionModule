@@ -59,6 +59,9 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     @Value("${fivepaisa.totp-url:http://localhost:8002/getToto}")
     private String totpUrl;
 
+    @Value("${trading.mode:LIVE}")
+    private String tradingMode;
+
     // Configurable AppSource; default 6 (public API) – overridden to 23312 via properties
     @Value("${fivepaisa.app-source:6}")
     private int appSource;
@@ -89,7 +92,11 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     // ---------------------------------------------------------------------
     @PostConstruct
     private void init() {
-        authenticate();
+        if ("LIVE".equalsIgnoreCase(tradingMode)) {
+            authenticate();
+        } else {
+            log.warn("Skipping 5Paisa authentication in {} mode.", tradingMode);
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -680,4 +687,4 @@ public class FivePaisaBrokerService implements BrokerOrderService {
             try { orderWs.close(1000, "shutdown"); } catch (Exception ignored) {}
         }
     }
-} 
+}
