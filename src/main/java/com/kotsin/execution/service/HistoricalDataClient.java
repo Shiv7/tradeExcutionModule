@@ -67,7 +67,20 @@ public class HistoricalDataClient {
         candle.setLow(res.getLow());
         candle.setClose(res.getClose());
         candle.setVolume(res.getVolume());
-        // Note: CompanyName and timestamps would need to be set if required by analysis services.
+
+        // --- FIX ---
+        // Parse the datetime string and set the timestamp
+        try {
+            // The format from the API is "yyyy-MM-dd'T'HH:mm:ss"
+            java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(res.getDatetime(), java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            long timestamp = ldt.atZone(java.time.ZoneId.of("Asia/Kolkata")).toInstant().toEpochMilli();
+            candle.setWindowStartMillis(timestamp);
+        } catch (Exception e) {
+            log.error("Failed to parse timestamp: {}", res.getDatetime(), e);
+            candle.setWindowStartMillis(0); // Default to 0 on error
+        }
+        // --- END FIX ---
+
         return candle;
     }
 }
