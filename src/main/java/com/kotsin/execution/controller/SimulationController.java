@@ -1,6 +1,8 @@
 package com.kotsin.execution.controller;
 
 import com.kotsin.execution.model.StrategySignal;
+import com.kotsin.execution.model.Candlestick;
+import com.kotsin.execution.service.HistoricalDataClient;
 import com.kotsin.execution.service.SimulationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +18,7 @@ import java.util.Map;
 public class SimulationController {
 
     private final SimulationService simulationService;
+    private final HistoricalDataClient historicalDataClient;
 
     @PostMapping("/run")
     public ResponseEntity<Map<String, String>> runSimulation(@RequestBody SimulationRequest request) {
@@ -26,8 +29,14 @@ public class SimulationController {
                 return ResponseEntity.badRequest().body(Map.of("status", "error", "message", "Missing required fields: scripCode, date, signal"));
             }
 
+            // Fetch historical data
+            java.util.List<Candlestick> candles = historicalDataClient.getHistorical1MinCandles(request.getScripCode(), request.getDate());
+            if (candles.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("status", "error", "message", "No historical data found for the given scrip and date."));
+            }
+
             // Run simulation asynchronously to not block the HTTP thread
-            new Thread(() -> simulationService.runSimulation(request.getScripCode(), request.getDate(), request.getSignal())).start();
+            new Thread(() -> simulationService.runSimulation(candles)).start();
 
             return ResponseEntity.ok(Map.of("status", "success", "message", "Simulation started for " + request.getScripCode() + " on " + request.getDate()));
         } catch (Exception e) {

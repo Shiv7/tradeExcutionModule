@@ -52,6 +52,33 @@ public class HistoricalDataClient {
         return Collections.emptyList();
     }
 
+    public List<Candlestick> getHistorical1MinCandles(String scripCode, String date) {
+        try {
+            LocalDate localDate = LocalDate.parse(date, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String startDate = localDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            String endDate = localDate.plusDays(1).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+
+            String url = String.format("%s?exch=N&exch_type=C&scrip_code=%s&start_date=%s&end_date=%s&interval=1m",
+                    ltpApiUrl, scripCode, startDate, endDate);
+
+            log.info("Fetching historical 1-min candles from URL: {}", url);
+            String rawResponse = restTemplate.getForObject(url, String.class);
+            log.debug("Raw historical data response: {}", rawResponse);
+
+            HistoricalDataResponse[] response = objectMapper.readValue(rawResponse, HistoricalDataResponse[].class);
+
+            if (response != null) {
+                log.info("Successfully fetched {} historical candles.", response.length);
+                return Arrays.stream(response)
+                        .map(this::transformToCandlestick)
+                        .collect(Collectors.toList());
+            }
+        } catch (Exception e) {
+            log.error("Failed to fetch historical 1-min candles for scripCode {} on date {}: {}", scripCode, date, e.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
     private Candlestick transformToCandlestick(HistoricalDataResponse res) {
         Candlestick candle = new Candlestick();
         candle.setOpen(res.getOpen());

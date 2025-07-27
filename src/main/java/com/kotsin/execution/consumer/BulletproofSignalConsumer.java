@@ -9,6 +9,7 @@ import com.kotsin.execution.producer.TradeResultProducer;
 import com.kotsin.execution.service.ErrorMonitoringService;
 import com.kotsin.execution.service.HistoricalDataClient;
 import com.kotsin.execution.service.PivotServiceClient;
+import com.kotsin.execution.service.SimulationService;
 import com.kotsin.execution.service.TelegramNotificationService;
 import com.kotsin.execution.service.TradeAnalysisService;
 import com.kotsin.execution.service.TradingHoursService;
@@ -17,6 +18,7 @@ import com.kotsin.execution.broker.BrokerOrderService.Side;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
@@ -52,6 +54,7 @@ public class BulletproofSignalConsumer {
     private final PivotServiceClient pivotServiceClient;
     private final TradeAnalysisService tradeAnalysisService;
     private final HistoricalDataClient historicalDataClient;
+    private final SimulationService simulationService;
 
     // --- STATE MANAGEMENT REFACTORED ---
     private final Map<String, ActiveTrade> waitingTrades = new ConcurrentHashMap<>();
@@ -90,8 +93,13 @@ public class BulletproofSignalConsumer {
         acknowledgment.acknowledge();
     }
 
-    @KafkaListener(topics = "5-min-candle", containerFactory = "candlestickKafkaListenerContainerFactory")
+    @KafkaListener(topics = "5-min-candle", containerFactory = "candlestickKafkaListenerContainerFactory", autoStartup = "${trading.mode.live:true}")
     public void process5MinCandle(Candlestick candle) {
+        handleCandle(candle);
+    }
+
+    @EventListener
+    public void handleCandle(Candlestick candle) {
         if (activeTrade.get() != null || !tradeAnalysisService.isWithinGoldenWindows()) {
             return;
         }
@@ -187,10 +195,13 @@ public class BulletproofSignalConsumer {
         LocalDateTime signalTimestamp = LocalDateTime.ofInstant(Instant.ofEpochMilli(signal.getTimestamp()), ZoneId.of("Asia/Kolkata"));
         String signalDate = signalTimestamp.toLocalDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
         log.info("Fetching historical data for signal date: {}", signalDate);
-        List<Candlestick> historicalCandles = historicalDataClient.getHistorical5MinCandles(signal.getScripCode(), signalDate);
+        List<Candlestick> historicalCandles = historicalDataClient.getHistorical1MinCandles(signal.getScripCode(), signalDate);
         if (historicalCandles != null && !historicalCandles.isEmpty()) {
             recentCandles.put(signal.getScripCode(), new ArrayList<>(historicalCandles));
             log.info("Pre-populated {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
+            if ("SIMULATION".equalsIgnoreCase(tradingMode)) {
+                simulationService.runSimulation(historicalCandles);
+            }
         } else {
             log.warn("No historical candle data found for {} on {}", signal.getScripCode(), signalDate);
         }
