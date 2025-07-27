@@ -93,7 +93,7 @@ public class BulletproofSignalConsumer {
         acknowledgment.acknowledge();
     }
 
-    @KafkaListener(topics = "5-min-candle", containerFactory = "candlestickKafkaListenerContainerFactory", autoStartup = "${trading.mode.live:true}")
+    @KafkaListener(topics = "5-min-candle", containerFactory = "candlestickKafkaListenerContainerFactory", autoStartup = "#{'${trading.mode}' == 'LIVE'}")
     public void process5MinCandle(Candlestick candle) {
         handleCandle(candle);
     }
