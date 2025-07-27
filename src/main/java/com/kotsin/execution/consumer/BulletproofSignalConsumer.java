@@ -93,13 +93,17 @@ public class BulletproofSignalConsumer {
         acknowledgment.acknowledge();
     }
 
-    @KafkaListener(topics = "5-min-candle", containerFactory = "candlestickKafkaListenerContainerFactory", autoStartup = "#{'${trading.mode}' == 'LIVE'}")
+    @KafkaListener(topics = "5-min-candle", containerFactory = "candlestickKafkaListenerContainerFactory", autoStartup = "#{'${trading.mode}'.equalsIgnoreCase('LIVE')}")
     public void process5MinCandle(Candlestick candle) {
-        handleCandle(candle);
+        processCandle(candle);
     }
 
-    @EventListener
-    public void handleCandle(Candlestick candle) {
+    @EventListener(condition = "'${trading.mode}'.equalsIgnoreCase('SIMULATION')")
+    public void handleSimulationCandle(Candlestick candle) {
+        processCandle(candle);
+    }
+
+    private void processCandle(Candlestick candle) {
         log.info("Processing candle: {}", candle);
         if (activeTrade.get() != null || !tradeAnalysisService.isWithinGoldenWindows()) {
             return;
