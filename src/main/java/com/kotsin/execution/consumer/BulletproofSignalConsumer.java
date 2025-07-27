@@ -98,7 +98,7 @@ public class BulletproofSignalConsumer {
         processCandle(candle);
     }
 
-    @EventListener(condition = "'${trading.mode}'.equalsIgnoreCase('SIMULATION')")
+    @EventListener(condition = "#{'${trading.mode}'.equalsIgnoreCase('SIMULATION')}")
     public void handleSimulationCandle(Candlestick candle) {
         processCandle(candle);
     }
