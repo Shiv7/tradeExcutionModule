@@ -100,8 +100,12 @@ public class BulletproofSignalConsumer {
     }
 
     @Async
-    @EventListener(condition = "#{'${trading.mode}'.equalsIgnoreCase('SIMULATION')}")
+    @EventListener
     public void handleSimulationCandle(Candlestick candle) {
+        // Manually check the trading mode for robustness
+        if (!"SIMULATION".equalsIgnoreCase(tradingMode)) {
+            return;
+        }
         processCandle(candle);
     }
 
