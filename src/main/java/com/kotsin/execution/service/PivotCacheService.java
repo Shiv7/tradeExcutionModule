@@ -2,17 +2,19 @@ package com.kotsin.execution.service;
 
 import com.kotsin.execution.model.PivotData;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class PivotCacheService {
 
     private final PivotServiceClient pivotServiceClient;
+    private final Map<String, PivotData> dailyPivotsCache = new ConcurrentHashMap<>();
 
-    @Cacheable(value = "dailyPivots_v2", key = "#scripCode")
     public PivotData getDailyPivots(String scripCode) {
-        return pivotServiceClient.getDailyPivots(scripCode);
+        return dailyPivotsCache.computeIfAbsent(scripCode, pivotServiceClient::getDailyPivots);
     }
 }

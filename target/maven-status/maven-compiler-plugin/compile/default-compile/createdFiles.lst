@@ -20,6 +20,7 @@ com/kotsin/execution/model/SimulationEndEvent.class
 com/kotsin/execution/model/PortfolioInsights$PortfolioInsightsBuilder.class
 com/kotsin/execution/consumer/LiveMarketDataConsumer.class
 com/kotsin/execution/model/HistoricalDataResponse.class
+com/kotsin/execution/service/PivotCacheService.class
 com/kotsin/execution/model/StrategySignal.class
 com/kotsin/execution/model/ActiveTrade.class
 com/kotsin/execution/config/WebConfig.class
