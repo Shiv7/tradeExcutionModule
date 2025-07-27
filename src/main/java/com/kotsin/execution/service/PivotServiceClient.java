@@ -24,7 +24,7 @@ public class PivotServiceClient {
                 Map<String, Object> responseData = (Map<String, Object>) response.get("response");
                 Map<String, Object> pivotDataMap = (Map<String, Object>) responseData.get("pivotIndicatorData");
                 if (pivotDataMap != null) {
-                    log.info("Fetched full daily pivot data for {}", scripCode);
+                    log.info("Fetched full daily pivot data for {}: {}", scripCode, pivotDataMap);
                     return PivotData.fromMap(pivotDataMap);
                 }
             }
