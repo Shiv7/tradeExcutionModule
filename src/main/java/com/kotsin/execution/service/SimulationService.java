@@ -26,9 +26,10 @@ public class SimulationService {
 
         log.info("Starting simulation with {} candles.", candles.size());
         executor.submit(() -> {
-            for (Candlestick candle : candles) {
+            for (int i = 0; i < candles.size(); i++) {
+                Candlestick candle = candles.get(i);
                 try {
-                    log.debug("Publishing candle: {}", candle);
+                    log.info("Publishing candle {}/{}: {}", i + 1, candles.size(), candle);
                     eventPublisher.publishEvent(candle);
                     // Simulate real-time market data with a small delay
                     Thread.sleep(100);
