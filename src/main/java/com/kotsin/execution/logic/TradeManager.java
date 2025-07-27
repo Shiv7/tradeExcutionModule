@@ -29,7 +29,7 @@ public class TradeManager {
     private final TradeResultProducer tradeResultProducer;
     private final TelegramNotificationService telegramNotificationService;
     private final BrokerOrderService brokerOrderService;
-    private final PivotServiceClient pivotServiceClient;
+    private final PivotCacheService pivotCacheService;
     private final TradeAnalysisService tradeAnalysisService;
     private final HistoricalDataClient historicalDataClient;
     private final SimulationService simulationService;
@@ -117,7 +117,7 @@ public class TradeManager {
     private boolean isTradeReadyForExecution(ActiveTrade trade, Candlestick candle) {
         log.info("--- Begin Trade Readiness Evaluation for {} ---", trade.getScripCode());
 
-        PivotData pivots = pivotServiceClient.getDailyPivots(trade.getScripCode());
+        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode());
         if (pivots == null) {
             log.warn("Trade Readiness FAILED for {}: Could not fetch pivot data.", trade.getScripCode());
             return false;
@@ -214,7 +214,7 @@ public class TradeManager {
 
     private void executeEntry(ActiveTrade trade, Candlestick confirmationCandle) {
         double entryPrice = confirmationCandle.getClose();
-        PivotData pivots = pivotServiceClient.getDailyPivots(trade.getScripCode());
+        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode());
         if (pivots == null) {
             log.error("Could not fetch pivots for {}. Aborting entry.", trade.getScripCode());
             return;

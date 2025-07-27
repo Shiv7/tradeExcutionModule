@@ -19,14 +19,14 @@ public class PivotData {
     public static PivotData fromMap(Map<String, Object> map) {
         PivotData data = new PivotData();
         data.setPivot(getDouble(map, "pivot"));
-        data.setS1(getDouble(map, "s1"));
-        data.setS2(getDouble(map, "s2"));
-        data.setS3(getDouble(map, "s3"));
-        data.setS4(getDouble(map, "s4"));
-        data.setR1(getDouble(map, "r1"));
-        data.setR2(getDouble(map, "r2"));
-        data.setR3(getDouble(map, "r3"));
-        data.setR4(getDouble(map, "r4"));
+        data.setS1(getDouble(map, "support1"));
+        data.setS2(getDouble(map, "support2"));
+        data.setS3(getDouble(map, "support3"));
+        data.setS4(getDouble(map, "support4"));
+        data.setR1(getDouble(map, "resistance1"));
+        data.setR2(getDouble(map, "resistance2"));
+        data.setR3(getDouble(map, "resistance3"));
+        data.setR4(getDouble(map, "resistance4"));
         return data;
     }
 
