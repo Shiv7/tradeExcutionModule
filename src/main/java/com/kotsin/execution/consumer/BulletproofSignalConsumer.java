@@ -334,7 +334,7 @@ public class BulletproofSignalConsumer {
         }
     }
     
-    // [OMITTED FOR BREVITY: All exit logic, P&L calculations, notifications, etc. would go here, updated to use activeTrade.get()]
+    // [OMITTED FOR BREVITY: All exit logic, P&L calculations, notifications, etc.]
 
     // Public accessors for monitoring
     public boolean hasActiveTrade() {
