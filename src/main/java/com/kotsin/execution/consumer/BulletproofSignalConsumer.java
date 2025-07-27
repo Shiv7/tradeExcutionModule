@@ -106,35 +106,59 @@ public class BulletproofSignalConsumer {
     }
 
     private void processCandle(Candlestick candle) {
-        log.info("Processing candle: {}", candle);
-        if (activeTrade.get() != null || !tradeAnalysisService.isWithinGoldenWindows()) {
+        log.info("BEGIN processCandle for: {}", candle.getCompanyName());
+
+        if (activeTrade.get() != null) {
+            log.debug("An active trade already exists. Skipping candle processing.");
             return;
         }
+        if (!tradeAnalysisService.isWithinGoldenWindows()) {
+            log.debug("Outside golden windows. Skipping candle processing.");
+            return;
+        }
+        log.info("PASSED initial checks.");
 
         updateCandleHistory(candle);
+        log.info("UPDATED candle history for {}.", candle.getCompanyName());
 
         synchronized (this) {
-            if (activeTrade.get() != null) return;
+            log.info("ENTERED synchronized block for {}.", candle.getCompanyName());
+            if (activeTrade.get() != null) {
+                log.warn("Race condition check: Active trade appeared after initial check. Aborting.");
+                return;
+            }
 
             List<ActiveTrade> readyTrades = new ArrayList<>();
+            log.info("Checking {} waiting trades.", waitingTrades.size());
             for (ActiveTrade trade : waitingTrades.values()) {
+                log.info("Evaluating trade readiness for: {}", trade.getScripCode());
                 if (isTradeReadyForExecution(trade, candle)) {
+                    log.info("SUCCESS: Trade is ready for execution: {}", trade.getScripCode());
                     readyTrades.add(trade);
+                } else {
+                    log.info("FAILURE: Trade is not ready: {}", trade.getScripCode());
                 }
             }
 
             if (!readyTrades.isEmpty()) {
+                log.info("Found {} ready trades. Selecting the best one.", readyTrades.size());
                 ActiveTrade bestTrade = readyTrades.stream()
                     .max(Comparator.comparingDouble(t -> (double) t.getMetadata().getOrDefault("potentialRR", 0.0)))
                     .orElse(null);
 
                 if (bestTrade != null) {
+                    log.info("Best trade selected: {}. Executing entry.", bestTrade.getScripCode());
                     executeEntry(bestTrade, candle);
                     activeTrade.set(bestTrade);
                     waitingTrades.clear();
+                    log.info("CLEARED waiting trades list.");
                 }
+            } else {
+                log.info("No trades were ready for execution for this candle.");
             }
+            log.info("EXITING synchronized block for {}.", candle.getCompanyName());
         }
+        log.info("END processCandle for: {}", candle.getCompanyName());
     }
 
     private boolean isTradeReadyForExecution(ActiveTrade trade, Candlestick candle) {
@@ -204,8 +228,14 @@ public class BulletproofSignalConsumer {
         log.info("Fetching historical data for signal date: {}", signalDate);
         List<Candlestick> historicalCandles = historicalDataClient.getHistorical1MinCandles(signal.getScripCode(), signalDate);
         if (historicalCandles != null && !historicalCandles.isEmpty()) {
+            // Enrich historical candles with the company name from the signal
+            for (Candlestick candle : historicalCandles) {
+                candle.setCompanyName(signal.getCompanyName());
+            }
+            
             recentCandles.put(signal.getScripCode(), new ArrayList<>(historicalCandles));
-            log.info("Pre-populated {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
+            log.info("Pre-populated and enriched {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
+            
             if ("SIMULATION".equalsIgnoreCase(tradingMode)) {
                 simulationService.runSimulation(historicalCandles);
             }
