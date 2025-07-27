@@ -14,7 +14,6 @@ public class PivotServiceClient {
     private final RestTemplate restTemplate = new RestTemplate();
     private static final String PIVOT_API_URL = "http://localhost:8103/pivotGetter/getDailyPivotForGivenDateAndTicker?date={date}&exch=N&exch_type=C&scrip_code={scrip_code}";
 
-    @Cacheable(value = "dailyPivotsFull", key = "#scripCode")
     public PivotData getDailyPivots(String scripCode) {
         try {
             String today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));

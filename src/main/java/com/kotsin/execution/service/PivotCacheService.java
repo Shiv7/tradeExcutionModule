@@ -11,7 +11,7 @@ public class PivotCacheService {
 
     private final PivotServiceClient pivotServiceClient;
 
-    @Cacheable(value = "dailyPivots", key = "#scripCode")
+    @Cacheable(value = "dailyPivots_v2", key = "#scripCode")
     public PivotData getDailyPivots(String scripCode) {
         return pivotServiceClient.getDailyPivots(scripCode);
     }
