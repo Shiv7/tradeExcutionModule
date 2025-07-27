@@ -24,8 +24,10 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -182,11 +184,15 @@ public class BulletproofSignalConsumer {
         log.info("Added/Updated trade for {} to watchlist. Total watchlist size: {}", trade.getScripCode(), waitingTrades.size());
 
         // Fetch historical data to pre-populate candles
-        String signalDate = signalReceivedTime.toLocalDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        LocalDateTime signalTimestamp = LocalDateTime.ofInstant(Instant.ofEpochMilli(signal.getTimestamp()), ZoneId.of("Asia/Kolkata"));
+        String signalDate = signalTimestamp.toLocalDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        log.info("Fetching historical data for signal date: {}", signalDate);
         List<Candlestick> historicalCandles = historicalDataClient.getHistorical5MinCandles(signal.getScripCode(), signalDate);
         if (historicalCandles != null && !historicalCandles.isEmpty()) {
             recentCandles.put(signal.getScripCode(), new ArrayList<>(historicalCandles));
             log.info("Pre-populated {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
+        } else {
+            log.warn("No historical candle data found for {} on {}", signal.getScripCode(), signalDate);
         }
     }
 

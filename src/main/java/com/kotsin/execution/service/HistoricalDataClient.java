@@ -36,10 +36,12 @@ public class HistoricalDataClient {
 
             log.info("Fetching historical 5-min candles from URL: {}", url);
             String rawResponse = restTemplate.getForObject(url, String.class);
+            log.debug("Raw historical data response: {}", rawResponse);
 
             HistoricalDataResponse[] response = objectMapper.readValue(rawResponse, HistoricalDataResponse[].class);
 
             if (response != null) {
+                log.info("Successfully fetched {} historical candles.", response.length);
                 return Arrays.stream(response)
                         .map(this::transformToCandlestick)
                         .collect(Collectors.toList());
