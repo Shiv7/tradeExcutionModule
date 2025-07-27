@@ -45,27 +45,59 @@ public class TradeManager {
     private String tradingMode;
 
     public void processCandle(Candlestick candle) {
-        if (activeTrade.get() != null || !tradeAnalysisService.isWithinGoldenWindows(candle.getWindowStartMillis())) {
+        log.info("BEGIN processCandle for: {}", candle.getCompanyName());
+
+        if (activeTrade.get() != null) {
+            log.debug("An active trade already exists. Skipping candle processing.");
             return;
         }
+        if (!tradeAnalysisService.isWithinGoldenWindows(candle.getWindowStartMillis())) {
+            log.debug("Outside golden windows. Skipping candle processing.");
+            return;
+        }
+        log.info("PASSED initial checks.");
+
         updateCandleHistory(candle);
+        log.info("UPDATED candle history for {}.", candle.getCompanyName());
+
         synchronized (this) {
-            if (activeTrade.get() != null) return;
+            log.info("ENTERED synchronized block for {}.", candle.getCompanyName());
+            if (activeTrade.get() != null) {
+                log.warn("Race condition check: Active trade appeared after initial check. Aborting.");
+                return;
+            }
+
             List<ActiveTrade> readyTrades = new ArrayList<>();
+            log.info("Checking {} waiting trades.", waitingTrades.size());
             for (ActiveTrade trade : waitingTrades.values()) {
+                log.info("Evaluating trade readiness for: {}", trade.getScripCode());
                 if (isTradeReadyForExecution(trade, candle)) {
+                    log.info("SUCCESS: Trade is ready for execution: {}", trade.getScripCode());
                     readyTrades.add(trade);
+                } else {
+                    log.info("FAILURE: Trade is not ready: {}", trade.getScripCode());
                 }
             }
+
             if (!readyTrades.isEmpty()) {
-                ActiveTrade bestTrade = readyTrades.stream().max(Comparator.comparingDouble(t -> (double) t.getMetadata().getOrDefault("potentialRR", 0.0))).orElse(null);
+                log.info("Found {} ready trades. Selecting the best one.", readyTrades.size());
+                ActiveTrade bestTrade = readyTrades.stream()
+                    .max(Comparator.comparingDouble(t -> (double) t.getMetadata().getOrDefault("potentialRR", 0.0)))
+                    .orElse(null);
+
                 if (bestTrade != null) {
+                    log.info("Best trade selected: {}. Executing entry.", bestTrade.getScripCode());
                     executeEntry(bestTrade, candle);
                     activeTrade.set(bestTrade);
                     waitingTrades.clear();
+                    log.info("CLEARED waiting trades list.");
                 }
+            } else {
+                log.info("No trades were ready for execution for this candle.");
             }
+            log.info("EXITING synchronized block for {}.", candle.getCompanyName());
         }
+        log.info("END processCandle for: {}", candle.getCompanyName());
     }
 
     public void closeTradeAtSimulationEnd(Candlestick lastCandle) {
@@ -83,23 +115,42 @@ public class TradeManager {
     }
 
     private boolean isTradeReadyForExecution(ActiveTrade trade, Candlestick candle) {
+        log.info("--- Begin Trade Readiness Evaluation for {} ---", trade.getScripCode());
+
         PivotData pivots = pivotServiceClient.getDailyPivots(trade.getScripCode());
-        if (pivots == null) return false;
+        if (pivots == null) {
+            log.warn("Trade Readiness FAILED for {}: Could not fetch pivot data.", trade.getScripCode());
+            return false;
+        }
+        log.info("Trade Readiness PASSED for {}: Fetched pivot data.", trade.getScripCode());
 
         boolean retestCompleted = checkPivotRetest(trade, candle, pivots.getPivot());
-        if (!retestCompleted) return false;
+        if (!retestCompleted) {
+            log.info("Trade Readiness FAILED for {}: Pivot retest not complete.", trade.getScripCode());
+            return false;
+        }
+        log.info("Trade Readiness PASSED for {}: Pivot retest complete.", trade.getScripCode());
 
         List<Candlestick> history = recentCandles.get(trade.getScripCode());
         boolean volumeConfirmed = tradeAnalysisService.confirmVolumeProfile(candle, history);
-        if (!volumeConfirmed) return false;
+        if (!volumeConfirmed) {
+            log.info("Trade Readiness FAILED for {}: Volume not confirmed.", trade.getScripCode());
+            return false;
+        }
+        log.info("Trade Readiness PASSED for {}: Volume confirmed.", trade.getScripCode());
 
         Candlestick previousCandle = history != null && history.size() > 1 ? history.get(history.size() - 2) : null;
         boolean candlePatternConfirmed = trade.isBullish() ?
             tradeAnalysisService.isBullishEngulfing(previousCandle, candle) :
             tradeAnalysisService.isBearishEngulfing(previousCandle, candle);
-        if (!candlePatternConfirmed) return false;
+        if (!candlePatternConfirmed) {
+            log.info("Trade Readiness FAILED for {}: Candlestick pattern not confirmed.", trade.getScripCode());
+            return false;
+        }
+        log.info("Trade Readiness PASSED for {}: Candlestick pattern confirmed.", trade.getScripCode());
 
         calculateRiskReward(trade, candle, pivots);
+        log.info("--- All Readiness Checks Passed for {} ---", trade.getScripCode());
         return true;
     }
 

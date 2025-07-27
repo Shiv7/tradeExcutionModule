@@ -23,7 +23,7 @@ public class TradeAnalysisService {
     public boolean isBullishEngulfing(Candlestick previous, Candlestick current) {
         if (previous == null || current == null) return false;
         boolean isEngulfing = current.getOpen() < previous.getClose() && current.getClose() > previous.getOpen();
-        if (isEngulfing) log.info("Bullish Engulfing pattern detected for {}.", current.getCompanyName());
+        log.info("Bullish Engulfing Check for {}: {}", current.getCompanyName(), isEngulfing);
         return isEngulfing;
     }
 
@@ -31,7 +31,7 @@ public class TradeAnalysisService {
     public boolean isBearishEngulfing(Candlestick previous, Candlestick current) {
         if (previous == null || current == null) return false;
         boolean isEngulfing = current.getOpen() > previous.getClose() && current.getClose() < previous.getOpen();
-        if (isEngulfing) log.info("Bearish Engulfing pattern detected for {}.", current.getCompanyName());
+        log.info("Bearish Engulfing Check for {}: {}", current.getCompanyName(), isEngulfing);
         return isEngulfing;
     }
 
@@ -40,7 +40,7 @@ public class TradeAnalysisService {
         if (recentCandles == null || recentCandles.isEmpty()) return true; // Not enough data, default to true
         double averageVolume = recentCandles.stream().mapToLong(Candlestick::getVolume).average().orElse(0.0);
         boolean isSpike = current.getVolume() > averageVolume * VOLUME_SPIKE_FACTOR;
-        if (isSpike) log.info("Volume spike confirmed for {}. Current: {}, Average: {}", current.getCompanyName(), current.getVolume(), averageVolume);
+        log.info("Volume Spike Check for {}: Current={}, Avg={}, Spike={}", current.getCompanyName(), current.getVolume(), averageVolume, isSpike);
         return isSpike;
     }
 
