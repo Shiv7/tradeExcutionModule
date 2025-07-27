@@ -19,15 +19,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * 🛡️ BULLETPROOF Consumer for live market data from forwardtesting-data topic.
  * 🔧 FIXED: Now uses MarketData POJO for proper type safety and Token-scripCode linking.
  */
-import com.kotsin.execution.logic.TradeManager;
-
 @Component
 @Slf4j
 @RequiredArgsConstructor
 public class LiveMarketDataConsumer {
     
     private final TradingHoursService tradingHoursService;
-    private final TradeManager tradeManager;
+    private final com.kotsin.execution.logic.TradeManager tradeManager;
     
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     

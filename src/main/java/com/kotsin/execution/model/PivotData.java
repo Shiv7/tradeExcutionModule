@@ -18,15 +18,23 @@ public class PivotData {
     @SuppressWarnings("unchecked")
     public static PivotData fromMap(Map<String, Object> map) {
         PivotData data = new PivotData();
-        data.setPivot(((Number) map.get("pivot")).doubleValue());
-        data.setS1(((Number) map.get("s1")).doubleValue());
-        data.setS2(((Number) map.get("s2")).doubleValue());
-        data.setS3(((Number) map.get("s3")).doubleValue());
-        data.setS4(((Number) map.get("s4")).doubleValue());
-        data.setR1(((Number) map.get("r1")).doubleValue());
-        data.setR2(((Number) map.get("r2")).doubleValue());
-        data.setR3(((Number) map.get("r3")).doubleValue());
-        data.setR4(((Number) map.get("r4")).doubleValue());
+        data.setPivot(getDouble(map, "pivot"));
+        data.setS1(getDouble(map, "s1"));
+        data.setS2(getDouble(map, "s2"));
+        data.setS3(getDouble(map, "s3"));
+        data.setS4(getDouble(map, "s4"));
+        data.setR1(getDouble(map, "r1"));
+        data.setR2(getDouble(map, "r2"));
+        data.setR3(getDouble(map, "r3"));
+        data.setR4(getDouble(map, "r4"));
         return data;
+    }
+
+    private static double getDouble(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        return 0.0;
     }
 }
