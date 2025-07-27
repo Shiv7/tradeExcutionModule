@@ -20,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -98,6 +99,7 @@ public class BulletproofSignalConsumer {
         processCandle(candle);
     }
 
+    @Async
     @EventListener(condition = "#{'${trading.mode}'.equalsIgnoreCase('SIMULATION')}")
     public void handleSimulationCandle(Candlestick candle) {
         processCandle(candle);
