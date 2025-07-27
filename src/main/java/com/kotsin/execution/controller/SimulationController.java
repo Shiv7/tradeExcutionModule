@@ -1,7 +1,7 @@
 package com.kotsin.execution.controller;
 
-import com.kotsin.execution.model.StrategySignal;
 import com.kotsin.execution.model.Candlestick;
+import com.kotsin.execution.model.StrategySignal;
 import com.kotsin.execution.service.HistoricalDataClient;
 import com.kotsin.execution.service.SimulationService;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -30,7 +31,7 @@ public class SimulationController {
             }
 
             // Fetch historical data
-            java.util.List<Candlestick> candles = historicalDataClient.getHistorical1MinCandles(request.getScripCode(), request.getDate());
+            List<Candlestick> candles = historicalDataClient.getHistorical1MinCandles(request.getScripCode(), request.getDate());
             if (candles.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("status", "error", "message", "No historical data found for the given scrip and date."));
             }
