@@ -13,7 +13,9 @@
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/producer/TradeResultProducer.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/BulletproofTradeController.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/Candlestick.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/consumer/SignalConsumer.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/broker/BrokerOrderService.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/logic/TradeManager.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/BulletproofTradeManager.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/ActiveTrade.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/SchedulingConfig.java
@@ -25,12 +27,14 @@
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/consumer/LiveMarketDataConsumer.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/broker/FivePaisaBrokerService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/broker/BrokerException.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/consumer/MarketDataHandler.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/TelegramNotificationService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/OpenApiConfig.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/TradeResult.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/ErrorMonitoringController.java
-/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/consumer/BulletproofSignalConsumer.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/PivotData.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/BulletproofErrorHandler.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/service/SimulationService.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/controller/SimulationController.java
+/Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/model/SimulationEndEvent.java
 /Users/shivendrapratap/Documents/kotsin/tradeExecutionModule/src/main/java/com/kotsin/execution/config/KafkaConfig.java

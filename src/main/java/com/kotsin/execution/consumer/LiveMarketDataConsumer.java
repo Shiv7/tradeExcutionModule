@@ -19,13 +19,15 @@ import java.util.concurrent.atomic.AtomicLong;
  * 🛡️ BULLETPROOF Consumer for live market data from forwardtesting-data topic.
  * 🔧 FIXED: Now uses MarketData POJO for proper type safety and Token-scripCode linking.
  */
+import com.kotsin.execution.logic.TradeManager;
+
 @Component
 @Slf4j
 @RequiredArgsConstructor
 public class LiveMarketDataConsumer {
     
     private final TradingHoursService tradingHoursService;
-    private final BulletproofSignalConsumer bulletproofSignalConsumer;
+    private final TradeManager tradeManager;
     
     private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     
@@ -59,8 +61,8 @@ public class LiveMarketDataConsumer {
             LocalDateTime tickTime = extractTickTime(marketData, timestamp);
             
             // 🔇 SMART LOGGING: Only log detailed info if there's an active trade for this scripCode
-            boolean hasActiveTradeForScript = bulletproofSignalConsumer.getCurrentTrade() != null &&
-                scripCode.equals(bulletproofSignalConsumer.getCurrentTrade().getScripCode());
+            boolean hasActiveTradeForScript = tradeManager.getCurrentTrade() != null &&
+                scripCode.equals(tradeManager.getCurrentTrade().getScripCode());
             
             // 🎯 DEBUGGING: Log market data for active trade token
             if (hasActiveTradeForScript) {

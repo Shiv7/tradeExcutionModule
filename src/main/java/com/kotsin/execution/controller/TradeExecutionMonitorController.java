@@ -1,6 +1,6 @@
 package com.kotsin.execution.controller;
 
-import com.kotsin.execution.consumer.BulletproofSignalConsumer;
+import com.kotsin.execution.logic.TradeManager;
 import com.kotsin.execution.model.ActiveTrade;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +21,7 @@ import java.util.*;
 @RequiredArgsConstructor
 public class TradeExecutionMonitorController {
     
-    private final BulletproofSignalConsumer bulletproofSignalConsumer;
+    private final TradeManager tradeManager;
     
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     
@@ -37,11 +37,11 @@ public class TradeExecutionMonitorController {
             status.put("timestamp", LocalDateTime.now().format(TIME_FORMAT));
             
             // 🛡️ BULLETPROOF SYSTEM STATUS
-            boolean hasBulletproofTrade = bulletproofSignalConsumer.hasActiveTrade();
+            boolean hasBulletproofTrade = tradeManager.hasActiveTrade();
             status.put("hasActiveTrade", hasBulletproofTrade);
             
             if (hasBulletproofTrade) {
-                ActiveTrade currentTrade = bulletproofSignalConsumer.getCurrentTrade();
+                ActiveTrade currentTrade = tradeManager.getCurrentTrade();
                 Map<String, Object> tradeInfo = new HashMap<>();
                 tradeInfo.put("scripCode", currentTrade.getScripCode());
                 tradeInfo.put("signal", currentTrade.getSignalType());
@@ -85,11 +85,11 @@ public class TradeExecutionMonitorController {
             
             response.put("timestamp", LocalDateTime.now().format(TIME_FORMAT));
             
-            boolean hasActiveTrade = bulletproofSignalConsumer.hasActiveTrade();
+            boolean hasActiveTrade = tradeManager.hasActiveTrade();
             response.put("hasActiveTrade", hasActiveTrade);
             
             if (hasActiveTrade) {
-                ActiveTrade currentTrade = bulletproofSignalConsumer.getCurrentTrade();
+                ActiveTrade currentTrade = tradeManager.getCurrentTrade();
                 response.put("scripCode", currentTrade.getScripCode());
                 response.put("signal", currentTrade.getSignalType());
                 response.put("status", currentTrade.getStatus());
@@ -169,7 +169,7 @@ public class TradeExecutionMonitorController {
         health.put("status", "UP");
         health.put("service", "Bulletproof Trade Execution Monitor");
         health.put("timestamp", LocalDateTime.now().format(TIME_FORMAT));
-        health.put("bulletproofActiveTrade", String.valueOf(bulletproofSignalConsumer.hasActiveTrade()));
+        health.put("bulletproofActiveTrade", String.valueOf(tradeManager.hasActiveTrade()));
         health.put("systemType", "BULLETPROOF");
         
         return ResponseEntity.ok(health);

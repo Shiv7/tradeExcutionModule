@@ -1,6 +1,6 @@
 package com.kotsin.execution.controller;
 
-import com.kotsin.execution.consumer.BulletproofSignalConsumer;
+import com.kotsin.execution.logic.TradeManager;
 import com.kotsin.execution.model.ActiveTrade;
 import com.kotsin.execution.broker.BrokerOrderService;
 import com.kotsin.execution.service.NetPositionService;
@@ -30,7 +30,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BulletproofTradeController {
     
-    private final BulletproofSignalConsumer bulletproofSignalConsumer;
+    private final TradeManager tradeManager;
     private final BrokerOrderService brokerOrderService;
     private final NetPositionService netPositionService;
     
@@ -45,12 +45,12 @@ public class BulletproofTradeController {
             Map<String, Object> status = new HashMap<>();
             
             // Basic status
-            status.put("hasActiveTrade", bulletproofSignalConsumer.hasActiveTrade());
+            status.put("hasActiveTrade", tradeManager.hasActiveTrade());
             status.put("currentTime", LocalDateTime.now().format(TIME_FORMAT));
             status.put("systemStatus", "BULLETPROOF_ACTIVE");
             
             // Active trade details
-            ActiveTrade currentTrade = bulletproofSignalConsumer.getCurrentTrade();
+            ActiveTrade currentTrade = tradeManager.getCurrentTrade();
             if (currentTrade != null) {
                 Map<String, Object> tradeInfo = new HashMap<>();
                 tradeInfo.put("scripCode", currentTrade.getScripCode());
@@ -174,7 +174,7 @@ public class BulletproofTradeController {
                                    "required", "scripCode, price"));
             }
             
-            ActiveTrade currentTrade = bulletproofSignalConsumer.getCurrentTrade();
+            ActiveTrade currentTrade = tradeManager.getCurrentTrade();
             if (currentTrade == null) {
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "No active trade to update"));
@@ -239,7 +239,7 @@ public class BulletproofTradeController {
         try {
             String reason = (String) exitRequest.getOrDefault("reason", "Manual emergency exit");
             
-            ActiveTrade currentTrade = bulletproofSignalConsumer.getCurrentTrade();
+            ActiveTrade currentTrade = tradeManager.getCurrentTrade();
             if (currentTrade == null) {
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "No active trade to exit"));
@@ -257,7 +257,7 @@ public class BulletproofTradeController {
             response.put("reason", reason);
             response.put("exitTime", LocalDateTime.now().format(TIME_FORMAT));
             
-            // Note: Actual emergency exit logic would be implemented in BulletproofSignalConsumer
+            // Note: Actual emergency exit logic would be implemented in TradeManager
             log.warn("⚠️ [BulletproofTC] Emergency exit acknowledged for {} - Implementation pending", scripCode);
             
             return ResponseEntity.ok(response);
@@ -274,10 +274,10 @@ public class BulletproofTradeController {
         try {
             brokerOrderService.squareOffAll();
             // also force internal emergency exit if active trade
-            if (bulletproofSignalConsumer.hasActiveTrade()) {
+            if (tradeManager.hasActiveTrade()) {
                 // Close internal trade state after broker square-off
                 // DEPRECATED: updatePrice is removed. A new method in the consumer is needed for emergency exits.
-                log.warn("Square-off initiated, but internal state clearing needs a new method in BulletproofSignalConsumer.");
+                log.warn("Square-off initiated, but internal state clearing needs a new method in TradeManager.");
             }
             return ResponseEntity.ok(Map.of("status", "ALL_POSITIONS_SQUARE_OFF_TRIGGERED"));
         } catch (Exception ex) {
@@ -296,9 +296,9 @@ public class BulletproofTradeController {
             health.put("systemName", "BULLETPROOF_TRADE_MANAGER");
             health.put("status", "OPERATIONAL");
             health.put("currentTime", LocalDateTime.now());
-            health.put("hasActiveTrade", bulletproofSignalConsumer.hasActiveTrade());
+            health.put("hasActiveTrade", tradeManager.hasActiveTrade());
             
-            ActiveTrade currentTrade = bulletproofSignalConsumer.getCurrentTrade();
+            ActiveTrade currentTrade = tradeManager.getCurrentTrade();
             if (currentTrade != null) {
                 health.put("activeTradeScript", currentTrade.getScripCode());
                 health.put("activeTradeStatus", currentTrade.getStatus());
