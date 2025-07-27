@@ -40,6 +40,7 @@ public class TradeManager {
 
     private static final int POSITION_SIZE = 1;
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Value("${trading.mode:LIVE}")
     private String tradingMode;
@@ -117,7 +118,7 @@ public class TradeManager {
     private boolean isTradeReadyForExecution(ActiveTrade trade, Candlestick candle) {
         log.info("--- Begin Trade Readiness Evaluation for {} ---", trade.getScripCode());
 
-        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode());
+        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode(), trade.getSignalTime().toLocalDate());
         if (pivots == null) {
             log.warn("Trade Readiness FAILED for {}: Could not fetch pivot data.", trade.getScripCode());
             return false;
@@ -214,7 +215,7 @@ public class TradeManager {
 
     private void executeEntry(ActiveTrade trade, Candlestick confirmationCandle) {
         double entryPrice = confirmationCandle.getClose();
-        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode());
+        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode(), trade.getSignalTime().toLocalDate());
         if (pivots == null) {
             log.error("Could not fetch pivots for {}. Aborting entry.", trade.getScripCode());
             return;
@@ -232,7 +233,8 @@ public class TradeManager {
         trade.setLowSinceEntry(entryPrice);
         trade.addMetadata("confirmationCandle", confirmationCandle);
 
-        log.info("🚀 ENTRY EXECUTED: {} at {}", trade.getScripCode(), entryPrice);
+        String formattedEntryTime = trade.getEntryTime().format(DATE_TIME_FORMAT);
+        log.info("🚀 ENTRY EXECUTED: {} at {} on {}", trade.getScripCode(), entryPrice, formattedEntryTime);
         sendTradeEnteredNotification(trade, "Intelligent Confirmation");
         
         if ("LIVE".equalsIgnoreCase(tradingMode)) {
@@ -271,8 +273,8 @@ public class TradeManager {
             trade.getSignalType(),
             trade.getCompanyName(),
             trade.getScripCode(),
-            trade.getSignalTime().format(TIME_FORMAT),
-            trade.getEntryTime().format(TIME_FORMAT),
+            trade.getSignalTime().format(DATE_TIME_FORMAT),
+            trade.getEntryTime().format(DATE_TIME_FORMAT),
             trade.getEntryPrice(),
             trade.getStopLoss(),
             trade.getTarget1(),
