@@ -1,6 +1,7 @@
 package com.kotsin.execution.service;
 
 import com.kotsin.execution.model.Candlestick;
+import com.kotsin.execution.model.SimulationEndEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -39,7 +40,11 @@ public class SimulationService {
                     break;
                 }
             }
-            log.info("Simulation finished.");
+            log.info("Simulation finished publishing candles.");
+            // Publish an event to signal the end of the simulation
+            if (!candles.isEmpty()) {
+                eventPublisher.publishEvent(new SimulationEndEvent(candles.get(candles.size() - 1)));
+            }
         });
     }
 }

@@ -2,6 +2,7 @@ package com.kotsin.execution.consumer;
 
 import com.kotsin.execution.model.ActiveTrade;
 import com.kotsin.execution.model.Candlestick;
+import com.kotsin.execution.model.SimulationEndEvent;
 import com.kotsin.execution.model.StrategySignal;
 import com.kotsin.execution.model.TradeResult;
 import com.kotsin.execution.producer.ProfitLossProducer;
@@ -107,6 +108,24 @@ public class BulletproofSignalConsumer {
             return;
         }
         processCandle(candle);
+    }
+
+    @EventListener
+    public void handleSimulationEnd(SimulationEndEvent event) {
+        log.info("Simulation has ended. Checking for any open trades to close.");
+        ActiveTrade trade = activeTrade.get();
+        if (trade != null) {
+            log.warn("Active trade {} found at the end of simulation. Forcing closure.", trade.getScripCode());
+            // This is a simplified exit call. A more robust implementation would be to find a dedicated exit method.
+            // For now, we will manually create a TradeResult.
+            TradeResult result = new TradeResult();
+            result.setScripCode(trade.getScripCode());
+            result.setEntryPrice(trade.getEntryPrice());
+            result.setExitPrice(event.getLastCandle().getClose());
+            result.setExitReason("End of Simulation");
+            tradeResultProducer.publishTradeResult(result);
+            activeTrade.set(null); // Clear the active trade
+        }
     }
 
     private void processCandle(Candlestick candle) {
@@ -389,24 +408,37 @@ public class BulletproofSignalConsumer {
     private void sendTradeEnteredNotification(ActiveTrade trade, double entryPrice, String entryReason) {
         Object signalPriceObj = trade.getMetadata() != null ? trade.getMetadata().get("signalPrice") : null;
         double signalPrice = (signalPriceObj != null) ? ((Number) signalPriceObj).doubleValue() : entryPrice;
+        boolean pivotRetest = trade.getMetadata().containsKey("hasBreachedPivot");
 
         String companyName = trade.getCompanyName() != null ? trade.getCompanyName() : trade.getScripCode();
         String message = String.format(
-            "🚀 TRADE ENTERED\n" +
-            "Company: %s\n" +
-            "Script: %s\n" +
+            "🚀 TRADE ENTERED (%s)\n" +
+            "----------------------------------------\n" +
+            "Company: %s (%s)\n" +
+            "Signal Time: %s\n" +
+            "Entry Time: %s\n" +
+            "----------------------------------------\n" +
             "Signal Price: %.2f\n" +
             "Entry Price: %.2f\n" +
+            "Stop-Loss: %.2f\n" +
+            "Target 1: %.2f\n" +
             "Position: %d shares\n" +
+            "----------------------------------------\n" +
             "Reason: %s\n" +
-            "Time: %s",
+            "Pivot Retest: %s\n" +
+            "----------------------------------------",
+            trade.getSignalType(),
             companyName,
             trade.getScripCode(),
+            trade.getSignalTime().format(TIME_FORMAT),
+            LocalDateTime.now().format(TIME_FORMAT),
             signalPrice,
             entryPrice,
+            trade.getStopLoss(),
+            trade.getTarget1(),
             trade.getPositionSize(),
             entryReason,
-            LocalDateTime.now().format(TIME_FORMAT)
+            pivotRetest ? "✅ Confirmed" : "❌ Not Confirmed"
         );
         if (!"SILENT".equalsIgnoreCase(tradingMode)) {
             telegramNotificationService.sendTradeNotificationMessage(message);
