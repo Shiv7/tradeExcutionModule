@@ -182,8 +182,8 @@ public class BulletproofSignalConsumer {
         log.info("Added/Updated trade for {} to watchlist. Total watchlist size: {}", trade.getScripCode(), waitingTrades.size());
 
         // Fetch historical data to pre-populate candles
-        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        List<Candlestick> historicalCandles = historicalDataClient.getHistorical5MinCandles(signal.getScripCode(), today);
+        String signalDate = signalReceivedTime.toLocalDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        List<Candlestick> historicalCandles = historicalDataClient.getHistorical5MinCandles(signal.getScripCode(), signalDate);
         if (historicalCandles != null && !historicalCandles.isEmpty()) {
             recentCandles.put(signal.getScripCode(), new ArrayList<>(historicalCandles));
             log.info("Pre-populated {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
