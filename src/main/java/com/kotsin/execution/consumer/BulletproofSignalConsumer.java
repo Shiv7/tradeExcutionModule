@@ -275,6 +275,7 @@ public class BulletproofSignalConsumer {
         sanitized.setTarget1(signal.getTarget1());
         sanitized.setTarget2(signal.getTarget2());
         sanitized.setTarget3(signal.getTarget3());
+        sanitized.setTimestamp(signal.getTimestamp());
         sanitized.setExchange(signal.getExchange() != null ? signal.getExchange().trim() : "N");
         sanitized.setExchangeType(signal.getExchangeType() != null ? signal.getExchangeType().trim() : "C");
         return sanitized;
