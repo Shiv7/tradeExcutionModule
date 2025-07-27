@@ -42,7 +42,7 @@ public class HistoricalDataClient {
             String url = String.format("%s?exch=N&exch_type=C&scrip_code=%s&start_date=%s&end_date=%s&interval=%s",
                     ltpApiUrl, scripCode, startDate, endDate, interval);
 
-            log.info("Fetching historical {}} candles from URL: {}", interval, url);
+            log.info("Fetching historical {} candles from URL: {}", interval, url);
             String rawResponse = restTemplate.getForObject(url, String.class);
             log.debug("Raw historical data response: {}", rawResponse);
 

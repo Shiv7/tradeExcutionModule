@@ -9,10 +9,12 @@ com/kotsin/execution/model/PortfolioInsights.class
 com/kotsin/execution/model/PendingSignal.class
 com/kotsin/execution/controller/BulletproofTradeController.class
 com/kotsin/execution/model/MarketData.class
+com/kotsin/execution/controller/SimulationController.class
 com/kotsin/execution/config/OpenApiConfig.class
 com/kotsin/execution/model/NetPosition.class
 com/kotsin/execution/broker/FivePaisaBrokerService.class
 com/kotsin/execution/model/PortfolioSummary.class
+com/kotsin/execution/service/HistoricalDataClient.class
 com/kotsin/execution/broker/BrokerException.class
 com/kotsin/execution/service/TradeAnalysisService.class
 com/kotsin/execution/service/TelegramNotificationService.class
@@ -30,10 +32,13 @@ com/kotsin/execution/config/KafkaConfig.class
 com/kotsin/execution/model/ActiveTrade$1.class
 com/kotsin/execution/config/BulletproofErrorHandler.class
 com/kotsin/execution/service/PivotServiceClient.class
+com/kotsin/execution/controller/SimulationController$SimulationRequest.class
 com/kotsin/execution/service/BulletproofTradeManager.class
 com/kotsin/execution/model/PendingSignal$PendingSignalBuilder.class
 com/kotsin/execution/model/PortfolioInsights$PortfolioInsightsBuilder.class
 com/kotsin/execution/consumer/LiveMarketDataConsumer.class
+com/kotsin/execution/model/HistoricalDataResponse.class
+com/kotsin/execution/service/SimulationService.class
 com/kotsin/execution/TradeExecutionApplication.class
 com/kotsin/execution/model/StrategySignal.class
 com/kotsin/execution/producer/ProfitLossProducer.class
