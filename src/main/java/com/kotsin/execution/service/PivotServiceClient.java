@@ -34,8 +34,5 @@ public class PivotServiceClient {
         return null;
     }
 
-    public Double getDailyPivot(String scripCode, LocalDate date) {
-        PivotData pivotData = getDailyPivots(scripCode, date);
-        return pivotData != null ? pivotData.getPivot() : null;
-    }
+
 }

@@ -178,10 +178,7 @@ public class TradingHoursService {
      */
     public boolean shouldProcessTrade(String exchange, LocalDateTime messageTime) {
         // If not in LIVE mode, bypass all time-based checks for simulation purposes
-        if (!"LIVE".equalsIgnoreCase(tradingMode)) {
-            log.warn("SIMULATION MODE: Bypassing trading hours and weekend checks.");
-            return true;
-        }
+
 
         // Don't process on weekends in LIVE mode
         if (isWeekend()) {

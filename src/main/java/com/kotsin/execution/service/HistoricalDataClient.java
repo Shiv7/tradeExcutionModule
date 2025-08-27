@@ -25,9 +25,6 @@ public class HistoricalDataClient {
     @Value("${ltp.api.url:http://localhost:8002/getHisDataFromFivePaisa}")
     private String ltpApiUrl;
 
-    public List<Candlestick> getHistorical5MinCandles(String scripCode, String date) {
-        return getHistoricalCandles(scripCode, date, "5m");
-    }
 
     public List<Candlestick> getHistorical1MinCandles(String scripCode, String date) {
         return getHistoricalCandles(scripCode, date, "1m");

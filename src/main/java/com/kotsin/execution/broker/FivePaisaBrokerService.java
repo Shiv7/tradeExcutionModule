@@ -19,11 +19,14 @@ import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
+
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.json.simple.JSONArray;
 import com.kotsin.execution.model.NetPosition;
 
@@ -59,9 +62,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     @Value("${fivepaisa.totp-url:http://localhost:8002/getToto}")
     private String totpUrl;
 
-    @Value("${trading.mode:LIVE}")
-    private String tradingMode;
-
+    
     // Configurable AppSource; default 6 (public API) – overridden to 23312 via properties
     @Value("${fivepaisa.app-source:6}")
     private int appSource;
@@ -71,7 +72,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     // Metrics --------------------------------------------
     private final Counter requestTotal;
     private final Counter requestFailed;
-    private final Timer   requestLatency;
+    private final Timer requestLatency;
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final ConcurrentMap<String, AtomicBoolean> pendingOrders = new ConcurrentHashMap<>(); // RemoteOrderID -> stillPending
@@ -81,10 +82,10 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     // ---------------------------------------------------------------------
     // Spring injects MeterRegistry via constructor
     public FivePaisaBrokerService(MeterRegistry registry) {
-        this.meterRegistry   = registry;
-        this.requestTotal    = registry.counter("fivepaisa.requests.total");
-        this.requestFailed   = registry.counter("fivepaisa.requests.failed");
-        this.requestLatency  = registry.timer("fivepaisa.requests.latency");
+        this.meterRegistry = registry;
+        this.requestTotal = registry.counter("fivepaisa.requests.total");
+        this.requestFailed = registry.counter("fivepaisa.requests.failed");
+        this.requestLatency = registry.timer("fivepaisa.requests.latency");
     }
 
     private final MeterRegistry meterRegistry;
@@ -92,11 +93,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     // ---------------------------------------------------------------------
     @PostConstruct
     private void init() {
-        if ("LIVE".equalsIgnoreCase(tradingMode)) {
-            authenticate();
-        } else {
-            log.warn("Skipping 5Paisa authentication in {} mode.", tradingMode);
-        }
+        authenticate();
     }
 
     // ---------------------------------------------------------------------
@@ -269,7 +266,10 @@ public class FivePaisaBrokerService implements BrokerOrderService {
                 return res.body() != null ? res.body().string().replace("\"", "").trim() : "";
             } catch (IOException ex) {
                 last = ex;
-                try { TimeUnit.MILLISECONDS.sleep(500 * (i + 1)); } catch (InterruptedException ignored) {}
+                try {
+                    TimeUnit.MILLISECONDS.sleep(500 * (i + 1));
+                } catch (InterruptedException ignored) {
+                }
             }
         }
         throw last != null ? last : new IOException("Failed to fetch TOTP");
@@ -507,11 +507,22 @@ public class FivePaisaBrokerService implements BrokerOrderService {
             String url = "wss://" + host + "/feeds/api/chat?Value1=" + accessToken + "|" + loginId;
             Request req = new Request.Builder().url(url).build();
             orderWs = http.newWebSocket(req, new WebSocketListener() {
-                @Override public void onMessage(WebSocket webSocket, String text) {
+                @Override
+                public void onMessage(WebSocket webSocket, String text) {
                     handleWsMessage(text);
                 }
-                @Override public void onClosed(WebSocket ws, int code, String reason) { log.warn("Order WS closed: {}", reason); scheduleWsReconnect(); }
-                @Override public void onFailure(WebSocket ws, Throwable t, Response r) { log.error("Order WS failure {}", t.toString()); scheduleWsReconnect(); }
+
+                @Override
+                public void onClosed(WebSocket ws, int code, String reason) {
+                    log.warn("Order WS closed: {}", reason);
+                    scheduleWsReconnect();
+                }
+
+                @Override
+                public void onFailure(WebSocket ws, Throwable t, Response r) {
+                    log.error("Order WS failure {}", t.toString());
+                    scheduleWsReconnect();
+                }
             });
         } catch (Exception e) {
             log.warn("Failed to start order WebSocket: {}", e.toString());
@@ -525,13 +536,14 @@ public class FivePaisaBrokerService implements BrokerOrderService {
             JSONObject obj = (JSONObject) p.parse(text);
             String reqType = String.valueOf(obj.get("ReqType"));
             String remoteId = String.valueOf(obj.get("RemoteOrderId"));
-            long pendingQty = ((Number) obj.getOrDefault("PendingQty",0)).longValue();
-            if (pendingQty ==0) {
+            long pendingQty = ((Number) obj.getOrDefault("PendingQty", 0)).longValue();
+            if (pendingQty == 0) {
                 pendingOrders.remove(remoteId);
                 ScheduledFuture<?> f = pollFutures.remove(remoteId);
-                if (f!=null) f.cancel(false);
+                if (f != null) f.cancel(false);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     // ------------------ order polling helpers ---------------------------
@@ -548,11 +560,11 @@ public class FivePaisaBrokerService implements BrokerOrderService {
                     String st = String.valueOf(s.get("Status"));
                     if (!"Pending".equalsIgnoreCase(st)) {
                         pendingOrders.remove(remoteId);
-                        long pend = ((Number) ((JSONObject) lst.get(0)).getOrDefault("PendingQty",0)).longValue();
+                        long pend = ((Number) ((JSONObject) lst.get(0)).getOrDefault("PendingQty", 0)).longValue();
                         if (pend == 0) {
                             pendingOrders.remove(remoteId);
                             ScheduledFuture<?> f = pollFutures.remove(remoteId);
-                            if (f!=null) f.cancel(false);
+                            if (f != null) f.cancel(false);
                         }
                     }
                 }
@@ -593,7 +605,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     }
 
     private void scheduleWsReconnect() {
-        scheduler.schedule(this::startOrderWebSocket,5,TimeUnit.SECONDS);
+        scheduler.schedule(this::startOrderWebSocket, 5, TimeUnit.SECONDS);
     }
 
     // ---------------------------------------------------------------------
@@ -667,7 +679,9 @@ public class FivePaisaBrokerService implements BrokerOrderService {
         }
     }
 
-    /** Convenience helper – find a single position by scrip. */
+    /**
+     * Convenience helper – find a single position by scrip.
+     */
     public NetPosition findPosition(String exch, String exchType, String scripCode) throws BrokerException {
         java.util.List<NetPosition> all = fetchNetPositions();
         for (NetPosition p : all) {
@@ -682,9 +696,15 @@ public class FivePaisaBrokerService implements BrokerOrderService {
 
     @PreDestroy
     public void shutdown() {
-        try { scheduler.shutdownNow(); } catch (Exception ignored) {}
-        if (orderWs!=null) {
-            try { orderWs.close(1000, "shutdown"); } catch (Exception ignored) {}
+        try {
+            scheduler.shutdownNow();
+        } catch (Exception ignored) {
+        }
+        if (orderWs != null) {
+            try {
+                orderWs.close(1000, "shutdown");
+            } catch (Exception ignored) {
+            }
         }
     }
 }

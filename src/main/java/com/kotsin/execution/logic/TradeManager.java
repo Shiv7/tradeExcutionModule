@@ -32,7 +32,7 @@ public class TradeManager {
     private final PivotCacheService pivotCacheService;
     private final TradeAnalysisService tradeAnalysisService;
     private final HistoricalDataClient historicalDataClient;
-    private final SimulationService simulationService;
+    
 
     private final Map<String, ActiveTrade> waitingTrades = new ConcurrentHashMap<>();
     private final AtomicReference<ActiveTrade> activeTrade = new AtomicReference<>();
@@ -207,9 +207,7 @@ public class TradeManager {
             historicalCandles.forEach(c -> c.setCompanyName(signal.getCompanyName()));
             recentCandles.put(signal.getScripCode(), new ArrayList<>(historicalCandles));
             log.info("Pre-populated and enriched {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
-            if ("SIMULATION".equalsIgnoreCase(tradingMode)) {
-                simulationService.runSimulation(historicalCandles);
-            }
+
         }
     }
 

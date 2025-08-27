@@ -602,68 +602,7 @@ public class BulletproofTradeManager {
         telegramNotificationService.sendTimeoutNotification(message);
     }
     
-    /**
-     * 📊 STATUS AND MONITORING METHODS
-     */
-    public boolean hasActiveTrade() {
-        return currentTrade.get() != null;
-    }
+
     
-    public ActiveTrade getCurrentTrade() {
-        return currentTrade.get();
-    }
-    
-    public Map<String, Object> getPortfolioStats() {
-        Map<String, Object> stats = new ConcurrentHashMap<>();
-        stats.put("currentCapital", INITIAL_CAPITAL + totalRealizedPnL);
-        stats.put("totalRealizedPnL", totalRealizedPnL);
-        stats.put("totalTrades", totalTrades);
-        stats.put("winningTrades", winningTrades);
-        stats.put("winRate", totalTrades > 0 ? (winningTrades * 100.0 / totalTrades) : 0.0);
-        stats.put("hasActiveTrade", hasActiveTrade());
-        
-        ActiveTrade active = currentTrade.get();
-        if (active != null) {
-            stats.put("activeTradeScript", active.getScripCode());
-            stats.put("activeTradeStatus", active.getStatus());
-            Object unrealizedPnL = active.getMetadata().get("unrealizedPnL");
-            stats.put("unrealizedPnL", unrealizedPnL != null ? unrealizedPnL : 0.0);
-        }
-        
-        return stats;
-    }
-    
-    /**
-     * 🔧 EMERGENCY METHODS
-     */
-    public boolean emergencyExit(String reason) {
-        ActiveTrade trade = currentTrade.get();
-        if (trade == null) {
-            log.warn("🚨 [BulletproofTM] Emergency exit requested but no active trade");
-            return false;
-        }
-        
-        log.warn("🚨 [BulletproofTM] EMERGENCY EXIT triggered for {} - Reason: {}", 
-                trade.getScripCode(), reason);
-        
-        // Get last known price or use entry price
-        double exitPrice = trade.getCurrentPrice() != null ? trade.getCurrentPrice() : trade.getEntryPrice();
-        
-        exitTrade(trade, exitPrice, LocalDateTime.now(), "EMERGENCY", reason);
-        return true;
-    }
-    
-    public void resetPortfolio(String reason) {
-        log.warn("🚨 [BulletproofTM] PORTFOLIO RESET - Reason: {}", reason);
-        
-        // Emergency exit any active trade
-        emergencyExit("Portfolio reset: " + reason);
-        
-        // Reset statistics
-        totalRealizedPnL = 0.0;
-        totalTrades = 0;
-        winningTrades = 0;
-        
-        log.info("✅ [BulletproofTM] Portfolio reset complete - Fresh start");
-    }
+
 } 
