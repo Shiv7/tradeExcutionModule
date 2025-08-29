@@ -26,18 +26,18 @@ public class HistoricalDataClient {
     private String ltpApiUrl;
 
 
-    public List<Candlestick> getHistorical1MinCandles(String scripCode, String date) {
-        return getHistoricalCandles(scripCode, date, "1m");
+    public List<Candlestick> getHistorical1MinCandles(String scripCode, String date,String exchange,String exchType) {
+        return getHistoricalCandles(scripCode, date, "1m",exchange,exchType);
     }
 
-    private List<Candlestick> getHistoricalCandles(String scripCode, String date, String interval) {
+    private List<Candlestick> getHistoricalCandles(String scripCode, String date, String interval,String exchange,String exchType) {
         try {
             LocalDate localDate = LocalDate.parse(date, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
             String startDate = localDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
             String endDate = localDate.plusDays(1).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
-            String url = String.format("%s?exch=N&exch_type=C&scrip_code=%s&start_date=%s&end_date=%s&interval=%s",
-                    ltpApiUrl, scripCode, startDate, endDate, interval);
+            String url = String.format("%s?exch=%s&exch_type=%s&scrip_code=%s&start_date=%s&end_date=%s&interval=%s",
+                    ltpApiUrl,exchange,exchType, scripCode, startDate, endDate, interval);
 
             log.info("Fetching historical {} candles from URL: {}", interval, url);
             String rawResponse = restTemplate.getForObject(url, String.class);

@@ -30,14 +30,12 @@ public class SignalConsumer {
             acknowledgment.acknowledge();
             return;
         }
-
         LocalDateTime signalReceivedTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(kafkaTimestamp), ZoneId.of("Asia/Kolkata"));
         if (!tradingHoursService.shouldProcessTrade(signal.getExchange(), signalReceivedTime)) {
             log.warn("Signal for {} received outside trading hours. Discarding.", signal.getScripCode());
             acknowledgment.acknowledge();
             return;
         }
-
         tradeManager.addSignalToWatchlist(sanitizeStrategySignal(signal), signalReceivedTime);
         acknowledgment.acknowledge();
     }

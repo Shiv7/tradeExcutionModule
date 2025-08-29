@@ -14,10 +14,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -32,7 +29,7 @@ public class TradeManager {
     private final PivotCacheService pivotCacheService;
     private final TradeAnalysisService tradeAnalysisService;
     private final HistoricalDataClient historicalDataClient;
-    
+
 
     private final Map<String, ActiveTrade> waitingTrades = new ConcurrentHashMap<>();
     private final AtomicReference<ActiveTrade> activeTrade = new AtomicReference<>();
@@ -42,8 +39,6 @@ public class TradeManager {
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    @Value("${trading.mode:LIVE}")
-    private String tradingMode;
 
     public void processCandle(Candlestick candle) {
         log.info("BEGIN processCandle for: {}", candle.getCompanyName());
@@ -83,8 +78,8 @@ public class TradeManager {
             if (!readyTrades.isEmpty()) {
                 log.info("Found {} ready trades. Selecting the best one.", readyTrades.size());
                 ActiveTrade bestTrade = readyTrades.stream()
-                    .max(Comparator.comparingDouble(t -> (double) t.getMetadata().getOrDefault("potentialRR", 0.0)))
-                    .orElse(null);
+                        .max(Comparator.comparingDouble(t -> (double) t.getMetadata().getOrDefault("potentialRR", 0.0)))
+                        .orElse(null);
 
                 if (bestTrade != null) {
                     log.info("Best trade selected: {}. Executing entry.", bestTrade.getScripCode());
@@ -142,8 +137,8 @@ public class TradeManager {
 
         Candlestick previousCandle = history != null && history.size() > 1 ? history.get(history.size() - 2) : null;
         boolean candlePatternConfirmed = trade.isBullish() ?
-            tradeAnalysisService.isBullishEngulfing(previousCandle, candle) :
-            tradeAnalysisService.isBearishEngulfing(previousCandle, candle);
+                tradeAnalysisService.isBullishEngulfing(previousCandle, candle) :
+                tradeAnalysisService.isBearishEngulfing(previousCandle, candle);
         if (!candlePatternConfirmed) {
             log.info("Trade Readiness FAILED for {}: Candlestick pattern not confirmed.", trade.getScripCode());
             return false;
@@ -199,15 +194,13 @@ public class TradeManager {
         ActiveTrade trade = createBulletproofTrade(signal, signalReceivedTime);
         waitingTrades.put(trade.getScripCode(), trade);
         log.info("Added/Updated trade for {} to watchlist. Total watchlist size: {}", trade.getScripCode(), waitingTrades.size());
-
         LocalDateTime signalTimestamp = LocalDateTime.ofInstant(Instant.ofEpochMilli(signal.getTimestamp()), ZoneId.of("Asia/Kolkata"));
         String signalDate = signalTimestamp.toLocalDate().format(DateTimeFormatter.ISO_LOCAL_DATE);
-        List<Candlestick> historicalCandles = historicalDataClient.getHistorical1MinCandles(signal.getScripCode(), signalDate);
+        List<Candlestick> historicalCandles = historicalDataClient.getHistorical1MinCandles(signal.getScripCode(), signalDate, signal.getExchange(), signal.getExchangeType());
         if (historicalCandles != null && !historicalCandles.isEmpty()) {
             historicalCandles.forEach(c -> c.setCompanyName(signal.getCompanyName()));
             recentCandles.put(signal.getScripCode(), new ArrayList<>(historicalCandles));
             log.info("Pre-populated and enriched {} historical candles for {}", historicalCandles.size(), signal.getScripCode());
-
         }
     }
 
@@ -221,7 +214,7 @@ public class TradeManager {
 
         trade.setStopLoss(trade.isBullish() ? confirmationCandle.getLow() * 0.999 : confirmationCandle.getHigh() * 1.001);
         trade.setTarget1(findNextLogicalTarget(trade.isBullish(), entryPrice, pivots));
-        
+
         trade.setEntryTriggered(true);
         trade.setEntryPrice(entryPrice);
         trade.setEntryTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(confirmationCandle.getWindowStartMillis()), ZoneId.of("Asia/Kolkata")));
@@ -234,10 +227,8 @@ public class TradeManager {
         String formattedEntryTime = trade.getEntryTime().format(DATE_TIME_FORMAT);
         log.info("🚀 ENTRY EXECUTED: {} at {} on {}", trade.getScripCode(), entryPrice, formattedEntryTime);
         sendTradeEnteredNotification(trade, "Intelligent Confirmation");
-        
-        if ("LIVE".equalsIgnoreCase(tradingMode)) {
-            // Broker order logic remains the same
-        }
+
+
     }
 
     private void sendTradeEnteredNotification(ActiveTrade trade, String entryReason) {
@@ -247,47 +238,45 @@ public class TradeManager {
         String pivotDetails = "Pivot Retest: Not available";
         if (breachCandle != null) {
             pivotDetails = String.format("Pivot Retest: Breached at %s (Vol: %d), Reclaimed at %s (Vol: %d)",
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(breachCandle.getWindowStartMillis()), ZoneId.of("Asia/Kolkata")).format(TIME_FORMAT),
-                breachCandle.getVolume(),
-                trade.getEntryTime().format(TIME_FORMAT),
-                confirmationCandle.getVolume()
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(breachCandle.getWindowStartMillis()), ZoneId.of("Asia/Kolkata")).format(TIME_FORMAT),
+                    breachCandle.getVolume(),
+                    trade.getEntryTime().format(TIME_FORMAT),
+                    confirmationCandle.getVolume()
             );
         }
 
         String message = String.format(
-            "🚀 TRADE ENTERED (%s)\n" +
-            "----------------------------------------\n" +
-            "Company: %s (%s)\n" +
-            "Signal Time: %s\n" +
-            "Entry Time: %s\n" +
-            "----------------------------------------\n" +
-            "Entry Price: %.2f\n" +
-            "Stop-Loss: %.2f\n" +
-            "Target 1: %.2f\n" +
-            "----------------------------------------\n" +
-            "Reason: %s\n" +
-            "%s\n" +
-            "----------------------------------------",
-            trade.getSignalType(),
-            trade.getCompanyName(),
-            trade.getScripCode(),
-            trade.getSignalTime().format(DATE_TIME_FORMAT),
-            trade.getEntryTime().format(DATE_TIME_FORMAT),
-            trade.getEntryPrice(),
-            trade.getStopLoss(),
-            trade.getTarget1(),
-            entryReason,
-            pivotDetails
+                "🚀 TRADE ENTERED (%s)\n" +
+                        "----------------------------------------\n" +
+                        "Company: %s (%s)\n" +
+                        "Signal Time: %s\n" +
+                        "Entry Time: %s\n" +
+                        "----------------------------------------\n" +
+                        "Entry Price: %.2f\n" +
+                        "Stop-Loss: %.2f\n" +
+                        "Target 1: %.2f\n" +
+                        "----------------------------------------\n" +
+                        "Reason: %s\n" +
+                        "%s\n" +
+                        "----------------------------------------",
+                trade.getSignalType(),
+                trade.getCompanyName(),
+                trade.getScripCode(),
+                trade.getSignalTime().format(DATE_TIME_FORMAT),
+                trade.getEntryTime().format(DATE_TIME_FORMAT),
+                trade.getEntryPrice(),
+                trade.getStopLoss(),
+                trade.getTarget1(),
+                entryReason,
+                pivotDetails
         );
-        if (!"SILENT".equalsIgnoreCase(tradingMode)) {
-            telegramNotificationService.sendTradeNotificationMessage(message);
-        }
+
     }
 
     private ActiveTrade createBulletproofTrade(StrategySignal signal, LocalDateTime receivedTime) {
         String tradeId = "BT_" + signal.getScripCode() + "_" + System.currentTimeMillis();
         boolean isBullish = "BUY".equalsIgnoreCase(signal.getSignal()) || "BULLISH".equalsIgnoreCase(signal.getSignal());
-        
+
         ActiveTrade trade = ActiveTrade.builder()
                 .tradeId(tradeId)
                 .scripCode(signal.getScripCode())
@@ -302,10 +291,10 @@ public class TradeManager {
                 .status(ActiveTrade.TradeStatus.WAITING_FOR_ENTRY)
                 .entryTriggered(false)
                 .build();
-        
+
         trade.setMetadata(new java.util.HashMap<>());
         trade.addMetadata("signalPrice", signal.getEntryPrice());
-        
+
         return trade;
     }
 
@@ -322,6 +311,21 @@ public class TradeManager {
     }
 
     public ActiveTrade getCurrentTrade() {
-        return activeTrade.get();
+        ActiveTrade activeTrade1 = activeTrade.get();
+        if (Objects.nonNull(activeTrade1)) {
+            return activeTrade1;
+        } else {
+            return null;
+        }
     }
+
+    public List<String> getWaitingTrade() {
+        List<String> scripCodeList = new ArrayList<>();
+        waitingTrades.values().stream().toList().forEach(q -> {
+            scripCodeList.add(q.getScripCode());
+        });
+        return scripCodeList;
+    }
+
+
 }
