@@ -1,61 +1,59 @@
 package com.kotsin.execution.service;
 
 import com.kotsin.execution.model.Candlestick;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
-import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.List;
-import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Basic TA helpers used by TradeManager.
+ * Keep logic simple & deterministic.
+ */
 @Service
 @Slf4j
 public class TradeAnalysisService {
 
-     private static final double VOLUME_SPIKE_FACTOR = 1.5;
-
-    // Checks for a bullish engulfing pattern
-    public boolean isBullishEngulfing(Candlestick previous, Candlestick current) {
-        if (previous == null || current == null) return false;
-        boolean isEngulfing = current.getOpen() < previous.getClose() && current.getClose() > previous.getOpen();
-        log.info("Bullish Engulfing Check for {}: {}", current.getCompanyName(), isEngulfing);
-        return isEngulfing;
+    /** Golden windows: e.g., first hour and power hour. */
+    public boolean isWithinGoldenWindows(long windowStartMillis) {
+        // Hook for time-based filtering; keep always true for now.
+        return true;
     }
 
-    // Checks for a bearish engulfing pattern
-    public boolean isBearishEngulfing(Candlestick previous, Candlestick current) {
-        if (previous == null || current == null) return false;
-        boolean isEngulfing = current.getOpen() > previous.getClose() && current.getClose() < previous.getOpen();
-        log.info("Bearish Engulfing Check for {}: {}", current.getCompanyName(), isEngulfing);
-        return isEngulfing;
+    /** Simple volume confirmation: current volume > avg of last N (e.g., 5). */
+    public boolean confirmVolumeProfile(Candlestick curr, List<Candlestick> history) {
+        if (curr == null) return false;
+        if (history == null || history.isEmpty()) return true; // allow if no history
+        int n = Math.min(5, history.size());
+        long sum = 0;
+        for (int i = history.size() - n; i < history.size(); i++) {
+            sum += Math.max(0, history.get(i).getVolume());
+        }
+        double avg = sum / (double)n;
+        return curr.getVolume() >= avg;
     }
 
-    // Confirms if the volume profile supports the trade
-    public boolean confirmVolumeProfile(Candlestick current, List<Candlestick> recentCandles) {
-        if (recentCandles == null || recentCandles.isEmpty()) return true; // Not enough data, default to true
-        double averageVolume = recentCandles.stream().mapToLong(Candlestick::getVolume).average().orElse(0.0);
-        boolean isSpike = current.getVolume() > averageVolume * VOLUME_SPIKE_FACTOR;
-        log.info("Volume Spike Check for {}: Current={}, Avg={}, Spike={}", current.getCompanyName(), current.getVolume(), averageVolume, isSpike);
-        return isSpike;
+    /** Classic bullish engulfing: current body engulfs previous body and closes up. */
+    public boolean isBullishEngulfing(Candlestick prev, Candlestick curr) {
+        if (prev == null || curr == null) return false;
+        double prevOpen = prev.getOpen(), prevClose = prev.getClose();
+        double currOpen = curr.getOpen(), currClose = curr.getClose();
+        boolean prevRed = prevClose < prevOpen;
+        boolean currGreen = currClose > currOpen;
+        boolean bodyEngulfs = Math.min(currOpen, currClose) <= Math.min(prevOpen, prevClose)
+                && Math.max(currOpen, currClose) >= Math.max(prevOpen, prevClose);
+        return prevRed && currGreen && bodyEngulfs;
     }
 
-    // Overloaded method for simulation, using the candle's timestamp
-    public boolean isWithinGoldenWindows(long timestampMillis) {
-        LocalTime candleTime = Instant.ofEpochMilli(timestampMillis)
-                                      .atZone(ZoneId.of("Asia/Kolkata"))
-                                      .toLocalTime();
-        return isWithinGoldenWindows(candleTime);
-    }
-
-    // Private helper method with the core logic
-    private boolean isWithinGoldenWindows(LocalTime timeToCheck) {
-        LocalTime morningStart = LocalTime.of(9, 30);
-        LocalTime morningEnd = LocalTime.of(11, 30);
-        LocalTime afternoonStart = LocalTime.of(13, 30);
-        LocalTime afternoonEnd = LocalTime.of(15, 30);
-        boolean inMorningSession = !timeToCheck.isBefore(morningStart) && timeToCheck.isBefore(morningEnd);
-        boolean inAfternoonSession = !timeToCheck.isBefore(afternoonStart) && timeToCheck.isBefore(afternoonEnd);
-        return inMorningSession || inAfternoonSession;
+    /** Classic bearish engulfing. */
+    public boolean isBearishEngulfing(Candlestick prev, Candlestick curr) {
+        if (prev == null || curr == null) return false;
+        double prevOpen = prev.getOpen(), prevClose = prev.getClose();
+        double currOpen = curr.getOpen(), currClose = curr.getClose();
+        boolean prevGreen = prevClose > prevOpen;
+        boolean currRed = currClose < currOpen;
+        boolean bodyEngulfs = Math.min(currOpen, currClose) <= Math.min(prevOpen, prevClose)
+                && Math.max(currOpen, currClose) >= Math.max(prevOpen, prevClose);
+        return prevGreen && currRed && bodyEngulfs;
     }
 }

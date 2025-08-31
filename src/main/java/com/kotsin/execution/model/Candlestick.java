@@ -14,4 +14,7 @@ public class Candlestick {
     private long volume;
     private long windowStartMillis;
     private long windowEndMillis;
+    private String exchange;
+    private String exchangeType;
+
 }

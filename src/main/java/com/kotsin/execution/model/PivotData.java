@@ -1,10 +1,14 @@
 package com.kotsin.execution.model;
 
 import lombok.Data;
+
+import java.time.LocalDate;
 import java.util.Map;
 
 @Data
 public class PivotData {
+    private LocalDate date;
+    private String scripCode;
     private double pivot;
     private double s1;
     private double s2;

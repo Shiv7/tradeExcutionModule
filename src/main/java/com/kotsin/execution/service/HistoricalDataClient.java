@@ -1,83 +1,53 @@
 package com.kotsin.execution.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kotsin.execution.model.Candlestick;
-import com.kotsin.execution.model.HistoricalDataResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.HttpUrl;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class HistoricalDataClient {
 
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final OkHttpClient http = new OkHttpClient();
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    @Value("${ltp.api.url:http://localhost:8002/getHisDataFromFivePaisa}")
-    private String ltpApiUrl;
+    @Value("${history.base-url:http://localhost:8002}")
+    private String baseUrl;
 
-
-    public List<Candlestick> getHistorical1MinCandles(String scripCode, String date,String exchange,String exchType) {
-        return getHistoricalCandles(scripCode, date, "1m",exchange,exchType);
-    }
-
-    private List<Candlestick> getHistoricalCandles(String scripCode, String date, String interval,String exchange,String exchType) {
+    public List<Candlestick> getHistorical1MinCandles(String scripCode, String isoDate, String exchange, String exchangeType) {
         try {
-            LocalDate localDate = LocalDate.parse(date, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-            String startDate = localDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-            String endDate = localDate.plusDays(1).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-
-            String url = String.format("%s?exch=%s&exch_type=%s&scrip_code=%s&start_date=%s&end_date=%s&interval=%s",
-                    ltpApiUrl,exchange,exchType, scripCode, startDate, endDate, interval);
-
-            log.info("Fetching historical {} candles from URL: {}", interval, url);
-            String rawResponse = restTemplate.getForObject(url, String.class);
-            log.debug("Raw historical data response: {}", rawResponse);
-
-            HistoricalDataResponse[] response = objectMapper.readValue(rawResponse, HistoricalDataResponse[].class);
-
-            if (response != null) {
-                log.info("Successfully fetched {} historical candles.", response.length);
-                return Arrays.stream(response)
-                        .map(this::transformToCandlestick)
-                        .collect(Collectors.toList());
+            HttpUrl url = HttpUrl.parse(baseUrl)
+                    .newBuilder()
+                    .addPathSegments("getHisDataFromFivePaisa")
+                    .addQueryParameter("scripCode", scripCode)
+                    .addQueryParameter("date", isoDate)
+                    .addQueryParameter("exch", exchange)
+                    .addQueryParameter("exchType", exchangeType)
+                    .build();
+            Request req = new Request.Builder().url(url).get().build();
+            try (Response resp = http.newCall(req).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) {
+                    log.warn("HistoricalDataClient non-200/empty for {} {}", scripCode, isoDate);
+                    return Collections.emptyList();
+                }
+                return mapper.readValue(resp.body().byteStream(), new TypeReference<List<Candlestick>>(){});
             }
-        } catch (Exception e) {
-            log.error("Failed to fetch historical {} candles for scripCode {} on date {}: {}", interval, scripCode, date, e.getMessage());
+        } catch (IOException e) {
+            log.error("HistoricalDataClient error for {} {}: {}", scripCode, isoDate, e.toString());
+            return Collections.emptyList();
         }
-        return Collections.emptyList();
-    }
-
-    private Candlestick transformToCandlestick(HistoricalDataResponse res) {
-        Candlestick candle = new Candlestick();
-        candle.setOpen(res.getOpen());
-        candle.setHigh(res.getHigh());
-        candle.setLow(res.getLow());
-        candle.setClose(res.getClose());
-        candle.setVolume(res.getVolume());
-
-        // --- FIX ---
-        // Parse the datetime string and set the timestamp
-        try {
-            // The format from the API is "yyyy-MM-dd'T'HH:mm:ss"
-            java.time.LocalDateTime ldt = java.time.LocalDateTime.parse(res.getDatetime(), java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            long timestamp = ldt.atZone(java.time.ZoneId.of("Asia/Kolkata")).toInstant().toEpochMilli();
-            candle.setWindowStartMillis(timestamp);
-        } catch (Exception e) {
-            log.error("Failed to parse timestamp: {}", res.getDatetime(), e);
-            candle.setWindowStartMillis(0); // Default to 0 on error
-        }
-        // --- END FIX ---
-
-        return candle;
     }
 }

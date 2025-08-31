@@ -62,7 +62,7 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     @Value("${fivepaisa.totp-url:http://localhost:8002/getToto}")
     private String totpUrl;
 
-    
+
     // Configurable AppSource; default 6 (public API) – overridden to 23312 via properties
     @Value("${fivepaisa.app-source:6}")
     private int appSource;

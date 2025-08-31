@@ -105,39 +105,7 @@ public class TradeExecutionMonitorController {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
     }
-    
-    /**
-     * 🛡️ BULLETPROOF: Manual price update for testing
-     * DEPRECATED: Price updates are now driven by the 5-minute candle consumer.
-     */
-    /*
-    @PostMapping("/manual-price-update")
-    public ResponseEntity<Map<String, String>> manualPriceUpdate(
-            @RequestParam String scripCode,
-            @RequestParam double price) {
-        try {
-            LocalDateTime now = LocalDateTime.now();
-            
-            log.info("🔧 [Monitor] Manual price update: {} @ {} (bulletproof system)", scripCode, price);
-            
-            // Send price update to bulletproof system
-            bulletproofSignalConsumer.updatePrice(scripCode, price, now);
-            
-            Map<String, String> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("message", String.format("Price update sent to bulletproof system for %s @ %s", scripCode, price));
-            response.put("timestamp", now.format(TIME_FORMAT));
-            response.put("bulletproofActive", String.valueOf(bulletproofSignalConsumer.hasActiveTrade()));
-            
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("🚨 [Monitor] Error in manual price update: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
-    }
-    */
-    
+
     /**
      * Force entry for testing purposes
      */
