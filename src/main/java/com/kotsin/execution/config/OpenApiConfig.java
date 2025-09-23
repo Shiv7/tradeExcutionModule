@@ -34,7 +34,7 @@ public class OpenApiConfig {
                                 .url("https://kotsin.com/license")))
                 .servers(List.of(
                         new Server()
-                                .url("http://13.126.14.119:8080")
+                                .url("http://localhost:8080")
                                 .description("Production Server"),
                         new Server()
                                 .url("http://localhost:8080")
@@ -43,4 +43,4 @@ public class OpenApiConfig {
                         .description("Kotsin Trading Documentation")
                         .url("https://docs.kotsin.com"));
     }
-} 
+}
