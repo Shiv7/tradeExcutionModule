@@ -83,7 +83,9 @@ public class ActiveTrade {
         CLOSED_PROFIT,        // Closed at target
         CLOSED_LOSS,          // Closed at stop loss
         CLOSED_TIME,          // Closed due to time limit
-        COMPLETED, CANCELLED             // Trade cancelled before entry
+        COMPLETED,            // Trade completed successfully
+        CANCELLED,            // Trade cancelled before entry
+        FAILED                // Broker order failed
     }
     
     /**
