@@ -91,9 +91,25 @@ public class FivePaisaBrokerService implements BrokerOrderService {
     private final MeterRegistry meterRegistry;
 
     // ---------------------------------------------------------------------
+    // PRODUCTION FIX: Don't authenticate on startup (fastAnalytics might not be ready)
+    // Instead, authenticate lazily when first order is placed
     @PostConstruct
     private void init() {
-        authenticate();
+        log.info("✅ FivePaisaBrokerService initialized. Authentication will occur on first order.");
+        // Schedule token refresh task
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                if (accessToken != null && !accessToken.isBlank()) {
+                    long now = System.currentTimeMillis() / 1000;
+                    if (now >= tokenExpiryEpochSeconds - 300) { // Refresh 5 min before expiry
+                        log.info("🔄 Refreshing 5Paisa token (expiring soon)");
+                        authenticate();
+                    }
+                }
+            } catch (Exception e) {
+                log.error("❌ Token refresh failed: {}", e.getMessage());
+            }
+        }, 5, 5, TimeUnit.MINUTES); // Check every 5 minutes
     }
 
     // ---------------------------------------------------------------------
