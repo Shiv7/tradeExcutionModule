@@ -38,6 +38,15 @@ public class ActiveTrade {
     private Boolean entryTriggered;
     private Integer positionSize;
     
+    // TWO-LOT MANAGEMENT (FBT Strategy)
+    private String lotType;              // "FIRST" or "SECOND"
+    private Integer firstLotSize;        // Size of first lot
+    private Integer secondLotSize;       // Size of second lot
+    private Boolean firstLotActive;      // Is first lot still open?
+    private Boolean secondLotActive;     // Is second lot still open?
+    private Double firstLotEntryPrice;   // Entry price for first lot
+    private Double secondLotEntryPrice;  // Entry price for second lot
+    
     // Exit Levels
     private Double stopLoss;
     private Double target1;

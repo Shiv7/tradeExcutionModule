@@ -453,9 +453,144 @@ public class TradeManagerV2 {
     /**
      * Evaluate TP/SL and exit if hit
      */
+    /**
+     * TWO-LOT MANAGEMENT: Update trailing stop for second lot
+     * Called on every candle after T1 is hit
+     */
+    private void updateTrailingStopForSecondLot(ActiveTrade trade, double currentPrice) {
+        // Only update if:
+        // 1. First lot closed (T1 hit)
+        // 2. Second lot still active
+        // 3. Trailing stop enabled
+        if (!Boolean.TRUE.equals(trade.getTarget1Hit())) {
+            return; // T1 not hit yet
+        }
+        
+        if (!Boolean.TRUE.equals(trade.getSecondLotActive())) {
+            return; // Second lot already closed
+        }
+        
+        Double secondLotEntry = trade.getSecondLotEntryPrice();
+        if (secondLotEntry == null) {
+            secondLotEntry = trade.getEntryPrice(); // Fallback to main entry
+        }
+        
+        boolean isBullish = trade.isBullish();
+        double trailingPercent = 50.0; // Trail at 50% of profit from entry
+        
+        if (isBullish) {
+            // For bullish trades: trail stop upward
+            double profit = currentPrice - secondLotEntry;
+            if (profit > 0) {
+                double newStop = secondLotEntry + (profit * (trailingPercent / 100.0));
+                
+                // Only move stop up (never down)
+                Double currentTrailingStop = trade.getTrailingStopLoss();
+                if (currentTrailingStop == null || newStop > currentTrailingStop) {
+                    trade.setTrailingStopLoss(newStop);
+                    double profitPct = ((newStop - secondLotEntry) / secondLotEntry) * 100;
+                    log.info("📈 [TRADE-V2] Trailing stop updated: {:.2f} (locking in {:.2f}% profit on 2nd lot)",
+                             newStop, profitPct);
+                }
+            }
+        } else {
+            // For bearish trades: trail stop downward
+            double profit = secondLotEntry - currentPrice;
+            if (profit > 0) {
+                double newStop = secondLotEntry - (profit * (trailingPercent / 100.0));
+                
+                // Only move stop down (never up)
+                Double currentTrailingStop = trade.getTrailingStopLoss();
+                if (currentTrailingStop == null || newStop < currentTrailingStop) {
+                    trade.setTrailingStopLoss(newStop);
+                    log.info("📉 [TRADE-V2] Trailing stop updated: {:.2f}", newStop);
+                }
+            }
+        }
+    }
+    
+    /**
+     * TWO-LOT MANAGEMENT: Execute partial exit (first lot at T1)
+     */
+    private void executePartialExit(ActiveTrade trade, Candlestick bar, String reason) {
+        // Check if this is T1 hit and first lot is still active
+        if (!"TARGET1".equals(reason)) {
+            return; // Not T1, exit normally
+        }
+        
+        if (!Boolean.TRUE.equals(trade.getFirstLotActive())) {
+            return; // First lot already closed
+        }
+        
+        Integer firstLotSize = trade.getFirstLotSize();
+        if (firstLotSize == null || firstLotSize == 0) {
+            return; // No two-lot setup, exit normally
+        }
+        
+        // Place exit order for FIRST LOT ONLY
+        try {
+            String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
+            String exType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+            BrokerOrderService.Side sideToClose = trade.isBullish()
+                    ? BrokerOrderService.Side.SELL
+                    : BrokerOrderService.Side.BUY;
+            
+            String exitOrderId = brokerOrderService.placeMarketOrder(
+                    trade.getScripCode(), exch, exType, sideToClose, firstLotSize
+            );
+            
+            trade.setFirstLotActive(false);
+            trade.setTarget1Hit(true);
+            trade.addMetadata("firstLotExitOrderId", exitOrderId);
+            trade.addMetadata("firstLotExitReason", "TARGET1_PARTIAL");
+            
+            log.info("💰 [TRADE-V2] PARTIAL EXIT: First lot ({} qty) closed at T1", firstLotSize);
+            log.info("📈 [TRADE-V2] Second lot ({} qty) now trailing to T2", trade.getSecondLotSize());
+            
+            // Verify the partial exit order
+            orderVerificationService.trackOrder(
+                    exitOrderId,
+                    trade,
+                    "PARTIAL_EXIT",
+                    result -> handlePartialExitOrderResult(trade, result)
+            );
+            
+            // DON'T return - continue to update trailing stop
+            
+        } catch (Exception ex) {
+            trade.addMetadata("partialExitError", ex.toString());
+            log.error("🚨 [TRADE-V2] Partial exit FAILED: {}", ex.getMessage(), ex);
+            return;
+        }
+    }
+    
+    /**
+     * Handle partial exit order verification
+     */
+    private void handlePartialExitOrderResult(ActiveTrade trade, OrderVerificationService.OrderVerificationResult result) {
+        if (result.success) {
+            log.info("✅ [TRADE-V2] First lot exit VERIFIED: actual price={}, qty={}", 
+                     result.avgPrice, result.filledQty);
+            trade.addMetadata("firstLotExitPrice", result.avgPrice);
+            trade.addMetadata("firstLotExitQty", result.filledQty);
+        } else {
+            log.error("🚨 [TRADE-V2] First lot exit FAILED: {}", result.message);
+            // Reactivate first lot for retry
+            trade.setFirstLotActive(true);
+            trade.setTarget1Hit(false);
+        }
+    }
+    
     private void evaluateAndMaybeExit(ActiveTrade trade, Candlestick bar) {
         trade.setHighSinceEntry(Math.max(trade.getHighSinceEntry(), bar.getHigh()));
         trade.setLowSinceEntry(Math.min(trade.getLowSinceEntry(), bar.getLow()));
+        
+        // ========================================
+        // TWO-LOT: Update trailing stop if T1 already hit
+        // ========================================
+        if (Boolean.TRUE.equals(trade.getTarget1Hit()) && Boolean.TRUE.equals(trade.getSecondLotActive())) {
+            updateTrailingStopForSecondLot(trade, bar.getClose());
+        }
 
         boolean hitSL = trade.isBullish()
                 ? bar.getLow() <= trade.getStopLoss()
@@ -463,14 +598,53 @@ public class TradeManagerV2 {
         boolean hitT1 = trade.isBullish()
                 ? bar.getHigh() >= trade.getTarget1()
                 : bar.getLow() <= trade.getTarget1();
-
-        if (!hitSL && !hitT1) {
-            return; // Neither TP nor SL hit
+        
+        // TWO-LOT: Check trailing stop for second lot
+        boolean hitTrailingStop = false;
+        if (Boolean.TRUE.equals(trade.getTarget1Hit()) && trade.getTrailingStopLoss() != null) {
+            hitTrailingStop = trade.isBullish()
+                    ? bar.getLow() <= trade.getTrailingStopLoss()
+                    : bar.getHigh() >= trade.getTrailingStopLoss();
         }
 
-        String reason = hitSL ? "STOP_LOSS" : "TARGET1";
-        double exitPrice = hitSL ? trade.getStopLoss() : trade.getTarget1();
+        if (!hitSL && !hitT1 && !hitTrailingStop) {
+            return; // No exit conditions met
+        }
+        
+        // Determine exit reason and price
+        String reason;
+        double exitPrice;
+        
+        if (hitSL) {
+            reason = "STOP_LOSS";
+            exitPrice = trade.getStopLoss();
+        } else if (hitTrailingStop) {
+            reason = "TRAILING_STOP";
+            exitPrice = trade.getTrailingStopLoss();
+        } else {
+            reason = "TARGET1";
+            exitPrice = trade.getTarget1();
+        }
+        
+        // ========================================
+        // TWO-LOT: Handle partial exit at T1
+        // ========================================
+        if ("TARGET1".equals(reason) && Boolean.TRUE.equals(trade.getFirstLotActive())) {
+            executePartialExit(trade, bar, reason);
+            return; // Don't exit completely, keep second lot running
+        }
 
+        // ========================================
+        // TWO-LOT: Determine exit quantity
+        // ========================================
+        int exitQuantity = trade.getPositionSize();
+        
+        // If second lot is active and first lot already closed, exit only second lot
+        if (Boolean.TRUE.equals(trade.getTarget1Hit()) && Boolean.TRUE.equals(trade.getSecondLotActive())) {
+            exitQuantity = trade.getSecondLotSize() != null ? trade.getSecondLotSize() : trade.getPositionSize();
+            log.info("📊 [TRADE-V2] Exiting SECOND LOT ONLY (qty: {})", exitQuantity);
+        }
+        
         // Place exit order
         try {
             String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
@@ -480,7 +654,7 @@ public class TradeManagerV2 {
                     : BrokerOrderService.Side.BUY;
 
             String exitOrderId = brokerOrderService.placeMarketOrder(
-                    trade.getScripCode(), exch, exType, sideToClose, trade.getPositionSize()
+                    trade.getScripCode(), exch, exType, sideToClose, exitQuantity
             );
 
             trade.addMetadata("exitOrderId", exitOrderId);
