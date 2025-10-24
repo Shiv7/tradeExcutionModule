@@ -169,6 +169,7 @@ public class SignalConsumer {
         }
         if (in.getOrderLimitPriceEntry() != null) s.setOrderLimitPriceEntry(in.getOrderLimitPriceEntry());
         if (in.getOrderLimitPriceExit() != null) s.setOrderLimitPriceExit(in.getOrderLimitPriceExit());
+        if (in.getOrderTickSize() != null) s.setOrderTickSize(in.getOrderTickSize());
 
         // Optional: normalize strategy/timeframe if you use them in keys
         s.setStrategy(StringUtils.trimToNull(in.getStrategy()));

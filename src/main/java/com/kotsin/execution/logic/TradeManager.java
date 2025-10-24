@@ -334,6 +334,7 @@ public class TradeManager {
         if (signal.getOrderLimitPrice() != null) trade.addMetadata("orderLimitPrice", signal.getOrderLimitPrice());
         if (signal.getOrderLimitPriceEntry() != null) trade.addMetadata("orderLimitPriceEntry", signal.getOrderLimitPriceEntry());
         if (signal.getOrderLimitPriceExit() != null) trade.addMetadata("orderLimitPriceExit", signal.getOrderLimitPriceExit());
+        if (signal.getOrderTickSize() != null) trade.addMetadata("tickSize", signal.getOrderTickSize());
         return trade;
     }
 

@@ -96,6 +96,15 @@ public class TradeExecutionMonitorController {
                 response.put("signal", currentTrade.getSignalType());
                 response.put("status", currentTrade.getStatus());
                 response.put("entryTriggered", currentTrade.getEntryTriggered());
+                // Trail status snapshot
+                Map<String, Object> trail = new HashMap<>();
+                Object stage = currentTrade.getMetadata() != null ? currentTrade.getMetadata().get("trailStage") : null;
+                trail.put("trailStage", stage != null ? stage : 0);
+                trail.put("entryPrice", currentTrade.getEntryPrice());
+                trail.put("stopLoss", currentTrade.getStopLoss());
+                trail.put("highSinceEntry", currentTrade.getHighSinceEntry());
+                trail.put("lowSinceEntry", currentTrade.getLowSinceEntry());
+                response.put("trail", trail);
             }
             
             response.put("message", "Use /status for comprehensive details");

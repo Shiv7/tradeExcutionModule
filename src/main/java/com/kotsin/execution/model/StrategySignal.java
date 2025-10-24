@@ -54,6 +54,7 @@ public class StrategySignal {
     private Double orderLimitPrice;       // back-compat
     private Double orderLimitPriceEntry;
     private Double orderLimitPriceExit;
+    private Double orderTickSize;
 
     // convenience helpers
     public boolean isBullish() { return "BULLISH".equalsIgnoreCase(signal) || "BUY".equalsIgnoreCase(signal); }
