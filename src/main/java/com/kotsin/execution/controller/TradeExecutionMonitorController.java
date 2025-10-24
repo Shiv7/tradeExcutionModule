@@ -5,6 +5,7 @@ import com.kotsin.execution.model.ActiveTrade;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -22,6 +23,7 @@ import java.util.*;
 public class TradeExecutionMonitorController {
     
     private final TradeManager tradeManager;
+    private final RedisTemplate<String, String> executionStringRedisTemplate;
     
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     
@@ -141,5 +143,41 @@ public class TradeExecutionMonitorController {
         health.put("systemType", "BULLETPROOF");
         
         return ResponseEntity.ok(health);
+    }
+
+    /**
+     * 🔎 Redis sample for execution module: show a few orderbook keys and one sample value
+     */
+    @GetMapping("/redis-sample")
+    public ResponseEntity<Map<String, Object>> redisSample() {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            if (executionStringRedisTemplate == null) {
+                resp.put("status", "NO_REDIS");
+                return ResponseEntity.ok(resp);
+            }
+            var keys = scanSample("orderbook:*:latest", 5);
+            resp.put("status", "UP");
+            resp.put("orderbook.latest.sample", keys);
+            if (!keys.isEmpty()) {
+                String val = executionStringRedisTemplate.opsForValue().get(keys.get(0));
+                resp.put("sample.value", val);
+            }
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("status", "ERROR");
+            resp.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(resp);
+        }
+    }
+
+    private java.util.List<String> scanSample(String pattern, int max) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try (var cursor = executionStringRedisTemplate.scan(org.springframework.data.redis.core.ScanOptions.scanOptions().match(pattern).count(500).build())) {
+            while (cursor.hasNext() && out.size() < max) {
+                out.add(cursor.next());
+            }
+        } catch (Exception ignore) {}
+        return out;
     }
 }

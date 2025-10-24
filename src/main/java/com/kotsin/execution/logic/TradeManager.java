@@ -2,6 +2,9 @@ package com.kotsin.execution.logic;
 
 import com.kotsin.execution.model.*;
 import com.kotsin.execution.producer.TradeResultProducer;
+import com.kotsin.execution.producer.ProfitLossProducer;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import com.kotsin.execution.service.*;
 import com.kotsin.execution.broker.BrokerOrderService;
 import lombok.RequiredArgsConstructor;
@@ -24,10 +27,15 @@ public class TradeManager {
 
     private final TradeResultProducer tradeResultProducer;
     private final TelegramNotificationService telegramNotificationService;
+    private final ProfitLossProducer profitLossProducer;
     private final BrokerOrderService brokerOrderService;
     private final PivotService pivotCacheService;
     private final TradeAnalysisService tradeAnalysisService;
     private final HistoricalDataClient historicalDataClient;
+    private final RedisTemplate<String, String> executionStringRedisTemplate;
+
+    @Value("${trade.options.slippage.ticks.exit:1}")
+    private int optionSlippageTicksExit;
 
     /** Waiting trades keyed by scripCode (unique per instrument). */
     private final Map<String, ActiveTrade> waitingTrades = new ConcurrentHashMap<>();
@@ -44,6 +52,20 @@ public class TradeManager {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    // Trailing configuration (in R units)
+    @Value("${trade.trail.stage1.r:1.0}")
+    private double trailStage1R;
+    @Value("${trade.trail.stage2.r:1.5}")
+    private double trailStage2R;
+    @Value("${trade.trail.stage3.r:2.0}")
+    private double trailStage3R;
+    @Value("${trade.trail.stage1.stopR:0.0}")
+    private double trailStage1StopR;
+    @Value("${trade.trail.stage2.stopR:0.5}")
+    private double trailStage2StopR;
+    @Value("${trade.trail.stage3.stopR:1.0}")
+    private double trailStage3StopR;
 
     /** Main entry: evaluate a new candle and, if eligible, execute the best ready trade. */
     public void processCandle(Candlestick candle) {
@@ -247,14 +269,34 @@ public class TradeManager {
             log.warn("Failed to send Telegram notification for {}: {}", trade.getScripCode(), ex.toString());
         }
 
-        // Place the actual market order via broker
+        // Place the actual order via broker (spread-aware for options/MCX)
         try {
+            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
             String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
             String exchType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+            String orderEx = String.valueOf(trade.getMetadata().getOrDefault("orderExchange", exch));
+            String orderExType = String.valueOf(trade.getMetadata().getOrDefault("orderExchangeType", exchType));
             BrokerOrderService.Side side = trade.isBullish() ? BrokerOrderService.Side.BUY : BrokerOrderService.Side.SELL;
-            String orderId = brokerOrderService.placeMarketOrder(trade.getScripCode(), exch, exchType, side, trade.getPositionSize());
+
+            String orderId;
+            boolean isOptionOrMcx = "M".equalsIgnoreCase(orderEx) || "D".equalsIgnoreCase(orderExType);
+            if (isOptionOrMcx) {
+                double limit = entryPrice;
+                Object olpEntry = trade.getMetadata().get("orderLimitPriceEntry");
+                if (!(olpEntry instanceof Number)) olpEntry = trade.getMetadata().get("orderLimitPrice");
+                if (olpEntry instanceof Number n) limit = n.doubleValue();
+                orderId = brokerOrderService.placeLimitOrder(orderScrip, orderEx, orderExType, side, trade.getPositionSize(), limit);
+            } else {
+                orderId = brokerOrderService.placeMarketOrder(orderScrip, orderEx, orderExType, side, trade.getPositionSize());
+            }
             trade.addMetadata("brokerOrderId", orderId);
-            log.info("Broker order placed: id={} scrip={} side={} qty={} exch={} exType={}", orderId, trade.getScripCode(), side, trade.getPositionSize(), exch, exchType);
+            log.info("Broker order placed: id={} scrip={} side={} qty={} exch={} exType={}", orderId, orderScrip, side, trade.getPositionSize(), orderEx, orderExType);
+            // Paper trading: record fill price for P&L (simulated at limit/market used) and publish entry
+            double fill = ("M".equalsIgnoreCase(orderEx) || "D".equalsIgnoreCase(orderExType)) ?
+                    (trade.getMetadata().get("orderLimitPriceEntry") instanceof Number n ? n.doubleValue() : entryPrice)
+                    : entryPrice;
+            trade.addMetadata("fillEntryPrice", fill);
+            try { profitLossProducer.publishTradeEntry(trade, fill); } catch (Exception ignore) {}
         } catch (Exception ex) {
             trade.addMetadata("brokerError", ex.toString());
             log.error("Broker order failed for {}: {}", trade.getScripCode(), ex.toString(), ex);
@@ -285,6 +327,13 @@ public class TradeManager {
         trade.addMetadata("signalPrice", signal.getEntryPrice());
         trade.addMetadata("exchange", signal.getExchange());
         trade.addMetadata("exchangeType", signal.getExchangeType());
+        // Execution instrument overrides (option-only execution)
+        if (signal.getOrderScripCode() != null) trade.addMetadata("orderScripCode", signal.getOrderScripCode());
+        if (signal.getOrderExchange() != null) trade.addMetadata("orderExchange", signal.getOrderExchange());
+        if (signal.getOrderExchangeType() != null) trade.addMetadata("orderExchangeType", signal.getOrderExchangeType());
+        if (signal.getOrderLimitPrice() != null) trade.addMetadata("orderLimitPrice", signal.getOrderLimitPrice());
+        if (signal.getOrderLimitPriceEntry() != null) trade.addMetadata("orderLimitPriceEntry", signal.getOrderLimitPriceEntry());
+        if (signal.getOrderLimitPriceExit() != null) trade.addMetadata("orderLimitPriceExit", signal.getOrderLimitPriceExit());
         return trade;
     }
 
@@ -326,6 +375,25 @@ public class TradeManager {
 
     /** Evaluate TP/SL against the current bar and exit if hit. */
     private void evaluateAndMaybeExit(ActiveTrade trade, Candlestick bar) {
+        // Trailing stop logic using forwardtesting 1-min bars
+        try {
+            double entry = trade.getEntryPrice();
+            double r = Math.abs(entry - trade.getStopLoss());
+            if (r > 0.0 && trade.getStatus() == ActiveTrade.TradeStatus.ACTIVE) {
+                Integer stage = (Integer) trade.getMetadata().getOrDefault("trailStage", 0);
+                if (trade.isBullish()) {
+                    double up = Math.max(trade.getHighSinceEntry(), bar.getHigh());
+                    if (stage < 1 && up >= entry + trailStage1R * r) { trade.setStopLoss(entry + trailStage1StopR * r); trade.getMetadata().put("trailStage", 1); log.info("trail_s1 scrip={}", trade.getScripCode()); }
+                    else if (stage < 2 && up >= entry + trailStage2R * r) { trade.setStopLoss(entry + trailStage2StopR * r); trade.getMetadata().put("trailStage", 2); log.info("trail_s2 scrip={}", trade.getScripCode()); }
+                    else if (stage < 3 && up >= entry + trailStage3R * r) { trade.setStopLoss(entry + trailStage3StopR * r); trade.getMetadata().put("trailStage", 3); log.info("trail_s3 scrip={}", trade.getScripCode()); }
+                } else {
+                    double dn = Math.min(trade.getLowSinceEntry(), bar.getLow());
+                    if (stage < 1 && dn <= entry - trailStage1R * r) { trade.setStopLoss(entry - trailStage1StopR * r); trade.getMetadata().put("trailStage", 1); log.info("trail_s1 scrip={} (bear)", trade.getScripCode()); }
+                    else if (stage < 2 && dn <= entry - trailStage2R * r) { trade.setStopLoss(entry - trailStage2StopR * r); trade.getMetadata().put("trailStage", 2); log.info("trail_s2 scrip={} (bear)", trade.getScripCode()); }
+                    else if (stage < 3 && dn <= entry - trailStage3R * r) { trade.setStopLoss(entry - trailStage3StopR * r); trade.getMetadata().put("trailStage", 3); log.info("trail_s3 scrip={} (bear)", trade.getScripCode()); }
+                }
+            }
+        } catch (Exception ignore) {}
         // Update extrema since entry
         trade.setHighSinceEntry(Math.max(trade.getHighSinceEntry(), bar.getHigh()));
         trade.setLowSinceEntry(Math.min(trade.getLowSinceEntry(), bar.getLow()));
@@ -340,14 +408,44 @@ public class TradeManager {
         String reason = hitSL ? "STOP_LOSS" : "TARGET1";
         double exitPrice = hitSL ? trade.getStopLoss() : trade.getTarget1();
 
-        // Place exit (market) with the broker
+        // Place exit (market/limit) with the broker (re-price using Redis if available)
         try {
+            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
             String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
             String exType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+            String orderEx = String.valueOf(trade.getMetadata().getOrDefault("orderExchange", exch));
+            String orderExType = String.valueOf(trade.getMetadata().getOrDefault("orderExchangeType", exType));
             BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
-            String exitOrderId = brokerOrderService.placeMarketOrder(trade.getScripCode(), exch, exType, sideToClose, trade.getPositionSize());
+
+            String exitOrderId;
+            boolean isOptionOrMcx = "M".equalsIgnoreCase(orderEx) || "D".equalsIgnoreCase(orderExType);
+            if (isOptionOrMcx) {
+                double limit = exitPrice;
+                try {
+                    if (executionStringRedisTemplate != null) {
+                        String key = "orderbook:" + orderScrip + ":latest";
+                        String json = executionStringRedisTemplate.opsForValue().get(key);
+                        if (json != null && !json.isBlank()) {
+                            var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+                            double bestBid = node.path("bestBid").asDouble(0.0);
+                            double bestAsk = node.path("bestAsk").asDouble(0.0);
+                            double tick = 0.05;
+                            Object t = trade.getMetadata().get("tickSize");
+                            if (t instanceof Number n) tick = n.doubleValue();
+                            limit = trade.isBullish() ? (bestBid > 0 ? bestBid - tick * optionSlippageTicksExit : limit)
+                                                      : (bestAsk > 0 ? bestAsk + tick * optionSlippageTicksExit : limit);
+                        }
+                    }
+                } catch (Exception ignore) {}
+                Object olpExit = trade.getMetadata().get("orderLimitPriceExit");
+                if (!(olpExit instanceof Number)) olpExit = trade.getMetadata().get("orderLimitPrice");
+                if (olpExit instanceof Number n) limit = n.doubleValue();
+                exitOrderId = brokerOrderService.placeLimitOrder(orderScrip, orderEx, orderExType, sideToClose, trade.getPositionSize(), limit);
+            } else {
+                exitOrderId = brokerOrderService.placeMarketOrder(orderScrip, orderEx, orderExType, sideToClose, trade.getPositionSize());
+            }
             trade.addMetadata("exitOrderId", exitOrderId);
-            log.info("Exit order placed: id={} scrip={} reason={}", exitOrderId, trade.getScripCode(), reason);
+            log.info("Exit order placed: id={} scrip={} reason={}", exitOrderId, orderScrip, reason);
         } catch (Exception ex) {
             trade.addMetadata("brokerExitError", ex.toString());
             log.error("Broker exit failed for {}: {}", trade.getScripCode(), ex.toString(), ex);
@@ -362,6 +460,18 @@ public class TradeManager {
         result.setExitPrice(exitPrice);
         result.setExitReason(reason);
         tradeResultProducer.publishTradeResult(result);
+
+        // Paper P&L
+        try {
+            double fillEntry = 0.0;
+            Object fe = trade.getMetadata().get("fillEntryPrice");
+            if (fe instanceof Number n) fillEntry = n.doubleValue(); else fillEntry = trade.getEntryPrice();
+            double fillExit = exitPrice;
+            Object ox = trade.getMetadata().get("orderLimitPriceExit");
+            if (ox instanceof Number n) fillExit = n.doubleValue();
+            double pnl = (trade.isBullish() ? (fillExit - fillEntry) : (fillEntry - fillExit)) * trade.getPositionSize();
+            profitLossProducer.publishTradeExit(trade, fillExit, reason, pnl);
+        } catch (Exception ignore) {}
 
         trade.setStatus(ActiveTrade.TradeStatus.COMPLETED);
         activeTrade.set(null);

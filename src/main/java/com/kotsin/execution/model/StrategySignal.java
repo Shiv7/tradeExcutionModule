@@ -46,6 +46,15 @@ public class StrategySignal {
     private String strategy;   // e.g., "INTELLIGENT_CONFIRMATION"
     private String timeframe;  // e.g., "30m"
 
+    // Execution instrument overrides (option-only execution)
+    // If present, execution should place orders on these instead of the underlying scripCode.
+    private String orderScripCode;
+    private String orderExchange;
+    private String orderExchangeType;
+    private Double orderLimitPrice;       // back-compat
+    private Double orderLimitPriceEntry;
+    private Double orderLimitPriceExit;
+
     // convenience helpers
     public boolean isBullish() { return "BULLISH".equalsIgnoreCase(signal) || "BUY".equalsIgnoreCase(signal); }
     public boolean isBearish() { return "BEARISH".equalsIgnoreCase(signal) || "SELL".equalsIgnoreCase(signal); }

@@ -157,6 +157,19 @@ public class SignalConsumer {
         s.setExchange(exch);
         s.setExchangeType(exType);
 
+        // Optional order instrument overrides for option-only execution
+        String oCode = StringUtils.trimToNull(in.getOrderScripCode());
+        String oEx   = StringUtils.trimToNull(in.getOrderExchange());
+        String oExTy = StringUtils.trimToNull(in.getOrderExchangeType());
+        if (oCode != null) s.setOrderScripCode(oCode);
+        if (oEx != null) s.setOrderExchange(oEx.toUpperCase(Locale.ROOT));
+        if (oExTy != null) s.setOrderExchangeType(oExTy.toUpperCase(Locale.ROOT));
+        if (in.getOrderLimitPrice() != 0) {
+            try { s.setOrderLimitPrice(in.getOrderLimitPrice()); } catch (Exception ignore) {}
+        }
+        if (in.getOrderLimitPriceEntry() != null) s.setOrderLimitPriceEntry(in.getOrderLimitPriceEntry());
+        if (in.getOrderLimitPriceExit() != null) s.setOrderLimitPriceExit(in.getOrderLimitPriceExit());
+
         // Optional: normalize strategy/timeframe if you use them in keys
         s.setStrategy(StringUtils.trimToNull(in.getStrategy()));
         s.setTimeframe(StringUtils.trimToNull(in.getTimeframe()));
