@@ -45,9 +45,9 @@ public class WalletService {
             if (pos.getScripCode() == null) pos.setScripCode(scripCode);
 
             if ("BUY".equalsIgnoreCase(side)) {
-                double newQty = pos.getQty() + qty;
+                int newQty = pos.getQty() + qty;
                 double newAvg = pos.getQty() <= 0 || price == null ? (price != null ? price : pos.getAvgPrice())
-                        : ((pos.getAvgPrice() * pos.getQty()) + (price * qty)) / newQty;
+                        : ((pos.getAvgPrice() * pos.getQty()) + (price * qty)) / (double)newQty;
                 pos.setQty(newQty);
                 if (price != null) pos.setAvgPrice(newAvg);
             } else if ("SELL".equalsIgnoreCase(side)) {
@@ -80,4 +80,3 @@ public class WalletService {
         private double avgPrice;
     }
 }
-
