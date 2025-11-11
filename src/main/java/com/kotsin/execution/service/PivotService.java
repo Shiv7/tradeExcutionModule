@@ -19,7 +19,6 @@ public class PivotService {
     private final PivotServiceClient pivotClient;
     private final Cache<String, PivotData> cache = Caffeine.newBuilder()
             .maximumSize(20_000)
-            .expireAfterWrite(Duration.ofHours(16))
             .build();
 
     public PivotData getDailyPivots(String scripCode, LocalDate date) {

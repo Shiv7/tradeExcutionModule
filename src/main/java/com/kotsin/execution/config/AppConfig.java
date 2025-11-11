@@ -15,10 +15,8 @@ public class AppConfig {
 
     @Bean
     public Cache<String, Boolean> processedSignalsCache(
-            @Value("${trade.idempotency.ttl-minutes:20}") long ttlMinutes,
             @Value("${trade.idempotency.max-entries:100000}") long maxEntries) {
         return Caffeine.newBuilder()
-                .expireAfterWrite(Duration.ofMinutes(ttlMinutes))
                 .maximumSize(maxEntries)
                 .build();
     }

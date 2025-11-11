@@ -1,0 +1,29 @@
+package com.kotsin.execution.virtual.model;
+
+import lombok.Data;
+
+@Data
+public class VirtualOrder {
+    public enum Side { BUY, SELL }
+    public enum Type { MARKET, LIMIT }
+    public enum Status { NEW, PENDING, FILLED, PARTIAL, CANCELED, COMPLETED }
+
+    private String id;
+    private String scripCode;
+    private Side side;
+    private Type type;
+    private int qty;
+    private Double limitPrice;
+    private Double entryPrice; // fill price
+    private Double sl;
+    private Double tp1;
+    private Double tp2;
+    private Double tp1ClosePercent; // 0..1
+    // Trailing setup (MVP: FIXED or PCT)
+    private String trailingType; // NONE|FIXED|PCT
+    private Double trailingValue; // points or percent
+    private Double trailingStep;  // points step for updates
+    private long createdAt;
+    private long updatedAt;
+    private Status status;
+}
