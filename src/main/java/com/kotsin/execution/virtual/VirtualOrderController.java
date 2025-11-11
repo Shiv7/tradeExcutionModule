@@ -15,6 +15,7 @@ import java.util.Map;
 @RequestMapping("/api/virtual")
 @RequiredArgsConstructor
 @Slf4j
+@org.springframework.web.bind.annotation.CrossOrigin(origins = "*")
 public class VirtualOrderController {
     private final VirtualEngineService engine;
     private final VirtualWalletRepository repo;
@@ -54,6 +55,11 @@ public class VirtualOrderController {
         return engine.closePosition(scripCode)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.status(404).body(Map.of("error","no position")));
+    }
+
+    @GetMapping("/health")
+    public Map<String,Object> health(){
+        return Map.of("status","UP","ts",System.currentTimeMillis());
     }
 
     @PatchMapping("/positions/{scripCode}")

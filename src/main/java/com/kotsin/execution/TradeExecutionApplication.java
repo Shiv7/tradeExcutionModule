@@ -1,5 +1,7 @@
 package com.kotsin.execution;
 
+import io.swagger.v3.oas.annotations.OpenAPIDefinition;
+import io.swagger.v3.oas.annotations.info.Info;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.kafka.annotation.EnableKafka;
@@ -20,6 +22,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableKafka
 @EnableScheduling
 @EnableAsync
+@OpenAPIDefinition(info = @Info(title = "Trade Execution APIs", version = "1.0", description = "Live + Virtual trading endpoints"))
 public class TradeExecutionApplication {
     
     public static void main(String[] args) {
