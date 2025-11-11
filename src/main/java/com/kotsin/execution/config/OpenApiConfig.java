@@ -34,11 +34,8 @@ public class OpenApiConfig {
                                 .url("https://kotsin.com/license")))
                 .servers(List.of(
                         new Server()
-                                .url("http://localhost:8080")
-                                .description("Production Server"),
-                        new Server()
-                                .url("http://localhost:8080")
-                                .description("Local Development Server")))
+                                .url("/")
+                                .description("Relative base URL (adapts to active environment)")))
                 .externalDocs(new ExternalDocumentation()
                         .description("Kotsin Trading Documentation")
                         .url("https://docs.kotsin.com"));
