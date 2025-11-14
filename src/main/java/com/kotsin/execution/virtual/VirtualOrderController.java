@@ -19,6 +19,7 @@ import java.util.Map;
 public class VirtualOrderController {
     private final VirtualEngineService engine;
     private final VirtualWalletRepository repo;
+    private final VirtualEventBus bus;
 
     @PostMapping("/orders")
     public ResponseEntity<?> create(@RequestBody CreateOrder req){
@@ -44,11 +45,7 @@ public class VirtualOrderController {
         }
     }
 
-    @GetMapping("/orders")
-    public List<VirtualOrder> listOrders(){ return repo.listOrders(200); }
-
-    @GetMapping("/positions")
-    public List<VirtualPosition> listPositions(){ return repo.listPositions(); }
+    // Removed legacy endpoints: listOrders, listPositions (use SSE /api/virtual/stream instead)
 
     @PostMapping("/close/{scripCode}")
     public ResponseEntity<?> close(@PathVariable String scripCode){
@@ -77,6 +74,7 @@ public class VirtualOrderController {
         if (req.trailingActive != null) p.setTrailingActive(req.trailingActive);
         p.setUpdatedAt(System.currentTimeMillis());
         repo.savePosition(p);
+        try { bus.publish("position.updated", p); } catch (Exception ignore) {}
         return ResponseEntity.ok(p);
     }
 
