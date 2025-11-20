@@ -55,90 +55,60 @@ public class BrokerRateLimiterService {
      * @return true if permit acquired, false if timeout
      */
     public boolean acquireOrderPermit() {
-        try {
-            boolean acquired = orderLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (!acquired) {
-                log.error("🚦 ❌ ORDER rate limit timeout after {}s | Current rate: {}/s",
-                        ACQUIRE_TIMEOUT_SECONDS, orderLimiter.getRate());
-            }
-            return acquired;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("🚦 ❌ ORDER rate limit interrupted", e);
-            return false;
+        boolean acquired = orderLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!acquired) {
+            log.error("🚦 ❌ ORDER rate limit timeout after {}s | Current rate: {}/s",
+                    ACQUIRE_TIMEOUT_SECONDS, orderLimiter.getRate());
         }
+        return acquired;
     }
     
     /**
      * Acquire permit for quote fetching
      */
     public boolean acquireQuotePermit() {
-        try {
-            boolean acquired = quoteLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (!acquired) {
-                log.error("🚦 ❌ QUOTE rate limit timeout after {}s | Current rate: {}/s",
-                        ACQUIRE_TIMEOUT_SECONDS, quoteLimiter.getRate());
-            }
-            return acquired;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("🚦 ❌ QUOTE rate limit interrupted", e);
-            return false;
+        boolean acquired = quoteLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!acquired) {
+            log.error("🚦 ❌ QUOTE rate limit timeout after {}s | Current rate: {}/s",
+                    ACQUIRE_TIMEOUT_SECONDS, quoteLimiter.getRate());
         }
+        return acquired;
     }
     
     /**
      * Acquire permit for position updates
      */
     public boolean acquirePositionPermit() {
-        try {
-            boolean acquired = positionLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (!acquired) {
-                log.error("🚦 ❌ POSITION rate limit timeout after {}s | Current rate: {}/s",
-                        ACQUIRE_TIMEOUT_SECONDS, positionLimiter.getRate());
-            }
-            return acquired;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("🚦 ❌ POSITION rate limit interrupted", e);
-            return false;
+        boolean acquired = positionLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!acquired) {
+            log.error("🚦 ❌ POSITION rate limit timeout after {}s | Current rate: {}/s",
+                    ACQUIRE_TIMEOUT_SECONDS, positionLimiter.getRate());
         }
+        return acquired;
     }
     
     /**
      * Acquire permit for market data requests
      */
     public boolean acquireMarketDataPermit() {
-        try {
-            boolean acquired = marketDataLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (!acquired) {
-                log.error("🚦 ❌ MARKET_DATA rate limit timeout after {}s | Current rate: {}/s",
-                        ACQUIRE_TIMEOUT_SECONDS, marketDataLimiter.getRate());
-            }
-            return acquired;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("🚦 ❌ MARKET_DATA rate limit interrupted", e);
-            return false;
+        boolean acquired = marketDataLimiter.tryAcquire(ACQUIRE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!acquired) {
+            log.error("🚦 ❌ MARKET_DATA rate limit timeout after {}s | Current rate: {}/s",
+                    ACQUIRE_TIMEOUT_SECONDS, marketDataLimiter.getRate());
         }
+        return acquired;
     }
     
     /**
      * Acquire permit with custom timeout
      */
     public boolean acquireOrderPermitWithTimeout(long timeout, TimeUnit unit) {
-        try {
-            boolean acquired = orderLimiter.tryAcquire(timeout, unit);
-            if (!acquired) {
-                log.warn("🚦 ⚠️ ORDER rate limit timeout after {} {}",
-                        timeout, unit);
-            }
-            return acquired;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("🚦 ❌ ORDER rate limit interrupted", e);
-            return false;
+        boolean acquired = orderLimiter.tryAcquire(timeout, unit);
+        if (!acquired) {
+            log.warn("🚦 ⚠️ ORDER rate limit timeout after {} {}",
+                    timeout, unit);
         }
+        return acquired;
     }
     
     /**
