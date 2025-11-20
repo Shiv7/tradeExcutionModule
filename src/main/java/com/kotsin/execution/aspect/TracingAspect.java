@@ -81,7 +81,7 @@ public class TracingAspect {
     /**
      * Trace broker API calls
      */
-    @Around("execution(* com.kotsin.execution.service.FivePaisaBrokerService.*(..))")
+    @Around("execution(* com.kotsin.execution.broker.FivePaisaBrokerService.*(..))")
     public Object traceBrokerAPI(ProceedingJoinPoint joinPoint) throws Throwable {
         long start = System.currentTimeMillis();
         String methodName = joinPoint.getSignature().getName();
