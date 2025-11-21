@@ -37,7 +37,6 @@ public class LiveMarketDataConsumer {
 
     @KafkaListener(
             topics = "forwardtesting-data",
-            properties = {"auto.offset.reset=earliest"},
             containerFactory = "marketDataKafkaListenerContainerFactory"
     )
     public void consumeMarketData(
