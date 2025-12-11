@@ -1,6 +1,7 @@
 package com.kotsin.execution.virtual;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +17,7 @@ import java.util.Map;
 @RequestMapping("/api/virtual")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Slf4j
 public class VirtualStreamController {
     private final VirtualEventBus bus;
     private final VirtualWalletRepository repo;
@@ -30,7 +32,10 @@ public class VirtualStreamController {
             snapshot.put("positions", repo.listPositions());
             snapshot.put("timestamp", System.currentTimeMillis());
             emitter.send(SseEmitter.event().name("wallet").data(snapshot));
-        } catch (IOException ignore) {}
+        } catch (IOException e) {
+            // BUG-011 FIX: Log SSE failure instead of silent ignore
+            log.warn("Failed to send initial wallet snapshot to client: {}", e.getMessage());
+        }
         return emitter;
     }
 }

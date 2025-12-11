@@ -19,7 +19,7 @@ public class VirtualEventBus {
         emitters.add(emitter);
         emitter.onCompletion(() -> emitters.remove(emitter));
         emitter.onTimeout(() -> emitters.remove(emitter));
-        try { emitter.send(SseEmitter.event().name("hello").data("ok")); } catch (IOException ignore) {}
+        try { emitter.send(SseEmitter.event().name("hello").data("ok")); } catch (IOException e) { log.debug("Hello ping failed: {}", e.getMessage()); }
         return emitter;
     }
 

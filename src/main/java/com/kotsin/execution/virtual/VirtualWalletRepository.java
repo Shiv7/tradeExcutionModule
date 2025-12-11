@@ -39,9 +39,9 @@ public class VirtualWalletRepository {
         try (var c = executionStringRedisTemplate.scan(org.springframework.data.redis.core.ScanOptions.scanOptions().match("virtual:orders:*").count(1000).build())) {
             while (c.hasNext() && out.size() < max){
                 String raw = executionStringRedisTemplate.opsForValue().get(c.next());
-                if (raw != null) try { out.add(mapper.readValue(raw, VirtualOrder.class)); } catch (Exception ignore) {}
+                if (raw != null) try { out.add(mapper.readValue(raw, VirtualOrder.class)); } catch (Exception e) { log.warn("Failed to parse order: {}", e.getMessage()); }
             }
-        } catch (Exception ignore) {}
+        } catch (Exception e) { log.error("Failed to list orders from Redis: {}", e.getMessage()); }
         out.sort(Comparator.comparingLong(VirtualOrder::getCreatedAt).reversed());
         return out;
     }
@@ -63,9 +63,9 @@ public class VirtualWalletRepository {
         try (var c = executionStringRedisTemplate.scan(org.springframework.data.redis.core.ScanOptions.scanOptions().match("virtual:positions:*").count(1000).build())) {
             while (c.hasNext()){
                 String raw = executionStringRedisTemplate.opsForValue().get(c.next());
-                if (raw != null) try { out.add(mapper.readValue(raw, VirtualPosition.class)); } catch (Exception ignore) {}
+                if (raw != null) try { out.add(mapper.readValue(raw, VirtualPosition.class)); } catch (Exception e) { log.warn("Failed to parse position: {}", e.getMessage()); }
             }
-        } catch (Exception ignore) {}
+        } catch (Exception e) { log.error("Failed to list positions from Redis: {}", e.getMessage()); }
         return out;
     }
 
@@ -75,7 +75,7 @@ public class VirtualWalletRepository {
         } catch (Exception e){ return new VirtualSettings(); }
     }
     public void saveSettings(VirtualSettings s){
-        try { executionStringRedisTemplate.opsForValue().set(settingsKey(), mapper.writeValueAsString(s)); } catch (Exception ignore) {}
+        try { executionStringRedisTemplate.opsForValue().set(settingsKey(), mapper.writeValueAsString(s)); } catch (Exception e) { log.error("Failed to save settings: {}", e.getMessage()); }
     }
 }
 

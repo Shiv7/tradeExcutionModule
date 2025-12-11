@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 @RequiredArgsConstructor
@@ -17,6 +19,13 @@ public class VirtualEngineService {
     private final VirtualWalletRepository repo;
     private final PriceProvider prices;
     private final VirtualEventBus bus;
+    
+    // BUG-009 FIX: Per-scripCode locking to prevent race conditions
+    private final ConcurrentHashMap<String, ReentrantLock> scripLocks = new ConcurrentHashMap<>();
+    
+    private ReentrantLock getLock(String scripCode) {
+        return scripLocks.computeIfAbsent(scripCode, k -> new ReentrantLock());
+    }
 
     public VirtualOrder createOrder(VirtualOrder req){
         long now = System.currentTimeMillis();
@@ -147,22 +156,42 @@ public class VirtualEngineService {
         // LIMIT fills
         for (var o : repo.listOrders(500)){
             if (o.getStatus() != VirtualOrder.Status.PENDING || o.getType()!= VirtualOrder.Type.LIMIT) continue;
-            Double ltp = prices.getLtp(o.getScripCode()); if (ltp==null) continue;
-            boolean hit = (o.getSide()== VirtualOrder.Side.BUY) ? ltp <= o.getLimitPrice() : ltp >= o.getLimitPrice();
-            if (hit){
-                o.setEntryPrice(ltp);
-                o.setStatus(VirtualOrder.Status.FILLED);
-                o.setUpdatedAt(System.currentTimeMillis());
-                repo.saveOrder(o);
-                applyToPosition(o, ltp);
-                bus.publish("order.filled", o);
+            
+            // BUG-009 FIX: Lock per scripCode to prevent race conditions
+            ReentrantLock lock = getLock(o.getScripCode());
+            if (!lock.tryLock()) continue; // Skip if locked by another thread
+            try {
+                Double ltp = prices.getLtp(o.getScripCode());
+                if (ltp == null) {
+                    log.debug("No price available for limit order: {}", o.getScripCode()); // BUG-013 FIX
+                    continue;
+                }
+                boolean hit = (o.getSide()== VirtualOrder.Side.BUY) ? ltp <= o.getLimitPrice() : ltp >= o.getLimitPrice();
+                if (hit){
+                    o.setEntryPrice(ltp);
+                    o.setStatus(VirtualOrder.Status.FILLED);
+                    o.setUpdatedAt(System.currentTimeMillis());
+                    repo.saveOrder(o);
+                    applyToPosition(o, ltp);
+                    bus.publish("order.filled", o);
+                }
+            } finally {
+                lock.unlock();
             }
         }
 
         // Triggers for positions
         for (var p : repo.listPositions()){
-            Double ltp = prices.getLtp(p.getScripCode()); if (ltp==null) continue;
-            boolean changed = false;
+            // BUG-009 FIX: Lock per scripCode
+            ReentrantLock lock = getLock(p.getScripCode());
+            if (!lock.tryLock()) continue;
+            try {
+                Double ltp = prices.getLtp(p.getScripCode());
+                if (ltp == null) {
+                    log.debug("No price for position triggers: {}", p.getScripCode()); // BUG-013 FIX
+                    continue;
+                }
+                boolean changed = false;
             // SL
             if (p.getQtyOpen()>0 && p.getSl()!=null){
                 if (p.getSide()== VirtualPosition.Side.LONG && ltp <= p.getSl()){
@@ -267,7 +296,10 @@ public class VirtualEngineService {
                 }
             }
 
-            if (changed){ p.setUpdatedAt(System.currentTimeMillis()); repo.savePosition(p); bus.publish("position.updated", p);}        
+            if (changed){ p.setUpdatedAt(System.currentTimeMillis()); repo.savePosition(p); bus.publish("position.updated", p);}
+            } finally {
+                lock.unlock(); // BUG-009 FIX: Always release lock
+            }
         }
     }
 
