@@ -139,10 +139,13 @@ public class BacktestEngine {
         if (rlTrainer != null && savedTrade.getStatus() != BacktestTrade.TradeStatus.PENDING) {
             try {
                 rlTrainer.recordBacktestExperience(savedTrade);
-                log.debug("Recorded RL experience for {}", savedTrade.getScripCode());
+                log.info("rl_experience_recorded scrip={} reward={} status={}", 
+                    savedTrade.getScripCode(), savedTrade.getRMultiple(), savedTrade.getStatus());
             } catch (Exception e) {
-                log.warn("Failed to record RL experience: {}", e.getMessage());
+                log.warn("Failed to record RL experience: {}", e.getMessage(), e);
             }
+        } else if (rlTrainer == null) {
+            log.warn("rl_trainer_not_injected - cannot record experience");
         }
         
         return savedTrade;
