@@ -4,8 +4,10 @@ import com.kotsin.execution.model.BacktestTrade;
 import com.kotsin.execution.model.Candlestick;
 import com.kotsin.execution.model.StrategySignal;
 import com.kotsin.execution.repository.BacktestTradeRepository;
+import com.kotsin.execution.rl.service.RLTrainer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +25,7 @@ import java.util.List;
  * 2. Fetches historical candles for signal date + N days
  * 3. Simulates entry/exit based on price action
  * 4. Calculates P&L and saves to MongoDB
+ * 5. Records experience to RL trainer
  */
 @Service
 @Slf4j
@@ -33,6 +36,9 @@ public class BacktestEngine {
     
     private final HistoricalDataClient historicalDataClient;
     private final BacktestTradeRepository repository;
+    
+    @Autowired(required = false)
+    private RLTrainer rlTrainer;
     
     @Value("${backtest.days-after-signal:5}")
     private int daysAfterSignal;
@@ -127,7 +133,19 @@ public class BacktestEngine {
         }
         
         // 7. Save to DB
-        return repository.save(trade);
+        BacktestTrade savedTrade = repository.save(trade);
+        
+        // 8. Record experience for RL training
+        if (rlTrainer != null && savedTrade.getStatus() != BacktestTrade.TradeStatus.PENDING) {
+            try {
+                rlTrainer.recordBacktestExperience(savedTrade);
+                log.debug("Recorded RL experience for {}", savedTrade.getScripCode());
+            } catch (Exception e) {
+                log.warn("Failed to record RL experience: {}", e.getMessage());
+            }
+        }
+        
+        return savedTrade;
     }
     
     /**

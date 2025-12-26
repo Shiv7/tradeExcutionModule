@@ -49,6 +49,13 @@ public class BacktestTrade {
     private boolean exhaustionWarning;
     private boolean xfactorFlag;      // Rare strong signal
     
+    // ========== Additional RL Fields ==========
+    private double runwayScore;       // For RL state encoding
+    private double validatedMomentum;
+    private double exhaustionScore;
+    private double urgencyScore;
+    private double directionalConviction;
+    
     // ========== Entry Details ==========
     private LocalDateTime signalTime;
     private LocalDateTime entryTime;
