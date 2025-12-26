@@ -80,7 +80,14 @@ public class BacktestEngine {
         
         log.info("Processing {} candles after signal time {}", relevantCandles.size(), signalTime);
         
-        // 5. Simulate trade
+        // 5. Check for empty candles (CRITICAL FIX)
+        if (relevantCandles.isEmpty()) {
+            log.warn("No candles after signal time for {} - cancelling trade", trade.getScripCode());
+            trade.setStatus(BacktestTrade.TradeStatus.CANCELLED);
+            return repository.save(trade);
+        }
+        
+        // 6. Simulate trade
         for (Candlestick candle : relevantCandles) {
             LocalDateTime candleTime = Instant.ofEpochMilli(candle.getWindowStartMillis())
                     .atZone(IST).toLocalDateTime();
@@ -95,8 +102,8 @@ public class BacktestEngine {
                 continue;
             }
             
-            // Exit logic
-            ExitResult exitResult = checkExit(trade, candle);
+            // Exit logic - check both SL and TP, determine which hit first
+            ExitResult exitResult = checkExitWithPriority(trade, candle);
             if (exitResult.shouldExit) {
                 executeExit(trade, exitResult.exitPrice, exitResult.reason, candleTime);
                 log.info("BACKTEST EXIT: {} at {} reason={} P&L={}", 
@@ -124,18 +131,19 @@ public class BacktestEngine {
     }
     
     /**
-     * Entry condition: price reaches signal entry level
+     * Entry condition: price touches signal entry level
+     * FIXED: Removed close condition requirement - just check if price touched entry
      */
     private boolean shouldEnter(BacktestTrade trade, Candlestick candle) {
         double signalPrice = trade.getSignalPrice();
         
-        // For LONG: enter if price dips to or below entry price
+        // For LONG: enter if low touches or goes below entry price
         if (trade.isBullish()) {
-            return candle.getLow() <= signalPrice && candle.getClose() > signalPrice;
+            return candle.getLow() <= signalPrice;
         }
-        // For SHORT: enter if price rises to or above entry price
+        // For SHORT: enter if high touches or goes above entry price
         else {
-            return candle.getHigh() >= signalPrice && candle.getClose() < signalPrice;
+            return candle.getHigh() >= signalPrice;
         }
     }
     
@@ -149,39 +157,47 @@ public class BacktestEngine {
     }
     
     /**
-     * Check exit conditions
+     * Check exit conditions with proper SL/TP priority
+     * FIXED: Uses OHLC logic to determine which hit first on same candle
      */
-    private ExitResult checkExit(BacktestTrade trade, Candlestick candle) {
+    private ExitResult checkExitWithPriority(BacktestTrade trade, Candlestick candle) {
         double stopLoss = trade.getStopLoss();
         double target1 = trade.getTarget1();
-        double target2 = trade.getTarget2();
+        double entryPrice = trade.getEntryPrice();
+        double open = candle.getOpen();
         
         if (trade.isBullish()) {
-            // Stop loss hit
-            if (candle.getLow() <= stopLoss) {
-                return new ExitResult(true, stopLoss, "STOP_LOSS");
+            boolean slHit = candle.getLow() <= stopLoss;
+            boolean tpHit = candle.getHigh() >= target1;
+            
+            // Both hit on same candle - determine priority
+            if (slHit && tpHit) {
+                // If open is closer to SL than entry, SL likely hit first
+                // If open is above entry, price moved up first (TP), then down (SL)
+                if (open < entryPrice) {
+                    return new ExitResult(true, stopLoss, "STOP_LOSS");
+                } else {
+                    return new ExitResult(true, target1, "TARGET1");
+                }
             }
-            // Target 1 hit
-            if (candle.getHigh() >= target1) {
-                return new ExitResult(true, target1, "TARGET1");
-            }
-            // Target 2 hit (if exists and > target1)
-            if (target2 > target1 && candle.getHigh() >= target2) {
-                return new ExitResult(true, target2, "TARGET2");
-            }
+            if (slHit) return new ExitResult(true, stopLoss, "STOP_LOSS");
+            if (tpHit) return new ExitResult(true, target1, "TARGET1");
+            
         } else {
-            // Stop loss hit (for short)
-            if (candle.getHigh() >= stopLoss) {
-                return new ExitResult(true, stopLoss, "STOP_LOSS");
+            // SHORT
+            boolean slHit = candle.getHigh() >= stopLoss;
+            boolean tpHit = candle.getLow() <= target1;
+            
+            if (slHit && tpHit) {
+                // If open is higher than entry, price went up first (SL)
+                if (open > entryPrice) {
+                    return new ExitResult(true, stopLoss, "STOP_LOSS");
+                } else {
+                    return new ExitResult(true, target1, "TARGET1");
+                }
             }
-            // Target 1 hit
-            if (candle.getLow() <= target1) {
-                return new ExitResult(true, target1, "TARGET1");
-            }
-            // Target 2 hit
-            if (target2 < target1 && target2 > 0 && candle.getLow() <= target2) {
-                return new ExitResult(true, target2, "TARGET2");
-            }
+            if (slHit) return new ExitResult(true, stopLoss, "STOP_LOSS");
+            if (tpHit) return new ExitResult(true, target1, "TARGET1");
         }
         
         return new ExitResult(false, 0, null);
