@@ -30,15 +30,22 @@ public class HistoricalDataClient {
 
     /**
      * Fetch historical 1-min candles for a date range
-     * API: GET /getHisDataFromFivePaisa?scripCode=X&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&exch=N&exchType=D
+     * 
+     * API format:
+     * GET /getHisDataFromFivePaisa?exch=n&exch_type=d&scrip_code=49867&start_date=2025-12-26&end_date=2025-12-27&interval=1m
+     * 
+     * NOTE: To get Dec 26 data, end_date must be Dec 27 (exclusive end)
      */
     public List<Candlestick> getHistoricalCandles(String scripCode, LocalDate startDate, LocalDate endDate,
                                                    String exchange, String exchangeType) {
-        // Cap end date to today (can't fetch future data)
-        LocalDate today = LocalDate.now();
-        if (endDate.isAfter(today)) {
-            endDate = today;
+        // Cap end date to tomorrow (to get today's data, end must be tomorrow)
+        LocalDate tomorrow = LocalDate.now().plusDays(1);
+        if (endDate.isAfter(tomorrow)) {
+            endDate = tomorrow;
         }
+        
+        // For the API, end_date needs to be +1 day to include the last day's data
+        LocalDate apiEndDate = endDate.plusDays(1);
         
         // Ensure start is not after end
         if (startDate.isAfter(endDate)) {
@@ -50,11 +57,12 @@ public class HistoricalDataClient {
             HttpUrl url = HttpUrl.parse(baseUrl)
                     .newBuilder()
                     .addPathSegments("getHisDataFromFivePaisa")
-                    .addQueryParameter("scripCode", scripCode)
-                    .addQueryParameter("startDate", startDate.toString())
-                    .addQueryParameter("endDate", endDate.toString())
-                    .addQueryParameter("exch", exchange)
-                    .addQueryParameter("exchType", exchangeType)
+                    .addQueryParameter("scrip_code", scripCode)              // snake_case
+                    .addQueryParameter("start_date", startDate.toString())   // snake_case
+                    .addQueryParameter("end_date", apiEndDate.toString())    // snake_case, +1 day
+                    .addQueryParameter("exch", exchange.toLowerCase())       // lowercase
+                    .addQueryParameter("exch_type", exchangeType.toLowerCase()) // snake_case, lowercase
+                    .addQueryParameter("interval", "1m")                     // required
                     .build();
             
             log.debug("Fetching historical candles: {}", url);
