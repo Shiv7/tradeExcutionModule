@@ -1,18 +1,21 @@
 package com.kotsin.execution.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
- * Normalized strategy signal used by the execution pipeline.
- * - signal: "BULLISH" or "BEARISH" (normalized by SignalConsumer)
- * - timestamp: epoch millis (producer time if available)
- * - exchange: "N" (NSE) or "B" (BSE)
- * - exchangeType: "C" (Cash) or "D" (Derivatives)
+ * StrategySignal - Aligned with StreamingCandle's TradingSignal
+ * 
+ * This model matches the output from the 16-module quant framework:
+ * - VCP (Volume Cluster Profile): Support/resistance clusters
+ * - IPU (Institutional Participation Unit): Momentum, urgency, exhaustion
+ * 
+ * Topic: trading-signals
  */
 @Data
 @Builder
@@ -21,42 +24,136 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class StrategySignal {
 
-    private String scripCode;
+    // ========== Metadata ==========
+    private String scripCode;           // Format: "N:D:49812" (Exchange:Type:Code)
     private String companyName;
-
-    /** "BULLISH" or "BEARISH" (uppercase) */
-    private String signal;
-
-    private double entryPrice;
-    private double stopLoss;
-    private double target1;
-    private double target2;
-    private double target3;
-
-    /** event time from producer if present (epoch millis), else 0 */
     private long timestamp;
 
-    /** "N" or "B" */
-    private String exchange;
+    // ========== Primary Action Signal ==========
+    private String signal;              // SignalType enum as string
+    private double confidence;          // 0-1 scale
+    private String rationale;           // Human-readable reason
 
-    /** "C" or "D" */
-    private String exchangeType;
+    // ========== VCP Component (Volume Cluster Profile) ==========
+    private double vcpCombinedScore;    // Overall cluster score
+    private double supportScore;        // Strength of support levels
+    private double resistanceScore;     // Strength of resistance levels
+    private double structuralBias;      // -1 (bearish) to +1 (bullish)
+    private double runwayScore;         // Clear path for price movement
+    private List<VCPCluster> clusters;  // Price clusters
 
-    /** optional metadata */
-    private String strategy;   // e.g., "INTELLIGENT_CONFIRMATION"
-    private String timeframe;  // e.g., "30m"
+    // ========== IPU Component (Institutional Participation) ==========
+    private double ipuFinalScore;       // Overall IPU score
+    private double instProxy;           // Institutional activity proxy
+    private double momentumContext;     // Momentum strength
+    private double validatedMomentum;   // Confirmed momentum
+    private double exhaustionScore;     // Trend exhaustion level
+    private double urgencyScore;        // Signal urgency
+    private String momentumState;       // ACCELERATING, DECELERATING, FLAT
+    private String urgencyLevel;        // AGGRESSIVE, ELEVATED, PATIENT, PASSIVE
+    private String direction;           // BULLISH, BEARISH, NEUTRAL
+    private double directionalConviction;
+    private double flowMomentumAgreement; // 0-1, how aligned flow and momentum are
+    private boolean exhaustionWarning;  // True if exhaustion detected
+    private boolean xfactorFlag;        // Rare strong signal
 
-    // Execution instrument overrides (option-only execution)
-    // If present, execution should place orders on these instead of the underlying scripCode.
-    private String orderScripCode;
-    private String orderExchange;
-    private String orderExchangeType;
-    private Double orderLimitPrice;       // back-compat
-    private Double orderLimitPriceEntry;
-    private Double orderLimitPriceExit;
-    private Double orderTickSize;
+    // ========== Current Market Context ==========
+    private double currentPrice;
+    private double atr;                 // Average True Range
+    private double microprice;          // Order book derived fair price
 
-    // convenience helpers
-    public boolean isBullish() { return "BULLISH".equalsIgnoreCase(signal) || "BUY".equalsIgnoreCase(signal); }
-    public boolean isBearish() { return "BEARISH".equalsIgnoreCase(signal) || "SELL".equalsIgnoreCase(signal); }
+    // ========== Position Sizing Recommendations ==========
+    private double positionSizeMultiplier; // 0.5 to 1.5
+    private double trailAtrMultiplier;     // ATR multiplier for trailing stop
+
+    // ========== Trade Execution Parameters (CRITICAL) ==========
+    private double entryPrice;          // Suggested entry price
+    private double stopLoss;            // Stop loss level
+    private double target1;             // First target (2:1 R:R)
+    private double target2;             // Second target (3:1 R:R)
+    private double riskRewardRatio;     // Calculated R:R
+    private double riskPercentage;      // Risk as % of entry
+
+    // ========== Signal Flags ==========
+    private boolean longSignal;         // True if actionable LONG
+    private boolean shortSignal;        // True if actionable SHORT
+    private boolean warningSignal;      // True if warning (reduce exposure)
+    private double trailingStopDistance;
+
+    // ========== Exchange Info (parsed from scripCode) ==========
+    private String exchange;            // N (NSE), B (BSE), M (MCX)
+    private String exchangeType;        // C (Cash), D (Derivatives)
+
+    // ========== Derived Helpers ==========
+    
+    public boolean isBullish() {
+        return "BULLISH".equalsIgnoreCase(direction) || longSignal;
+    }
+
+    public boolean isBearish() {
+        return "BEARISH".equalsIgnoreCase(direction) || shortSignal;
+    }
+
+    public boolean isActionable() {
+        return longSignal || shortSignal;
+    }
+
+    public boolean isConfirmedSignal() {
+        return signal != null && (
+            signal.contains("CONFIRMED") || 
+            signal.contains("STRONG") ||
+            signal.contains("FADE")
+        );
+    }
+
+    /**
+     * Parse scripCode format "N:D:49812" into exchange/exchangeType
+     */
+    public void parseScripCode() {
+        if (scripCode != null && scripCode.contains(":")) {
+            String[] parts = scripCode.split(":");
+            if (parts.length >= 3) {
+                this.exchange = parts[0];
+                this.exchangeType = parts[1];
+            }
+        }
+    }
+
+    /**
+     * Get just the numeric scripCode (for broker API)
+     */
+    public String getNumericScripCode() {
+        if (scripCode != null && scripCode.contains(":")) {
+            String[] parts = scripCode.split(":");
+            if (parts.length >= 3) {
+                return parts[2];
+            }
+        }
+        return scripCode;
+    }
+
+    // ========== VCP Cluster Inner Class ==========
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class VCPCluster {
+        private double price;
+        private double strength;
+        private long totalVolume;
+        private double ofiBias;
+        private double obValidation;
+        private double oiAdjustment;
+        private double breakoutDifficulty;
+        private double proximity;
+        private String type;            // SUPPORT or RESISTANCE
+        private double distancePercent;
+        private int contributingCandles;
+        private double compositeScore;
+        private boolean aligned;
+        private boolean weaklyValidated;
+        private double alignmentMultiplier;
+        private boolean stronglyValidated;
+    }
 }

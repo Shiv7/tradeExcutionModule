@@ -305,20 +305,22 @@ public class TradeManager {
     }
 
     private ActiveTrade createBulletproofTrade(StrategySignal signal, LocalDateTime receivedTime) {
-        String tradeId = "BT_" + signal.getScripCode() + "_" + System.currentTimeMillis();
-        boolean isBullish = "BUY".equalsIgnoreCase(signal.getSignal()) || "BULLISH".equalsIgnoreCase(signal.getSignal());
+        String tradeId = "BT_" + signal.getNumericScripCode() + "_" + System.currentTimeMillis();
+        
+        // Determine direction from new schema
+        boolean isBullish = signal.isLongSignal() || signal.isBullish();
 
         ActiveTrade trade = ActiveTrade.builder()
                 .tradeId(tradeId)
-                .scripCode(signal.getScripCode())
+                .scripCode(signal.getNumericScripCode())
                 .companyName(signal.getCompanyName() != null ? signal.getCompanyName() : signal.getScripCode())
                 .signalType(isBullish ? "BULLISH" : "BEARISH")
-                .strategyName("INTELLIGENT_CONFIRMATION")
+                .strategyName(signal.getSignal() != null ? signal.getSignal() : "QUANT_SIGNAL")
                 .signalTime(receivedTime)
                 .stopLoss(signal.getStopLoss())
                 .target1(signal.getTarget1())
                 .target2(signal.getTarget2())
-                .target3(signal.getTarget3())
+                .target3(0.0) // Not in new schema
                 .status(ActiveTrade.TradeStatus.WAITING_FOR_ENTRY)
                 .entryTriggered(false)
                 .build();
@@ -327,14 +329,19 @@ public class TradeManager {
         trade.addMetadata("signalPrice", signal.getEntryPrice());
         trade.addMetadata("exchange", signal.getExchange());
         trade.addMetadata("exchangeType", signal.getExchangeType());
-        // Execution instrument overrides (option-only execution)
-        if (signal.getOrderScripCode() != null) trade.addMetadata("orderScripCode", signal.getOrderScripCode());
-        if (signal.getOrderExchange() != null) trade.addMetadata("orderExchange", signal.getOrderExchange());
-        if (signal.getOrderExchangeType() != null) trade.addMetadata("orderExchangeType", signal.getOrderExchangeType());
-        if (signal.getOrderLimitPrice() != null) trade.addMetadata("orderLimitPrice", signal.getOrderLimitPrice());
-        if (signal.getOrderLimitPriceEntry() != null) trade.addMetadata("orderLimitPriceEntry", signal.getOrderLimitPriceEntry());
-        if (signal.getOrderLimitPriceExit() != null) trade.addMetadata("orderLimitPriceExit", signal.getOrderLimitPriceExit());
-        if (signal.getOrderTickSize() != null) trade.addMetadata("tickSize", signal.getOrderTickSize());
+        trade.addMetadata("confidence", signal.getConfidence());
+        trade.addMetadata("rationale", signal.getRationale());
+        trade.addMetadata("momentumState", signal.getMomentumState());
+        trade.addMetadata("direction", signal.getDirection());
+        trade.addMetadata("vcpScore", signal.getVcpCombinedScore());
+        trade.addMetadata("ipuScore", signal.getIpuFinalScore());
+        trade.addMetadata("structuralBias", signal.getStructuralBias());
+        trade.addMetadata("exhaustionWarning", signal.isExhaustionWarning());
+        trade.addMetadata("xfactorFlag", signal.isXfactorFlag());
+        trade.addMetadata("positionSizeMultiplier", signal.getPositionSizeMultiplier());
+        trade.addMetadata("trailAtrMultiplier", signal.getTrailAtrMultiplier());
+        trade.addMetadata("riskRewardRatio", signal.getRiskRewardRatio());
+        
         return trade;
     }
 

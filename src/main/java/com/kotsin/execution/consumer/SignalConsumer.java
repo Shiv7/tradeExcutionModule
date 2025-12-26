@@ -18,9 +18,15 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.Locale;
 import java.util.Objects;
 
+/**
+ * SignalConsumer - Consumes signals from StreamingCandle's trading-signals topic
+ * 
+ * Aligned with TradingSignal schema from the 16-module quant framework.
+ * Filters actionable signals (longSignal=true OR shortSignal=true) and
+ * forwards them to TradeManager for execution.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -31,90 +37,101 @@ public class SignalConsumer {
     private final TradeManager tradeManager;
     private final TradingHoursService tradingHoursService;
 
-    // Inject a short-ttl cache for idempotency (defined in config below)
+    // Short-TTL cache for idempotency
     private final Cache<String, Boolean> processedSignalsCache;
 
-    // App config (max skew, topic names, defaults etc.)
+    // App config
     private final TradeProps tradeProps;
 
     @KafkaListener(
-            topics = "${trade.topics.signals:enhanced-30m-signals}",
+            topics = "${trade.topics.signals:trading-signals}",
             containerFactory = "strategySignalKafkaListenerContainerFactory",
             errorHandler = "bulletproofErrorHandler"
     )
     public void processStrategySignal(
             StrategySignal raw,
             Acknowledgment ack,
-            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long kafkaTimestamp, // kept (not used for 'now')
+            @Header(KafkaHeaders.RECEIVED_TIMESTAMP) long kafkaTimestamp,
             ConsumerRecord<?, ?> rec
     ) {
         final String topic = rec.topic();
         final int partition = rec.partition();
         final long offset = rec.offset();
-
-        // Use local clock for freshness checks
         final Instant receivedAt = Instant.now();
 
         try {
+            // ========== Validation ==========
             if (raw == null || StringUtils.isBlank(raw.getScripCode())) {
-                log.warn("signal_invalid scripCode=blank topic={} partition={} offset={} ts={}",
-                        topic, partition, offset, receivedAt);
+                log.warn("signal_invalid scripCode=blank topic={} partition={} offset={}", 
+                        topic, partition, offset);
                 ack.acknowledge();
                 return;
             }
 
-            final StrategySignal s = sanitize(raw);
+            // Parse scripCode to extract exchange/exchangeType
+            raw.parseScripCode();
 
-            // If side is unknown, drop early
-            if (s.getSignal() == null) {
-                log.warn("signal_invalid_side scrip={} topic={} partition={} offset={}",
-                        s.getScripCode(), topic, partition, offset);
+            // Check if signal is actionable
+            if (!raw.isActionable()) {
+                log.debug("signal_not_actionable scrip={} signal={} topic={} partition={} offset={}",
+                        raw.getScripCode(), raw.getSignal(), topic, partition, offset);
                 ack.acknowledge();
                 return;
             }
 
-            // Numeric sanity
-            if (s.getStopLoss() <= 0 || s.getTarget1() <= 0) {
-                log.warn("signal_invalid_numbers scrip={} sl={} t1={} topic={} partition={} offset={}",
-                        s.getScripCode(), s.getStopLoss(), s.getTarget1(), topic, partition, offset);
+            // Validate trade parameters
+            if (raw.getStopLoss() <= 0 || raw.getTarget1() <= 0 || raw.getEntryPrice() <= 0) {
+                log.warn("signal_invalid_params scrip={} entry={} sl={} t1={} topic={} partition={} offset={}",
+                        raw.getScripCode(), raw.getEntryPrice(), raw.getStopLoss(), 
+                        raw.getTarget1(), topic, partition, offset);
                 ack.acknowledge();
                 return;
             }
 
-            // Prefer producer ts from payload if plausible
-            long tsMillis = s.getTimestamp();
-            boolean plausible = tsMillis > 946684800000L && tsMillis < 4102444800000L; // 2000..2100
+            // ========== Timestamp Validation ==========
+            long tsMillis = raw.getTimestamp();
+            boolean plausible = tsMillis > 946684800000L && tsMillis < 4102444800000L; // 2000-2100
             final Instant signalTs = plausible ? Instant.ofEpochMilli(tsMillis) : receivedAt;
 
             long ageSec = Math.abs(receivedAt.getEpochSecond() - signalTs.getEpochSecond());
             if (ageSec > tradeProps.maxSkewSeconds()) {
-                log.warn("signal_stale scrip={} ageSec={} maxSkewSec={} topic={} partition={} offset={}",
-                        s.getScripCode(), ageSec, tradeProps.maxSkewSeconds(), topic, partition, offset);
+                log.warn("signal_stale scrip={} ageSec={} maxSkew={} topic={} partition={} offset={}",
+                        raw.getScripCode(), ageSec, tradeProps.maxSkewSeconds(), topic, partition, offset);
                 ack.acknowledge();
                 return;
             }
 
+            // ========== Trading Hours Check ==========
             final ZonedDateTime receivedIst = receivedAt.atZone(IST);
-            if (!tradingHoursService.shouldProcessTrade(s.getExchange(), receivedIst.toLocalDateTime())) {
+            String exchange = raw.getExchange() != null ? raw.getExchange() : "N";
+            
+            if (!tradingHoursService.shouldProcessTrade(exchange, receivedIst.toLocalDateTime())) {
                 log.info("signal_outside_hours scrip={} exch={} ts={} topic={} partition={} offset={}",
-                        s.getScripCode(), s.getExchange(), receivedIst, topic, partition, offset);
+                        raw.getScripCode(), exchange, receivedIst, topic, partition, offset);
                 ack.acknowledge();
                 return;
             }
 
-            final String idKey = buildIdKey(s, signalTs);
+            // ========== Idempotency Check ==========
+            final String idKey = buildIdKey(raw, signalTs);
             if (processedSignalsCache.asMap().putIfAbsent(idKey, Boolean.TRUE) != null) {
                 log.info("signal_duplicate key={} scrip={} topic={} partition={} offset={}",
-                        idKey, s.getScripCode(), topic, partition, offset);
+                        idKey, raw.getScripCode(), topic, partition, offset);
                 ack.acknowledge();
                 return;
             }
 
-            tradeManager.addSignalToWatchlist(s, receivedIst.toLocalDateTime());
+            // ========== Forward to TradeManager ==========
+            log.info("signal_accepted scrip={} company={} signal={} direction={} confidence={} " +
+                    "entry={} sl={} t1={} t2={} rr={} topic={} partition={} offset={}",
+                    raw.getScripCode(), raw.getCompanyName(), raw.getSignal(), raw.getDirection(),
+                    String.format("%.2f", raw.getConfidence()), raw.getEntryPrice(), raw.getStopLoss(),
+                    raw.getTarget1(), raw.getTarget2(), String.format("%.2f", raw.getRiskRewardRatio()),
+                    topic, partition, offset);
+
+            tradeManager.addSignalToWatchlist(raw, receivedIst.toLocalDateTime());
 
             ack.acknowledge();
-            log.info("signal_accepted key={} scrip={} topic={} partition={} offset={}",
-                    idKey, s.getScripCode(), topic, partition, offset);
 
         } catch (Exception e) {
             log.error("signal_processing_error topic={} partition={} offset={} err={}",
@@ -123,65 +140,12 @@ public class SignalConsumer {
         }
     }
 
-    private StrategySignal sanitize(StrategySignal in) {
-        Objects.requireNonNull(in, "signal");
-        StrategySignal s = new StrategySignal();
-
-        s.setScripCode(StringUtils.trim(in.getScripCode()));
-        s.setCompanyName(StringUtils.trimToNull(in.getCompanyName()));
-
-        // Normalize signal side
-        String side = in.getSignal() == null ? null : in.getSignal().trim().toUpperCase(Locale.ROOT);
-        if (!"BULLISH".equals(side) && !"BEARISH".equals(side)) {
-            // If unknown, keep null to let downstream reject/ignore according to policy
-            side = null;
-        }
-        s.setSignal(side);
-
-        // Pass-through numerics
-        s.setEntryPrice(in.getEntryPrice());
-        s.setStopLoss(in.getStopLoss());
-        s.setTarget1(in.getTarget1());
-        s.setTarget2(in.getTarget2());
-        s.setTarget3(in.getTarget3());
-
-        // Timestamp: prefer producer timestamp if present
-        s.setTimestamp(in.getTimestamp());
-
-        // Normalize exchange + type
-        String exch = StringUtils.defaultIfBlank(in.getExchange(), "N").trim().toUpperCase(Locale.ROOT);
-        String exType = StringUtils.defaultIfBlank(in.getExchangeType(), "C").trim().toUpperCase(Locale.ROOT);
-        // Keep only expected values
-        if (!("N".equals(exch) || "B".equals(exch))) exch = "N";
-        if (!("C".equals(exType) || "D".equals(exType))) exType = "C";
-        s.setExchange(exch);
-        s.setExchangeType(exType);
-
-        // Optional order instrument overrides for option-only execution
-        String oCode = StringUtils.trimToNull(in.getOrderScripCode());
-        String oEx   = StringUtils.trimToNull(in.getOrderExchange());
-        String oExTy = StringUtils.trimToNull(in.getOrderExchangeType());
-        if (oCode != null) s.setOrderScripCode(oCode);
-        if (oEx != null) s.setOrderExchange(oEx.toUpperCase(Locale.ROOT));
-        if (oExTy != null) s.setOrderExchangeType(oExTy.toUpperCase(Locale.ROOT));
-        if (in.getOrderLimitPrice() != 0) {
-            try { s.setOrderLimitPrice(in.getOrderLimitPrice()); } catch (Exception ignore) {}
-        }
-        if (in.getOrderLimitPriceEntry() != null) s.setOrderLimitPriceEntry(in.getOrderLimitPriceEntry());
-        if (in.getOrderLimitPriceExit() != null) s.setOrderLimitPriceExit(in.getOrderLimitPriceExit());
-        if (in.getOrderTickSize() != null) s.setOrderTickSize(in.getOrderTickSize());
-
-        // Optional: normalize strategy/timeframe if you use them in keys
-        s.setStrategy(StringUtils.trimToNull(in.getStrategy()));
-        s.setTimeframe(StringUtils.trimToNull(in.getTimeframe()));
-
-        return s;
-    }
-
+    /**
+     * Build idempotency key from signal
+     */
     private String buildIdKey(StrategySignal s, Instant signalTs) {
-        String strategy = StringUtils.defaultString(s.getStrategy(), "NA");
-        String tf = StringUtils.defaultString(s.getTimeframe(), "NA");
-        String side = StringUtils.defaultString(s.getSignal(), "NA");
-        return s.getScripCode() + '|' + strategy + '|' + tf + '|' + side + '|' + signalTs.toEpochMilli();
+        String signal = StringUtils.defaultString(s.getSignal(), "NA");
+        String direction = StringUtils.defaultString(s.getDirection(), "NA");
+        return s.getScripCode() + '|' + signal + '|' + direction + '|' + signalTs.toEpochMilli();
     }
 }
