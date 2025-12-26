@@ -64,7 +64,7 @@ public class KafkaConfig {
         configProps.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
         
         // 🛡️ BULLETPROOF: Configure error handling behavior
-        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
         configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000);
