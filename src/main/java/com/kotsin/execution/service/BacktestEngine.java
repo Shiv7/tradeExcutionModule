@@ -215,26 +215,22 @@ public class BacktestEngine {
     }
     
     /**
-     * Fetch candles for multiple days
+     * Fetch candles for date range using single API call
+     * HistoricalDataClient handles date capping and validation
      */
     private List<Candlestick> fetchMultiDayCandles(String scripCode, LocalDate from, LocalDate to,
                                                     String exchange, String exchangeType) {
-        List<Candlestick> allCandles = new java.util.ArrayList<>();
+        List<Candlestick> candles = historicalDataClient.getHistoricalCandles(
+                scripCode, from, to, exchange, exchangeType);
         
-        LocalDate current = from;
-        while (!current.isAfter(to)) {
-            List<Candlestick> dayCandles = historicalDataClient.getHistorical1MinCandles(
-                    scripCode, current.toString(), exchange, exchangeType);
-            if (dayCandles != null && !dayCandles.isEmpty()) {
-                allCandles.addAll(dayCandles);
-            }
-            current = current.plusDays(1);
+        if (candles == null) {
+            return new java.util.ArrayList<>();
         }
         
-        // Sort by time
-        allCandles.sort((a, b) -> Long.compare(a.getWindowStartMillis(), b.getWindowStartMillis()));
+        // Sort by time (API may not guarantee order)
+        candles.sort((a, b) -> Long.compare(a.getWindowStartMillis(), b.getWindowStartMillis()));
         
-        return allCandles;
+        return candles;
     }
     
     /**
