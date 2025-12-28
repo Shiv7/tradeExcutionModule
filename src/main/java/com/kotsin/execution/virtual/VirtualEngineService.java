@@ -1,12 +1,18 @@
 package com.kotsin.execution.virtual;
 
+import com.kotsin.execution.paper.PaperTradeOutcomeProducer;
+import com.kotsin.execution.paper.model.PaperTradeOutcome;
 import com.kotsin.execution.virtual.model.VirtualOrder;
 import com.kotsin.execution.virtual.model.VirtualPosition;
 import com.kotsin.execution.virtual.model.VirtualSettings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,6 +25,9 @@ public class VirtualEngineService {
     private final VirtualWalletRepository repo;
     private final PriceProvider prices;
     private final VirtualEventBus bus;
+    
+    @Autowired(required = false)
+    private PaperTradeOutcomeProducer outcomeProducer;
     
     // BUG-009 FIX: Per-scripCode locking to prevent race conditions
     private final ConcurrentHashMap<String, ReentrantLock> scripLocks = new ConcurrentHashMap<>();
@@ -195,10 +204,10 @@ public class VirtualEngineService {
             // SL
             if (p.getQtyOpen()>0 && p.getSl()!=null){
                 if (p.getSide()== VirtualPosition.Side.LONG && ltp <= p.getSl()){
-                    changed |= closeAt(p, ltp, p.getQtyOpen(), false);
+                    changed |= closeAt(p, ltp, p.getQtyOpen(), false, "STOP_LOSS");
                     bus.publish("sl.hit", p);
                 } else if (p.getSide()== VirtualPosition.Side.SHORT && ltp >= p.getSl()){
-                    changed |= closeAt(p, ltp, p.getQtyOpen(), false);
+                    changed |= closeAt(p, ltp, p.getQtyOpen(), false, "STOP_LOSS");
                     bus.publish("sl.hit", p);
                 }
             }
@@ -208,7 +217,7 @@ public class VirtualEngineService {
             if (Boolean.FALSE.equals(p.getTp1Hit()) && p.getTp1()!=null){
                 if (p.getSide()== VirtualPosition.Side.LONG && ltp >= p.getTp1()){
                     int partial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
-                    changed |= closeAt(p, ltp, partial, true);
+                    changed |= closeAt(p, ltp, partial, true, "TP1_PARTIAL");
                     p.setTp1Hit(true);
                     // Move SL to BE
                     if (p.getSl()==null || p.getSl() < p.getAvgEntry()) p.setSl(p.getAvgEntry());
@@ -230,7 +239,7 @@ public class VirtualEngineService {
                     bus.publish("tp1.hit", p);
                 } else if (p.getSide()== VirtualPosition.Side.SHORT && ltp <= p.getTp1()){
                     int partial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
-                    changed |= closeAt(p, ltp, partial, true);
+                    changed |= closeAt(p, ltp, partial, true, "TP1_PARTIAL");
                     p.setTp1Hit(true);
                     if (p.getSl()==null || p.getSl() > p.getAvgEntry()) p.setSl(p.getAvgEntry());
                     if (p.getTrailingValue()!=null && p.getTrailingType()!=null && !"NONE".equals(p.getTrailingType())){
@@ -256,10 +265,10 @@ public class VirtualEngineService {
             // TP2
             if (p.getTp2()!=null){
                 if (p.getSide()== VirtualPosition.Side.LONG && ltp >= p.getTp2()){
-                    changed |= closeAt(p, ltp, p.getQtyOpen(), false);
+                    changed |= closeAt(p, ltp, p.getQtyOpen(), false, "TARGET_HIT");
                     bus.publish("tp2.hit", p);
                 } else if (p.getSide()== VirtualPosition.Side.SHORT && ltp <= p.getTp2()){
-                    changed |= closeAt(p, ltp, p.getQtyOpen(), false);
+                    changed |= closeAt(p, ltp, p.getQtyOpen(), false, "TARGET_HIT");
                     bus.publish("tp2.hit", p);
                 }
             }
@@ -304,12 +313,65 @@ public class VirtualEngineService {
     }
 
     private boolean closeAt(VirtualPosition p, double price, int qty, boolean partial){
+        return closeAt(p, price, qty, partial, null);
+    }
+    
+    private boolean closeAt(VirtualPosition p, double price, int qty, boolean partial, String exitReason){
         if (qty<=0) return false;
         double pnl = (p.getSide()== VirtualPosition.Side.LONG ? (price - p.getAvgEntry()) : (p.getAvgEntry() - price)) * qty;
         p.setRealizedPnl(p.getRealizedPnl() + pnl);
         int remaining = p.getQtyOpen() - qty;
         p.setQtyOpen(Math.max(0, remaining));
+        
+        // If position fully closed and has signalId, send outcome to StreamingCandle
+        if (p.getQtyOpen() == 0 && p.getSignalId() != null && outcomeProducer != null) {
+            sendOutcome(p, price, pnl, exitReason);
+        }
+        
         if (p.getQtyOpen()==0) p.setAvgEntry(0);
         return true;
+    }
+    
+    /**
+     * Send trade outcome to StreamingCandle for stats update
+     */
+    private void sendOutcome(VirtualPosition p, double exitPrice, double pnl, String exitReason) {
+        try {
+            // Calculate R-multiple
+            double risk = Math.abs(p.getAvgEntry() - (p.getSl() != null ? p.getSl() : p.getAvgEntry()));
+            double rMultiple = risk > 0 ? pnl / (risk * p.getQtyOpen()) : 0;
+            
+            // Determine direction
+            String direction = p.getSide() == VirtualPosition.Side.LONG ? "BULLISH" : "BEARISH";
+            
+            // Calculate holding period
+            long holdingMinutes = (System.currentTimeMillis() - p.getOpenedAt()) / 60000;
+            
+            PaperTradeOutcome outcome = PaperTradeOutcome.builder()
+                    .id(UUID.randomUUID().toString())
+                    .signalId(p.getSignalId())
+                    .scripCode(p.getScripCode())
+                    .signalType(p.getSignalType() != null ? p.getSignalType() : "BREAKOUT_RETEST")
+                    .direction(direction)
+                    .entryPrice(p.getAvgEntry())
+                    .exitPrice(exitPrice)
+                    .stopLoss(p.getSl() != null ? p.getSl() : 0)
+                    .target(p.getTp1() != null ? p.getTp1() : 0)
+                    .quantity(p.getQtyOpen())
+                    .exitReason(exitReason != null ? exitReason : "UNKNOWN")
+                    .pnl(pnl)
+                    .rMultiple(rMultiple)
+                    .win(pnl > 0)
+                    .entryTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(p.getOpenedAt()), ZoneId.of("Asia/Kolkata")))
+                    .exitTime(LocalDateTime.now(ZoneId.of("Asia/Kolkata")))
+                    .holdingPeriodMinutes(holdingMinutes)
+                    .positionSizeMultiplier(p.getPositionSizeMultiplier())
+                    .build();
+            
+            outcomeProducer.send(outcome);
+            
+        } catch (Exception e) {
+            log.error("Failed to send outcome for {}: {}", p.getScripCode(), e.getMessage());
+        }
     }
 }

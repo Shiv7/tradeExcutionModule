@@ -76,7 +76,10 @@ public class ActorCriticNetwork {
         // Critic head
         wC1 = xavierInit(HIDDEN_DIM, HEAD_DIM);
         bC1 = new double[HEAD_DIM];
-        wC2 = xavierInit(HEAD_DIM, 1)[0];
+        wC2 = new double[HEAD_DIM];
+        for (int i = 0; i < HEAD_DIM; i++) {
+            wC2[i] = (random.nextGaussian() * Math.sqrt(2.0 / (HEAD_DIM + 1)));
+        }
         bC2 = 0;
         
         // Gradient tracking

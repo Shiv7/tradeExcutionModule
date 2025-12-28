@@ -26,4 +26,9 @@ public class VirtualPosition {
     private Double trailAnchor;   // last peak/trough reference
     private long openedAt;
     private long updatedAt;
+    
+    // Signal linkage for stats tracking
+    private String signalId;      // Links back to SignalHistory in StreamingCandle
+    private String signalType;    // e.g., "BREAKOUT_RETEST"
+    private double positionSizeMultiplier;  // From gate chain
 }
