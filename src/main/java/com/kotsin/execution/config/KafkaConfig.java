@@ -213,4 +213,12 @@ public class KafkaConfig {
         configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
         return new DefaultKafkaConsumerFactory<>(configProps);
     }
+    
+    @Bean("curatedSignalKafkaListenerContainerFactory")
+    public ConcurrentKafkaListenerContainerFactory<String, String> curatedSignalKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, String> factory = 
+            new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(curatedSignalConsumerFactory());
+        return factory;
+    }
 }
