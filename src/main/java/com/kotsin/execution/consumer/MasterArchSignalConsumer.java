@@ -59,7 +59,7 @@ public class MasterArchSignalConsumer {
     @KafkaListener(
             topics = "score-final-opportunity",
             groupId = "${app.kafka.consumer.masterarch-group-id:masterarch-executor}",
-            containerFactory = "curatedSignalConsumerFactory"  // Uses String deserializer
+            containerFactory = "curatedSignalKafkaListenerContainerFactory"  // Uses String deserializer
     )
     public void processMasterArchSignal(String payload, ConsumerRecord<?, ?> rec) {
         final String topic = rec.topic();
