@@ -76,7 +76,7 @@ public class SignalConsumer {
         try {
             // ========== Validation ==========
             if (raw == null || StringUtils.isBlank(raw.getScripCode())) {
-                log.warn("signal_invalid scripCode=blank topic={} partition={} offset={}", 
+                log.warn("signal_invalid scripCode=blank topic={} partition={} offset={}",
                         topic, partition, offset);
                 ack.acknowledge();
                 return;
@@ -85,19 +85,25 @@ public class SignalConsumer {
             // Parse scripCode to extract exchange/exchangeType
             raw.parseScripCode();
 
-            // Check if signal is actionable
-            if (!raw.isActionable()) {
-                log.debug("signal_not_actionable scrip={} signal={} topic={} partition={} offset={}",
-                        raw.getScripCode(), raw.getSignal(), topic, partition, offset);
+            // 🛡️ CRITICAL FIX #4: Comprehensive signal validation
+            com.kotsin.execution.validation.ValidationResult validation = raw.validate();
+            if (!validation.isValid()) {
+                log.warn("signal_validation_failed scrip={} errors={} topic={} partition={} offset={}",
+                        raw.getScripCode(), validation.getErrors(), topic, partition, offset);
                 ack.acknowledge();
                 return;
             }
 
-            // Validate trade parameters
-            if (raw.getStopLoss() <= 0 || raw.getTarget1() <= 0 || raw.getEntryPrice() <= 0) {
-                log.warn("signal_invalid_params scrip={} entry={} sl={} t1={} topic={} partition={} offset={}",
-                        raw.getScripCode(), raw.getEntryPrice(), raw.getStopLoss(), 
-                        raw.getTarget1(), topic, partition, offset);
+            // Log warnings but continue processing
+            if (validation.hasWarnings()) {
+                log.info("signal_validation_warnings scrip={} warnings={}",
+                        raw.getScripCode(), validation.getWarnings());
+            }
+
+            // Check if signal is actionable
+            if (!raw.isActionable()) {
+                log.debug("signal_not_actionable scrip={} signal={} topic={} partition={} offset={}",
+                        raw.getScripCode(), raw.getSignal(), topic, partition, offset);
                 ack.acknowledge();
                 return;
             }

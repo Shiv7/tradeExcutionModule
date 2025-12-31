@@ -132,6 +132,16 @@ public class StrategySignal {
         return scripCode;
     }
 
+    /**
+     * 🛡️ CRITICAL FIX #4: Validate signal before execution
+     * Delegates to SignalValidator for comprehensive validation
+     */
+    public com.kotsin.execution.validation.ValidationResult validate() {
+        com.kotsin.execution.validation.SignalValidator validator =
+            new com.kotsin.execution.validation.SignalValidator();
+        return validator.validate(this);
+    }
+
     // ========== VCP Cluster Inner Class ==========
     @Data
     @Builder
