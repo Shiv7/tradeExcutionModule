@@ -158,6 +158,68 @@ public class ProfitLossProducer {
     }
     
     /**
+     * Publish virtual trade entry event (for paper trading)
+     */
+    public void publishVirtualTradeEntry(String scripCode, String side, int quantity, 
+            double entryPrice, Double stopLoss, Double target) {
+        try {
+            Map<String, Object> entryEvent = new HashMap<>();
+            entryEvent.put("eventType", "VIRTUAL_TRADE_ENTRY");
+            entryEvent.put("tradeId", "VT_" + scripCode + "_" + System.currentTimeMillis());
+            entryEvent.put("scripCode", scripCode);
+            entryEvent.put("side", side);
+            entryEvent.put("quantity", quantity);
+            entryEvent.put("entryPrice", entryPrice);
+            entryEvent.put("stopLoss", stopLoss);
+            entryEvent.put("target", target);
+            entryEvent.put("entryTime", LocalDateTime.now());
+            entryEvent.put("timestamp", LocalDateTime.now());
+            
+            String key = "VIRTUAL_ENTRY_" + scripCode;
+            publishEvent(key, entryEvent);
+            
+            log.info("📈 [V-P&L] Published VIRTUAL_TRADE_ENTRY: {} @ ₹{} qty={}", 
+                    scripCode, entryPrice, quantity);
+            
+        } catch (Exception e) {
+            log.error("🚨 [V-P&L] Error publishing virtual entry: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Publish virtual trade exit event (for paper trading)
+     */
+    public void publishVirtualTradeExit(String scripCode, String side, int quantity,
+            double entryPrice, double exitPrice, double pnl, String exitReason) {
+        try {
+            Map<String, Object> exitEvent = new HashMap<>();
+            exitEvent.put("eventType", "VIRTUAL_TRADE_EXIT");
+            exitEvent.put("tradeId", "VT_" + scripCode + "_" + System.currentTimeMillis());
+            exitEvent.put("scripCode", scripCode);
+            exitEvent.put("side", side);
+            exitEvent.put("quantity", quantity);
+            exitEvent.put("entryPrice", entryPrice);
+            exitEvent.put("exitPrice", exitPrice);
+            exitEvent.put("profitLoss", pnl);
+            exitEvent.put("roi", entryPrice > 0 ? (pnl / (entryPrice * quantity)) * 100 : 0);
+            exitEvent.put("exitReason", exitReason);
+            exitEvent.put("exitTime", LocalDateTime.now());
+            exitEvent.put("timestamp", LocalDateTime.now());
+            exitEvent.put("win", pnl > 0);
+            
+            String key = "VIRTUAL_EXIT_" + scripCode;
+            publishEvent(key, exitEvent);
+            
+            String pnlEmoji = pnl >= 0 ? "💰" : "💸";
+            log.info("{} [V-P&L] Published VIRTUAL_TRADE_EXIT: {} @ ₹{} | P&L: ₹{} | Reason: {}", 
+                    pnlEmoji, scripCode, exitPrice, String.format("%.2f", pnl), exitReason);
+            
+        } catch (Exception e) {
+            log.error("🚨 [V-P&L] Error publishing virtual exit: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
      * Publish event to Kafka topic
      */
     private void publishEvent(String key, Map<String, Object> event) {

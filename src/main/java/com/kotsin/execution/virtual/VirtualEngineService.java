@@ -2,6 +2,7 @@ package com.kotsin.execution.virtual;
 
 import com.kotsin.execution.paper.PaperTradeOutcomeProducer;
 import com.kotsin.execution.paper.model.PaperTradeOutcome;
+import com.kotsin.execution.producer.ProfitLossProducer;
 import com.kotsin.execution.virtual.model.VirtualOrder;
 import com.kotsin.execution.virtual.model.VirtualPosition;
 import com.kotsin.execution.virtual.model.VirtualSettings;
@@ -28,6 +29,9 @@ public class VirtualEngineService {
     
     @Autowired(required = false)
     private PaperTradeOutcomeProducer outcomeProducer;
+    
+    @Autowired(required = false)
+    private ProfitLossProducer profitLossProducer;
     
     // BUG-009 FIX: Per-scripCode locking to prevent race conditions
     private final ConcurrentHashMap<String, ReentrantLock> scripLocks = new ConcurrentHashMap<>();
@@ -158,6 +162,18 @@ public class VirtualEngineService {
         p.setUpdatedAt(System.currentTimeMillis());
         repo.savePosition(p);
         bus.publish("position.updated", p);
+        
+        // BUG-002 FIX: Publish P&L entry event to Kafka
+        if (profitLossProducer != null) {
+            profitLossProducer.publishVirtualTradeEntry(
+                p.getScripCode(),
+                p.getSide().toString(),
+                p.getQtyOpen(),
+                p.getAvgEntry(),
+                p.getSl(),
+                p.getTp1()
+            );
+        }
     }
 
     @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 500)
@@ -326,6 +342,19 @@ public class VirtualEngineService {
         // If position fully closed and has signalId, send outcome to StreamingCandle
         if (p.getQtyOpen() == 0 && p.getSignalId() != null && outcomeProducer != null) {
             sendOutcome(p, price, pnl, exitReason);
+        }
+        
+        // BUG-002 FIX: Publish P&L exit event to Kafka for dashboard
+        if (profitLossProducer != null) {
+            profitLossProducer.publishVirtualTradeExit(
+                p.getScripCode(),
+                p.getSide().toString(),
+                qty,
+                p.getAvgEntry(),
+                price,
+                pnl,
+                exitReason != null ? exitReason : "UNKNOWN"
+            );
         }
         
         if (p.getQtyOpen()==0) p.setAvgEntry(0);
