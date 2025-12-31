@@ -180,9 +180,9 @@ public class MasterArchSignalConsumer {
                 // Create virtual trade
                 BacktestTrade virtualTrade = BacktestTrade.fromSignal(signal, signalTimeIst.toLocalDateTime());
                 virtualTrade.setStatus(BacktestTrade.TradeStatus.ACTIVE);
-                virtualTrade.setExtraField("signalSource", "MASTER_ARCH");
-                virtualTrade.setExtraField("recommendedLots", String.valueOf(recommendedLots));
-                virtualTrade.setExtraField("hedgeRecommended", String.valueOf(hedgeRecommended));
+                // Store Master Arch specific info in rationale (BacktestTrade doesn't have extraField)
+                virtualTrade.setRationale(String.format("MASTER_ARCH | lots=%d | hedge=%s | %s", 
+                        recommendedLots, hedgeRecommended, signal.getRationale()));
                 backtestRepository.save(virtualTrade);
                 
                 log.info("🎯 masterarch_virtual_trade created id={} scrip={} lots={}", 
