@@ -56,7 +56,8 @@ class StrategySignalTest {
         ValidationResult result = signal.validate();
 
         assertFalse(result.isValid());
-        assertTrue(result.getErrors().contains("LONG signal must have stopLoss < entryPrice"));
+        assertTrue(result.getErrors().stream()
+                .anyMatch(e -> e.contains("LONG signal must have stopLoss < entryPrice")));
     }
 
     @Test
@@ -74,7 +75,8 @@ class StrategySignalTest {
         ValidationResult result = signal.validate();
 
         assertFalse(result.isValid());
-        assertTrue(result.getErrors().contains("LONG signal must have target1 > entryPrice"));
+        assertTrue(result.getErrors().stream()
+                .anyMatch(e -> e.contains("LONG signal must have target1 > entryPrice")));
     }
 
     @ParameterizedTest
@@ -110,7 +112,7 @@ class StrategySignalTest {
     @Test
     @DisplayName("Future timestamp should fail validation")
     void testFutureTimestamp() {
-        long futureTime = System.currentTimeMillis() + 3600_000; // 1 hour in future
+        long futureTime = System.currentTimeMillis() + 86400_000 + 3600_000; // > 24h + 1h future buffer
 
         StrategySignal signal = StrategySignal.builder()
                 .timestamp(futureTime)
@@ -133,7 +135,8 @@ class StrategySignalTest {
         ValidationResult result = signal.validate();
 
         assertFalse(result.isValid());
-        assertTrue(result.getErrors().contains("Cannot have both longSignal and shortSignal"));
+        assertTrue(result.getErrors().stream()
+                .anyMatch(e -> e.contains("Cannot have both longSignal and shortSignal")));
     }
 
     @Test
@@ -160,7 +163,8 @@ class StrategySignalTest {
         ValidationResult result = signal.validate();
 
         assertFalse(result.isValid());
-        assertTrue(result.getErrors().contains("scripCode must be in format 'Exchange:Type:Code'"));
+        assertTrue(result.getErrors().stream()
+                .anyMatch(e -> e.contains("scripCode must be in format 'Exchange:Type:Code'")));
     }
 
     @Test

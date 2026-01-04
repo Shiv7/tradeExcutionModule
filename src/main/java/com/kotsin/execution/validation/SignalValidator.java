@@ -175,12 +175,10 @@ public class SignalValidator {
         }
 
         // Risk-reward ratio: > 0
-        if (signal.getRiskRewardRatio() != 0.0) {
-            if (signal.getRiskRewardRatio() <= 0 ||
-                Double.isNaN(signal.getRiskRewardRatio()) ||
-                Double.isInfinite(signal.getRiskRewardRatio())) {
-                result.addError("riskRewardRatio must be a positive finite number");
-            }
+        if (signal.getRiskRewardRatio() <= 0 ||
+            Double.isNaN(signal.getRiskRewardRatio()) ||
+            Double.isInfinite(signal.getRiskRewardRatio())) {
+            result.addError("riskRewardRatio must be a positive finite number");
         }
 
         // ATR must be positive if specified
