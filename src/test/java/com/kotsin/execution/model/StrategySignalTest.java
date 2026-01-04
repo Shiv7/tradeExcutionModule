@@ -1,5 +1,7 @@
 package com.kotsin.execution.model;
 
+import com.kotsin.execution.validation.ValidationResult;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;

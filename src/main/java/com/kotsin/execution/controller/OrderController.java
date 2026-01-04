@@ -6,6 +6,7 @@ import com.kotsin.execution.service.WalletService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import lombok.EqualsAndHashCode;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -106,9 +107,11 @@ public class OrderController {
     }
 
     @Data
+    @EqualsAndHashCode(callSuper = true)
     public static class MarketOrder extends BaseOrder {}
 
     @Data
+    @EqualsAndHashCode(callSuper = true)
     public static class LimitOrder extends BaseOrder {
         private Double price;
     }
