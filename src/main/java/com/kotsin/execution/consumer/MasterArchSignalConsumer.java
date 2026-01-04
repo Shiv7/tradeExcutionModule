@@ -57,7 +57,7 @@ public class MasterArchSignalConsumer {
      * Consume FinalOpportunityScore from Master Architecture
      */
     @KafkaListener(
-            topics = "score-final-opportunity",
+            topics = {"kotsin_FF1", "score-final-opportunity"},
             groupId = "${app.kafka.consumer.masterarch-group-id:masterarch-executor}",
             containerFactory = "curatedSignalKafkaListenerContainerFactory"  // Uses String deserializer
     )
