@@ -95,14 +95,22 @@ public class SignalValidator {
         if (entry <= 0) result.addError("entryPrice must be > 0");
         if (sl <= 0) result.addError("stopLoss must be > 0");
         if (t1 <= 0) result.addError("target1 must be > 0");
-        if (t2 > 0 && t2 <= t1) {
-            result.addError("target2 must be > target1 if specified");
+
+        // FIX: target2 validation is direction-dependent
+        // LONG: target2 > target1 (further up)
+        // SHORT: target2 < target1 (further down)
+        boolean isBullish = signal.isBullish();
+        boolean isBearish = signal.isBearish();
+        if (t2 > 0) {
+            if (isBullish && t2 <= t1) {
+                result.addError("LONG signal target2 must be > target1 if specified");
+            }
+            if (isBearish && t2 >= t1) {
+                result.addError("SHORT signal target2 must be < target1 if specified");
+            }
         }
 
         // CRITICAL: Relationship validation based on direction
-        boolean isBullish = signal.isBullish();
-        boolean isBearish = signal.isBearish();
-
         if (isBullish) {
             // LONG: stopLoss < entryPrice < target1 < target2
             if (sl >= entry) {
