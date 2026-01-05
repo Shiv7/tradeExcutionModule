@@ -26,4 +26,9 @@ public class VirtualOrder {
     private long createdAt;
     private long updatedAt;
     private Status status;
+
+    // Signal metadata (for quant signals)
+    private String signalId;
+    private String signalType;
+    private String rationale;
 }

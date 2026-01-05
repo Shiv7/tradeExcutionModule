@@ -159,6 +159,13 @@ public class VirtualEngineService {
         p.setTrailingActive(Boolean.FALSE);
         p.setTrailingStop(null);
         p.setTrailAnchor(null);
+        // Propagate signal metadata for quant signals
+        if (filled.getSignalId() != null) {
+            p.setSignalId(filled.getSignalId());
+        }
+        if (filled.getSignalType() != null) {
+            p.setSignalType(filled.getSignalType());
+        }
         p.setUpdatedAt(System.currentTimeMillis());
         repo.savePosition(p);
         bus.publish("position.updated", p);
