@@ -57,9 +57,32 @@ public class LiveOrderController {
                 return ResponseEntity.badRequest().body(Map.of("error", "qty must be positive"));
             }
 
-            // Determine exchange parameters (default to NSE Cash)
-            String exch = req.exch != null ? req.exch : "N";
-            String exchType = req.exchType != null ? req.exchType : "C";
+            // Parse scripCode - can be in format "N:C:18365" or just "18365"
+            String numericScripCode;
+            String exch;
+            String exchType;
+
+            if (req.scripCode.contains(":")) {
+                // Format: "Exchange:ExchangeType:ScripCode" e.g., "N:C:18365"
+                String[] parts = req.scripCode.split(":");
+                if (parts.length >= 3) {
+                    exch = parts[0];      // N, B, M
+                    exchType = parts[1];  // C, D, U
+                    numericScripCode = parts[2];
+                    log.info("📊 Parsed scripCode: exch={}, exchType={}, scripCode={}", exch, exchType, numericScripCode);
+                } else {
+                    // Fallback if format is unexpected
+                    numericScripCode = req.scripCode;
+                    exch = req.exch != null ? req.exch : "N";
+                    exchType = req.exchType != null ? req.exchType : "C";
+                }
+            } else {
+                // Plain numeric scripCode
+                numericScripCode = req.scripCode;
+                exch = req.exch != null ? req.exch : "N";
+                exchType = req.exchType != null ? req.exchType : "C";
+            }
+
             BrokerOrderService.Side side = "BUY".equalsIgnoreCase(req.side)
                 ? BrokerOrderService.Side.BUY
                 : BrokerOrderService.Side.SELL;
@@ -67,15 +90,15 @@ public class LiveOrderController {
             String orderId;
             double fillPrice = req.limitPrice != null ? req.limitPrice : 0;
 
-            // Place order with broker
+            // Place order with broker using numeric scripCode
             if ("LIMIT".equalsIgnoreCase(req.type) && req.limitPrice != null && req.limitPrice > 0) {
                 orderId = brokerService.placeLimitOrder(
-                    req.scripCode, exch, exchType, side, req.qty, req.limitPrice);
-                log.info("✅ LIMIT order placed: orderId={}, price={}", orderId, req.limitPrice);
+                    numericScripCode, exch, exchType, side, req.qty, req.limitPrice);
+                log.info("✅ LIMIT order placed: orderId={}, scripCode={}, price={}", orderId, numericScripCode, req.limitPrice);
             } else {
                 orderId = brokerService.placeMarketOrder(
-                    req.scripCode, exch, exchType, side, req.qty);
-                log.info("✅ MARKET order placed: orderId={}", orderId);
+                    numericScripCode, exch, exchType, side, req.qty);
+                log.info("✅ MARKET order placed: orderId={}, scripCode={}", orderId, numericScripCode);
             }
 
             // Record in wallet
