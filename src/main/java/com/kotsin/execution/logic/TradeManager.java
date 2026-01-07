@@ -123,8 +123,10 @@ public class TradeManager {
                     log.info("Best trade selected: {}. Executing entry.", bestTrade.getScripCode());
                     executeEntry(bestTrade, candle);
                     activeTrade.set(bestTrade);
-                    waitingTrades.clear();
-                    log.info("CLEARED waiting trades list.");
+                    // FIX: Only remove the executed trade, not all waiting trades
+                    // This preserves other valid signals for future evaluation
+                    waitingTrades.remove(bestTrade);
+                    log.info("Removed executed trade from waiting list. Remaining: {}", waitingTrades.size());
                 }
             } else {
                 log.info("No trades were ready for execution for this candle.");

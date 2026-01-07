@@ -184,8 +184,8 @@ public class RLTrainer {
             updates++;
         }
         
-        log.debug("Mini-batch training: {} updates, avg loss: {:.4f}", 
-            updates, totalLoss / updates);
+        log.debug("Mini-batch training: {} updates, avg loss: {}",
+            updates, String.format("%.4f", totalLoss / updates));
     }
     
     /**
@@ -330,9 +330,9 @@ public class RLTrainer {
         
         currentPolicy = policyRepository.save(currentPolicy);
         
-        log.info("Policy saved: version={}, experiences={}, winRate={:.2f}%",
+        log.info("Policy saved: version={}, experiences={}, winRate={}%",
             currentPolicy.getVersion(), currentPolicy.getTotalExperiences(),
-            currentPolicy.getRecentWinRate() * 100);
+            String.format("%.2f", currentPolicy.getRecentWinRate() * 100));
     }
     
     /**

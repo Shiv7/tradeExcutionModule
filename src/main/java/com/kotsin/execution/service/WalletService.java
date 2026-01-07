@@ -37,28 +37,41 @@ public class WalletService {
         }
     }
 
-    public Position updatePosition(String scripCode, String side, int qty, Double price) {
-        try {
-            String key = "wallet:positions:" + scripCode;
-            String existing = redis.opsForValue().get(key);
-            Position pos = existing != null ? mapper.readValue(existing, Position.class) : new Position();
-            if (pos.getScripCode() == null) pos.setScripCode(scripCode);
+    /**
+     * Update position with thread-safety using per-scripCode locking.
+     * FIX: Added synchronization to prevent race condition on concurrent updates.
+     * Uses a ConcurrentHashMap of locks to allow concurrent updates to different scripCodes.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Object> scripLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
-            if ("BUY".equalsIgnoreCase(side)) {
-                int newQty = pos.getQty() + qty;
-                double newAvg = pos.getQty() <= 0 || price == null ? (price != null ? price : pos.getAvgPrice())
-                        : ((pos.getAvgPrice() * pos.getQty()) + (price * qty)) / (double)newQty;
-                pos.setQty(newQty);
-                if (price != null) pos.setAvgPrice(newAvg);
-            } else if ("SELL".equalsIgnoreCase(side)) {
-                pos.setQty(Math.max(0, pos.getQty() - qty));
-                // avgPrice unchanged on sell
+    public Position updatePosition(String scripCode, String side, int qty, Double price) {
+        // Get or create lock for this scripCode
+        Object lock = scripLocks.computeIfAbsent(scripCode, k -> new Object());
+
+        synchronized (lock) {
+            try {
+                String key = "wallet:positions:" + scripCode;
+                String existing = redis.opsForValue().get(key);
+                Position pos = existing != null ? mapper.readValue(existing, Position.class) : new Position();
+                if (pos.getScripCode() == null) pos.setScripCode(scripCode);
+
+                if ("BUY".equalsIgnoreCase(side)) {
+                    int newQty = pos.getQty() + qty;
+                    double newAvg = pos.getQty() <= 0 || price == null ? (price != null ? price : pos.getAvgPrice())
+                            : ((pos.getAvgPrice() * pos.getQty()) + (price * qty)) / (double) newQty;
+                    pos.setQty(newQty);
+                    if (price != null) pos.setAvgPrice(newAvg);
+                } else if ("SELL".equalsIgnoreCase(side)) {
+                    pos.setQty(Math.max(0, pos.getQty() - qty));
+                    // avgPrice unchanged on sell
+                }
+                redis.opsForValue().set(key, mapper.writeValueAsString(pos));
+                return pos;
+            } catch (Exception e) {
+                log.warn("Failed to update position: {}", e.getMessage());
+                return null;
             }
-            redis.opsForValue().set(key, mapper.writeValueAsString(pos));
-            return pos;
-        } catch (Exception e) {
-            log.warn("Failed to update position: {}", e.getMessage());
-            return null;
         }
     }
 

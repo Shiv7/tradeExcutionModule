@@ -142,61 +142,146 @@ public class ActorCriticNetwork {
     }
     
     /**
-     * Update Actor using policy gradient
-     * 
+     * Update Actor using policy gradient with FULL backpropagation
+     * FIX: Now properly backpropagates through all layers (wA1, bA1, w1, b1)
+     *
      * @param state Input state
      * @param action Action taken
      * @param advantage TD error (reward - value)
      */
     public void updateActor(double[] state, double[] action, double advantage) {
         // Forward pass (with caching for backprop)
-        double[] hidden = relu(add(matmul(state, w1), b1));
-        double[] head = relu(add(matmul(hidden, wA1), bA1));
-        double[] predicted = tanh(add(matmul(head, wA2), bA2));
-        
+        double[] preHidden = add(matmul(state, w1), b1);
+        double[] hidden = relu(preHidden);
+        double[] preHead = add(matmul(hidden, wA1), bA1);
+        double[] head = relu(preHead);
+        double[] preOutput = add(matmul(head, wA2), bA2);
+        double[] predicted = tanh(preOutput);
+
         // Simple policy gradient: push action probability in direction of advantage
         double[] actionGrad = new double[ACTION_DIM];
         for (int i = 0; i < ACTION_DIM; i++) {
             // Gradient: advantage * gradient of log probability
             // Simplified: advantage * (action - predicted) for Gaussian policy
-            actionGrad[i] = advantage * (action[i] - predicted[i]);
+            // Include tanh derivative: (1 - predicted^2)
+            double tanhDeriv = 1.0 - predicted[i] * predicted[i];
+            actionGrad[i] = advantage * (action[i] - predicted[i]) * tanhDeriv;
         }
-        
-        // Backprop through actor head
-        // wA2 gradient
+
+        // === Layer 3: wA2, bA2 (output layer) ===
         for (int i = 0; i < HEAD_DIM; i++) {
             for (int j = 0; j < ACTION_DIM; j++) {
                 wA2[i][j] += learningRate * head[i] * actionGrad[j];
             }
         }
-        
-        // bA2 gradient
         for (int j = 0; j < ACTION_DIM; j++) {
             bA2[j] += learningRate * actionGrad[j];
         }
-        
+
+        // === Layer 2: wA1, bA1 (actor head hidden layer) ===
+        // Backprop through wA2: dL/dhead = actionGrad * wA2^T
+        double[] headGrad = new double[HEAD_DIM];
+        for (int i = 0; i < HEAD_DIM; i++) {
+            for (int j = 0; j < ACTION_DIM; j++) {
+                headGrad[i] += actionGrad[j] * wA2[i][j];
+            }
+            // ReLU derivative
+            headGrad[i] *= (preHead[i] > 0 ? 1.0 : 0.0);
+        }
+
+        for (int i = 0; i < HIDDEN_DIM; i++) {
+            for (int j = 0; j < HEAD_DIM; j++) {
+                wA1[i][j] += learningRate * hidden[i] * headGrad[j];
+            }
+        }
+        for (int j = 0; j < HEAD_DIM; j++) {
+            bA1[j] += learningRate * headGrad[j];
+        }
+
+        // === Layer 1: w1, b1 (shared hidden layer) ===
+        // Backprop through wA1: dL/dhidden = headGrad * wA1^T
+        double[] hiddenGrad = new double[HIDDEN_DIM];
+        for (int i = 0; i < HIDDEN_DIM; i++) {
+            for (int j = 0; j < HEAD_DIM; j++) {
+                hiddenGrad[i] += headGrad[j] * wA1[i][j];
+            }
+            // ReLU derivative
+            hiddenGrad[i] *= (preHidden[i] > 0 ? 1.0 : 0.0);
+        }
+
+        for (int i = 0; i < STATE_DIM; i++) {
+            for (int j = 0; j < HIDDEN_DIM; j++) {
+                w1[i][j] += learningRate * state[i] * hiddenGrad[j];
+            }
+        }
+        for (int j = 0; j < HIDDEN_DIM; j++) {
+            b1[j] += learningRate * hiddenGrad[j];
+        }
+
         // Track input gradients for feature importance
         trackInputGradients(state, advantage);
     }
     
     /**
-     * Update Critic using TD error
+     * Update Critic using TD error with FULL backpropagation
+     * FIX: Now properly backpropagates through all layers (wC1, bC1, w1, b1)
      */
     public void updateCritic(double[] state, double target) {
         double predicted = criticForward(state);
         double error = target - predicted;
-        
-        // Forward pass with caching
-        double[] hidden = relu(add(matmul(state, w1), b1));
-        double[] head = relu(add(matmul(hidden, wC1), bC1));
-        
-        // wC2 gradient
+
+        // Forward pass with caching for backprop
+        double[] preHidden = add(matmul(state, w1), b1);
+        double[] hidden = relu(preHidden);
+        double[] preHead = add(matmul(hidden, wC1), bC1);
+        double[] head = relu(preHead);
+
+        // === Layer 3: wC2, bC2 (output layer) ===
         for (int i = 0; i < HEAD_DIM; i++) {
             wC2[i] += learningRate * head[i] * error;
         }
-        
-        // bC2 gradient
         bC2 += learningRate * error;
+
+        // === Layer 2: wC1, bC1 (critic head hidden layer) ===
+        // Backprop through wC2: dL/dhead = error * wC2
+        double[] headGrad = new double[HEAD_DIM];
+        for (int i = 0; i < HEAD_DIM; i++) {
+            headGrad[i] = error * wC2[i];
+            // ReLU derivative
+            headGrad[i] *= (preHead[i] > 0 ? 1.0 : 0.0);
+        }
+
+        for (int i = 0; i < HIDDEN_DIM; i++) {
+            for (int j = 0; j < HEAD_DIM; j++) {
+                wC1[i][j] += learningRate * hidden[i] * headGrad[j];
+            }
+        }
+        for (int j = 0; j < HEAD_DIM; j++) {
+            bC1[j] += learningRate * headGrad[j];
+        }
+
+        // === Layer 1: w1, b1 (shared hidden layer) ===
+        // Note: Shared layer is also updated by actor, so use smaller learning rate
+        // to avoid unstable updates from both actor and critic
+        double[] hiddenGrad = new double[HIDDEN_DIM];
+        for (int i = 0; i < HIDDEN_DIM; i++) {
+            for (int j = 0; j < HEAD_DIM; j++) {
+                hiddenGrad[i] += headGrad[j] * wC1[i][j];
+            }
+            // ReLU derivative
+            hiddenGrad[i] *= (preHidden[i] > 0 ? 1.0 : 0.0);
+        }
+
+        // Use half learning rate for shared layer (since both actor and critic update it)
+        double sharedLR = learningRate * 0.5;
+        for (int i = 0; i < STATE_DIM; i++) {
+            for (int j = 0; j < HIDDEN_DIM; j++) {
+                w1[i][j] += sharedLR * state[i] * hiddenGrad[j];
+            }
+        }
+        for (int j = 0; j < HIDDEN_DIM; j++) {
+            b1[j] += sharedLR * hiddenGrad[j];
+        }
     }
     
     /**
