@@ -49,19 +49,46 @@ public class VirtualEngineService {
 
         // Fill immediately for MARKET; LIMIT left pending for MVP
         if (req.getType() == VirtualOrder.Type.MARKET){
+            // FIX: Try multiple fallbacks for entry price
             Double ltp = prices.getLtp(req.getScripCode());
-            if (ltp == null) ltp = req.getLimitPrice(); // fallback
-            if (ltp == null) ltp = 0.0;
+            if (ltp == null || ltp <= 0) {
+                // Try parsing scripCode if it's in N:C:18365 format
+                String numericScripCode = parseNumericScripCode(req.getScripCode());
+                if (!numericScripCode.equals(req.getScripCode())) {
+                    ltp = prices.getLtp(numericScripCode);
+                }
+            }
+            if (ltp == null || ltp <= 0) ltp = req.getCurrentPrice();  // FIX: Use currentPrice from UI
+            if (ltp == null || ltp <= 0) ltp = req.getLimitPrice();    // Fallback to limitPrice
+            if (ltp == null || ltp <= 0) {
+                log.warn("⚠️ No price available for MARKET order: scripCode={}", req.getScripCode());
+                ltp = 0.0;  // Last resort - but this indicates a problem
+            }
             req.setEntryPrice(ltp);
             req.setStatus(VirtualOrder.Status.FILLED);
             applyToPosition(req, ltp);
             bus.publish("order.filled", req);
+            log.info("✅ MARKET order filled: scripCode={}, entryPrice={}", req.getScripCode(), ltp);
         } else {
             req.setStatus(VirtualOrder.Status.PENDING);
         }
         repo.saveOrder(req);
         bus.publish("order.created", req);
         return req;
+    }
+
+    /**
+     * Parse scripCode from "N:C:18365" format to just "18365"
+     */
+    private String parseNumericScripCode(String scripCode) {
+        if (scripCode == null) return scripCode;
+        if (scripCode.contains(":")) {
+            String[] parts = scripCode.split(":");
+            if (parts.length >= 3) {
+                return parts[2];  // Return the numeric part
+            }
+        }
+        return scripCode;
     }
 
     public Optional<VirtualPosition> closePosition(String scripCode){

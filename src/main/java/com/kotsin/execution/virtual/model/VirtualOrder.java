@@ -14,6 +14,7 @@ public class VirtualOrder {
     private Type type;
     private int qty;
     private Double limitPrice;
+    private Double currentPrice;  // FIX: Market price at time of order (for MARKET order fallback)
     private Double entryPrice; // fill price
     private Double sl;
     private Double tp1;

@@ -30,6 +30,7 @@ public class VirtualOrderController {
             o.setType("LIMIT".equalsIgnoreCase(req.type) ? VirtualOrder.Type.LIMIT : VirtualOrder.Type.MARKET);
             o.setQty(req.qty);
             o.setLimitPrice(req.limitPrice);
+            o.setCurrentPrice(req.currentPrice);  // FIX: Pass currentPrice for MARKET order fallback
             o.setSl(req.sl);
             o.setTp1(req.tp1);
             o.setTp2(req.tp2);
@@ -83,6 +84,7 @@ public class VirtualOrderController {
         public String scripCode; public String side; public String type;
         public int qty; public Double limitPrice; public Double sl; public Double tp1; public Double tp2; public Double tp1ClosePercent;
         public String trailingType; public Double trailingValue; public Double trailingStep;
+        public Double currentPrice;  // FIX: For MARKET orders, use this as entry price fallback
     }
 
     @lombok.Data
