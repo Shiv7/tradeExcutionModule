@@ -80,6 +80,25 @@ public class StrategySignal {
     private boolean warningSignal;      // True if warning (reduce exposure)
     private double trailingStopDistance;
 
+    // ========== Pattern Recognition (Phase 4 SMTIS) ==========
+    private String patternId;           // Pattern template ID (e.g., REVERSAL_FROM_SUPPORT)
+    private String sequenceId;          // Unique sequence instance ID
+    private String patternCategory;     // REVERSAL, CONTINUATION, BREAKOUT, SQUEEZE
+    private String tradingHorizon;      // SCALP, SWING, POSITIONAL
+    private double patternConfidence;   // Pattern-specific confidence 0-1
+    private double historicalSuccessRate; // Historical win rate for this pattern
+    private double historicalExpectedValue; // Historical EV for this pattern
+    private int historicalSampleSize;   // Number of past occurrences
+    private List<String> matchedEvents; // Events that completed the pattern
+    private List<String> matchedBoosters; // Booster events that confirmed
+    private List<String> entryReasons;  // Human-readable entry reasons
+    private List<String> predictedEvents; // Predicted follow-on events
+    private List<String> invalidationWatch; // Events to watch for invalidation
+    private String narrative;           // Full pattern explanation
+    private double priceMoveDuringPattern; // Price movement during pattern formation
+    private long patternDurationMs;     // How long pattern took to complete
+    private double target3;             // Extended target for pattern signals
+
     // ========== Exchange Info (parsed from scripCode) ==========
     private String exchange;            // N (NSE), B (BSE), M (MCX)
     private String exchangeType;        // C (Cash), D (Derivatives)
@@ -100,10 +119,31 @@ public class StrategySignal {
 
     public boolean isConfirmedSignal() {
         return signal != null && (
-            signal.contains("CONFIRMED") || 
+            signal.contains("CONFIRMED") ||
             signal.contains("STRONG") ||
             signal.contains("FADE")
         );
+    }
+
+    /**
+     * Check if this is a pattern-based signal (from Phase 4 SMTIS)
+     */
+    public boolean isPatternSignal() {
+        return patternId != null && !patternId.isEmpty();
+    }
+
+    /**
+     * Get combined confidence (pattern + historical)
+     */
+    public double getCombinedConfidence() {
+        if (!isPatternSignal()) {
+            return confidence;
+        }
+        // Blend pattern confidence with historical success rate
+        if (historicalSampleSize > 30) {
+            return patternConfidence * 0.6 + historicalSuccessRate * 0.4;
+        }
+        return patternConfidence;
     }
 
     /**

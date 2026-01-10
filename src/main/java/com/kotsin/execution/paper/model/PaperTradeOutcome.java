@@ -50,7 +50,20 @@ public class PaperTradeOutcome {
     
     private double positionValue;
     private double positionSizeMultiplier;
-    
+
+    // ========== Pattern Metadata (Phase 4 SMTIS) ==========
+    private String patternId;           // Pattern template ID for stats update
+    private String sequenceId;          // Sequence ID for correlation
+    private String familyId;            // Family ID for family-specific stats
+    private String patternCategory;     // REVERSAL, CONTINUATION, etc.
+    private boolean target1Hit;         // Did trade hit target 1?
+    private boolean target2Hit;         // Did trade hit target 2?
+    private boolean target3Hit;         // Did trade hit target 3 (extended)?
+    private boolean stopHit;            // Did trade hit stop loss?
+    private long timeToOutcomeMs;       // Time from entry to outcome
+    private long timeToTarget1Ms;       // Time to hit target 1 (if hit)
+    private double pnlPct;              // P&L as percentage of entry
+
     // ========== Kafka Serde ==========
     
     private static final ObjectMapper MAPPER = new ObjectMapper()
