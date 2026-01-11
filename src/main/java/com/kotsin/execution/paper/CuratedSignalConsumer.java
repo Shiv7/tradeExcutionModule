@@ -80,14 +80,16 @@ public class CuratedSignalConsumer {
         }
     }
 
-    // FIX: Changed from deprecated "trading-signals-curated" to unified "trading-signals-v2"
-    // Note: This consumer provides paper trading functionality alongside QuantSignalConsumer
-    @KafkaListener(
-            topics = "trading-signals-v2",
-            groupId = "paper-trade-executor-curated",
-            containerFactory = "kafkaListenerContainerFactory"
-    )
+    // DISABLED: This consumer is redundant - QuantSignalConsumer already handles trading-signals-v2
+    // The CuratedSignalDTO format doesn't match QuantTradingSignal format in trading-signals-v2
+    // Keeping the code for reference but disabling the listener
+    // @KafkaListener(
+    //         topics = "trading-signals-v2",
+    //         groupId = "paper-trade-executor-curated",
+    //         containerFactory = "kafkaListenerContainerFactory"
+    // )
     public void onCuratedSignal(String payload) {
+        // DISABLED - QuantSignalConsumer handles this topic
         if (!enabled) {
             return;
         }
