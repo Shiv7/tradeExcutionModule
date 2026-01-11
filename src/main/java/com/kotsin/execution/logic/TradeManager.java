@@ -47,8 +47,8 @@ public class TradeManager {
      */
     private final Map<String, List<Candlestick>> recentCandles = new ConcurrentHashMap<>();
 
-    /** TODO: externalize via TradeProps later */
-    private static final int POSITION_SIZE = 1;
+    @Value("${trade.position.size:1}")
+    private int defaultPositionSize;
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -254,7 +254,13 @@ public class TradeManager {
         trade.setEntryTriggered(true);
         trade.setEntryPrice(entryPrice);
         trade.setEntryTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(confirmationCandle.getWindowStartMillis()), IST));
-        trade.setPositionSize(POSITION_SIZE);
+        // Use dynamic position size from signal metadata if available, otherwise use default
+        int positionSize = defaultPositionSize;
+        Object multiplier = trade.getMetadata().get("positionSizeMultiplier");
+        if (multiplier instanceof Number) {
+            positionSize = (int) Math.max(1, defaultPositionSize * ((Number) multiplier).doubleValue());
+        }
+        trade.setPositionSize(positionSize);
         trade.setStatus(ActiveTrade.TradeStatus.ACTIVE);
         trade.setHighSinceEntry(entryPrice);
         trade.setLowSinceEntry(entryPrice);

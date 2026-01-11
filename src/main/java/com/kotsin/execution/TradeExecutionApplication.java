@@ -4,16 +4,17 @@ import io.swagger.v3.oas.annotations.OpenAPIDefinition;
 import io.swagger.v3.oas.annotations.info.Info;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Main Spring Boot application for the Real-Time Trade Execution Module.
- * 
+ *
  * This module consumes strategy signals, monitors live market data,
  * and publishes trade results with profit/loss to Kafka topics.
- * 
+ *
  * 🛡️ BULLETPROOF ERROR HANDLING: Malformed messages are gracefully handled and discarded
  * 📊 COMPREHENSIVE MONITORING: Error statistics and patterns are tracked for analysis
  */
@@ -22,6 +23,11 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableKafka
 @EnableScheduling
 @EnableAsync
+// FIX: Explicit MongoDB repository scanning to prevent Redis from scanning these packages
+@EnableMongoRepositories(basePackages = {
+    "com.kotsin.execution.repository",
+    "com.kotsin.execution.rl.repository"
+})
 @OpenAPIDefinition(info = @Info(title = "Trade Execution APIs", version = "1.0", description = "Live + Virtual trading endpoints"))
 public class TradeExecutionApplication {
     

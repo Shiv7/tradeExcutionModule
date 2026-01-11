@@ -80,9 +80,11 @@ public class CuratedSignalConsumer {
         }
     }
 
+    // FIX: Changed from deprecated "trading-signals-curated" to unified "trading-signals-v2"
+    // Note: This consumer provides paper trading functionality alongside QuantSignalConsumer
     @KafkaListener(
-            topics = "trading-signals-curated",
-            groupId = "paper-trade-executor",
+            topics = "trading-signals-v2",
+            groupId = "paper-trade-executor-curated",
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void onCuratedSignal(String payload) {
