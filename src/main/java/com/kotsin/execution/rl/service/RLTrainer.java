@@ -196,21 +196,21 @@ public class RLTrainer {
         if (!isInitialized || buffer.size() < MIN_EXPERIENCES_FOR_TRAINING) {
             return;
         }
-        
-        log.info("Starting scheduled batch training...");
-        
+
+        log.debug("Starting scheduled batch training...");
+
         // Multiple passes
         for (int epoch = 0; epoch < 5; epoch++) {
             trainMiniBatch();
         }
-        
+
         // Update module insights
         updateModuleInsights();
-        
+
         // Save policy
         savePolicy();
-        
-        log.info("Batch training complete. Policy saved.");
+
+        log.debug("Batch training complete. Policy saved.");
     }
     
     /**
@@ -329,8 +329,8 @@ public class RLTrainer {
         currentPolicy.setRecentWinRate(stats.winRate());
         
         currentPolicy = policyRepository.save(currentPolicy);
-        
-        log.info("Policy saved: version={}, experiences={}, winRate={}%",
+
+        log.debug("Policy saved: version={}, experiences={}, winRate={}%",
             currentPolicy.getVersion(), currentPolicy.getTotalExperiences(),
             String.format("%.2f", currentPolicy.getRecentWinRate() * 100));
     }

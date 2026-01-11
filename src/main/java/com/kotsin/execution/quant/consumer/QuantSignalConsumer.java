@@ -56,10 +56,11 @@ public class QuantSignalConsumer {
 
     /**
      * Consume QuantTradingSignal from Kafka topic
+     * NOTE: Changed from deprecated "quant-trading-signals" to unified "trading-signals-v2"
      */
     @KafkaListener(
-            topics = "quant-trading-signals",
-            groupId = "${quant.signals.group-id:quant-signal-executor}",
+            topics = "trading-signals-v2",
+            groupId = "${quant.signals.group-id:quant-signal-executor-v2}",
             containerFactory = "curatedSignalKafkaListenerContainerFactory"
     )
     public void processQuantSignal(String payload, ConsumerRecord<?, ?> rec) {
