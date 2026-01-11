@@ -108,6 +108,7 @@ public class QuantTradingSignal {
     // ========== Nested Classes ==========
 
     public enum SignalType {
+        // Original types
         GAMMA_SQUEEZE_LONG,
         GAMMA_SQUEEZE_SHORT,
         IV_CRUSH_ENTRY,
@@ -120,7 +121,22 @@ public class QuantTradingSignal {
         WYCKOFF_DISTRIBUTION,
         PCR_EXTREME,
         MULTI_CATEGORY_CONFLUENCE,
-        CUSTOM
+        CUSTOM,
+        // New types from Phase 6 SignalGenerator
+        PATTERN,
+        SETUP,
+        FORECAST,
+        INTELLIGENCE,
+        MANUAL,
+        // Signal categories (may also be used as types)
+        REVERSAL,
+        CONTINUATION,
+        BREAKOUT,
+        BREAKDOWN,
+        MEAN_REVERSION,
+        SQUEEZE,
+        EXHAUSTION,
+        MOMENTUM
     }
 
     @Data
