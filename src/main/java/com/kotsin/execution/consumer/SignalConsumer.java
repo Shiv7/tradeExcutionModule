@@ -57,11 +57,15 @@ public class SignalConsumer {
     @Value("${trading.mode.live:true}")
     private boolean liveTradeEnabled;
 
-    @KafkaListener(
-            topics = "${trade.topics.signals:trading-signals}",
-            containerFactory = "strategySignalKafkaListenerContainerFactory",
-            errorHandler = "bulletproofErrorHandler"
-    )
+    /**
+     * DISABLED: This consumer expects old StrategySignal format.
+     * New signals use TradingSignal format and are processed by QuantSignalConsumer.
+     */
+    // @KafkaListener(
+    //         topics = "${trade.topics.signals:trading-signals}",
+    //         containerFactory = "strategySignalKafkaListenerContainerFactory",
+    //         errorHandler = "bulletproofErrorHandler"
+    // )
     public void processStrategySignal(
             StrategySignal raw,
             Acknowledgment ack,

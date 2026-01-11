@@ -23,11 +23,18 @@ public class QuantTradingSignal {
     // Identification
     private String signalId;
     private String scripCode;
+    private String familyId;         // Added for unified signal format
     private String symbol;
     private String companyName;
     private long timestamp;
     private String timeframe;
     private String humanReadableTime;
+
+    // Pattern identification (Phase 6)
+    private String patternId;
+    private String sequenceId;
+    private String category;         // REVERSAL, CONTINUATION, BREAKOUT, etc.
+    private String horizon;          // SCALP, SWING, etc.
 
     // Signal Core
     private double quantScore;
@@ -36,6 +43,9 @@ public class QuantTradingSignal {
     private String direction;        // LONG/SHORT
     private double directionalStrength;
     private double confidence;
+    private double patternConfidence;       // Pattern-specific confidence
+    private double historicalSuccessRate;   // Historical success rate
+    private int qualityScore;               // Overall quality score (0-100)
     private String rationale;
 
     // Entry Parameters

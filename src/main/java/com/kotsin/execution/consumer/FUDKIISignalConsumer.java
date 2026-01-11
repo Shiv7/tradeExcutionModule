@@ -62,13 +62,14 @@ public class FUDKIISignalConsumer {
     private double minStrength;
 
     /**
-     * Consume FUDKII signals from StreamingCandle
+     * DISABLED: FUDKII signals now flow through unified trading-signals-v2 topic
+     * and are processed by QuantSignalConsumer
      */
-    @KafkaListener(
-            topics = "kotsin_FUDKII",
-            groupId = "${app.kafka.consumer.fudkii-group-id:fudkii-executor}",
-            containerFactory = "curatedSignalKafkaListenerContainerFactory"
-    )
+    // @KafkaListener(
+    //         topics = "kotsin_FUDKII",
+    //         groupId = "${app.kafka.consumer.fudkii-group-id:fudkii-executor}",
+    //         containerFactory = "curatedSignalKafkaListenerContainerFactory"
+    // )
     public void processFUDKIISignal(String payload, ConsumerRecord<?, ?> rec) {
         final String topic = rec.topic();
         final int partition = rec.partition();

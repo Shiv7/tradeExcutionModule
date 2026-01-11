@@ -54,13 +54,14 @@ public class MasterArchSignalConsumer {
     private boolean liveTradeEnabled;
 
     /**
-     * Consume FinalOpportunityScore from Master Architecture
+     * DISABLED: Master Architecture signals now flow through unified trading-signals-v2 topic
+     * and are processed by QuantSignalConsumer
      */
-    @KafkaListener(
-            topics = {"kotsin_FF1", "score-final-opportunity"},
-            groupId = "${app.kafka.consumer.masterarch-group-id:masterarch-executor}",
-            containerFactory = "curatedSignalKafkaListenerContainerFactory"  // Uses String deserializer
-    )
+    // @KafkaListener(
+    //         topics = {"kotsin_FF1", "score-final-opportunity"},
+    //         groupId = "${app.kafka.consumer.masterarch-group-id:masterarch-executor}",
+    //         containerFactory = "curatedSignalKafkaListenerContainerFactory"
+    // )
     public void processMasterArchSignal(String payload, ConsumerRecord<?, ?> rec) {
         final String topic = rec.topic();
         final int partition = rec.partition();
