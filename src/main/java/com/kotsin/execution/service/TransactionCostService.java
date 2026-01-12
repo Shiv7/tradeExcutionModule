@@ -105,11 +105,11 @@ public class TransactionCostService {
                 .costPercentage((total / tradeValue) * 100)
                 .build();
         
-        log.info("💰 Transaction cost calculated | type={} value=₹{} side={} | " +
-                "total=₹{:.2f} ({:.3f}%) | breakdown: brokerage=₹{:.2f} stt=₹{:.2f} exchange=₹{:.2f} gst=₹{:.2f} sebi=₹{:.2f} stamp=₹{:.2f}",
+        log.info("Transaction cost calculated | type={} value={} side={} | " +
+                "total={} ({}%) | breakdown: brokerage={} stt={} exchange={} gst={} sebi={} stamp={}",
                 tradeType, tradeValue, side,
-                total, cost.getCostPercentage(),
-                brokerage, stt, exchangeCharges, gst, sebiCharges, stampDuty);
+                String.format("%.2f", total), String.format("%.3f", cost.getCostPercentage()),
+                String.format("%.2f", brokerage), String.format("%.2f", stt), String.format("%.2f", exchangeCharges), String.format("%.2f", gst), String.format("%.2f", sebiCharges), String.format("%.2f", stampDuty));
         
         return cost;
     }
@@ -176,8 +176,8 @@ public class TransactionCostService {
         double netPnL = grossPnL - totalCost;
         double costImpactPercent = (totalCost / entryValue) * 100;
         
-        log.info("💰 Round-trip cost | entry=₹{} exit=₹{} | grossPnL=₹{:.2f} costs=₹{:.2f} netPnL=₹{:.2f} | costImpact={:.3f}%",
-                entryValue, exitValue, grossPnL, totalCost, netPnL, costImpactPercent);
+        log.info("Round-trip cost | entry={} exit={} | grossPnL={} costs={} netPnL={} | costImpact={}%",
+                entryValue, exitValue, String.format("%.2f", grossPnL), String.format("%.2f", totalCost), String.format("%.2f", netPnL), String.format("%.3f", costImpactPercent));
         
         return RoundTripCost.builder()
                 .entryCost(entryCost)

@@ -201,24 +201,64 @@ public class KafkaConfig {
     }
 
     // ========== CURATED SIGNAL CONSUMER (String payload for flexible parsing) ==========
-    
+
+    /**
+     * FIX: Consumer group ID for QuantSignalConsumer.
+     * Previously hardcoded as "paper-trade-executor" which ignored the @KafkaListener groupId.
+     * Now using a configurable property with sensible default.
+     */
+    @Value("${quant.signals.group-id:quant-signal-executor-v2}")
+    private String quantSignalGroupId;
+
     @Bean("curatedSignalConsumerFactory")
     public ConsumerFactory<String, String> curatedSignalConsumerFactory() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, "paper-trade-executor");
+
+        // FIX: Use configurable group ID instead of hardcoded value
+        // Previously: configProps.put(ConsumerConfig.GROUP_ID_CONFIG, "paper-trade-executor");
+        // This was ignoring the @KafkaListener groupId annotation in QuantSignalConsumer
+        configProps.put(ConsumerConfig.GROUP_ID_CONFIG, quantSignalGroupId);
+
         configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
-        configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+
+        // FIX: Changed from "latest" to "earliest" to process signals published before consumer started
+        // Previously: configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        // This was causing all historical signals to be permanently skipped on first consumer start
+        configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        // FIX: Disable auto-commit for manual acknowledgment
+        // Previously: configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+        // Auto-commit can cause message loss if processing fails after commit
+        configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+
+        // Additional robustness settings
+        configProps.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
+        configProps.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 30000);
+        configProps.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10000);
+
         return new DefaultKafkaConsumerFactory<>(configProps);
     }
-    
+
     @Bean("curatedSignalKafkaListenerContainerFactory")
     public ConcurrentKafkaListenerContainerFactory<String, String> curatedSignalKafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, String> factory = 
+        ConcurrentKafkaListenerContainerFactory<String, String> factory =
             new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(curatedSignalConsumerFactory());
+
+        // FIX: Enable manual acknowledgment mode (consistent with other factories)
+        // This ensures messages are only committed after successful processing
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+
+        // FIX: Add error handler for robustness
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(new FixedBackOff(1000L, 3L));
+        errorHandler.addNotRetryableExceptions(
+            org.springframework.kafka.support.serializer.DeserializationException.class,
+            org.apache.kafka.common.errors.SerializationException.class
+        );
+        factory.setCommonErrorHandler(errorHandler);
+
         return factory;
     }
     

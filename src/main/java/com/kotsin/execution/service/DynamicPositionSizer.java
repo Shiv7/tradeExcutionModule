@@ -72,17 +72,17 @@ public class DynamicPositionSizer {
             double vpinValue,
             double riskRewardRatio
     ) {
-        log.debug("🎯 [POSITION-SIZING] Calculating position size:");
-        log.debug("   Account: ₹{}, Entry: {}, SL: {}", accountValue, entryPrice, stopLoss);
-        log.debug("   ML Confidence: {:.3f}, GARCH Vol: {:.3f}, VPIN: {:.3f}, RR: {:.2f}",
-                mlConfidence, garchVolatility, vpinValue, riskRewardRatio);
+        log.debug("[POSITION-SIZING] Calculating position size:");
+        log.debug("   Account: {}, Entry: {}, SL: {}", accountValue, entryPrice, stopLoss);
+        log.debug("   ML Confidence: {}, GARCH Vol: {}, VPIN: {}, RR: {}",
+                String.format("%.3f", mlConfidence), String.format("%.3f", garchVolatility), String.format("%.3f", vpinValue), String.format("%.2f", riskRewardRatio));
 
         // ========================================
         // FILTER 1: ML Confidence Check
         // ========================================
         if (mlConfidence < minMlConfidence) {
-            log.info("❌ [POSITION-SIZING] ML confidence too low: {:.3f} < {:.3f} → SIZE = 0",
-                    mlConfidence, minMlConfidence);
+            log.info("[POSITION-SIZING] ML confidence too low: {} < {} -> SIZE = 0",
+                    String.format("%.3f", mlConfidence), String.format("%.3f", minMlConfidence));
             return 0;
         }
 
@@ -90,8 +90,8 @@ public class DynamicPositionSizer {
         // FILTER 2: VPIN Toxic Flow Check
         // ========================================
         if (vpinValue > vpinToxicThreshold) {
-            log.info("❌ [POSITION-SIZING] VPIN toxic flow detected: {:.3f} > {:.3f} → SIZE = 0",
-                    vpinValue, vpinToxicThreshold);
+            log.info("[POSITION-SIZING] VPIN toxic flow detected: {} > {} -> SIZE = 0",
+                    String.format("%.3f", vpinValue), String.format("%.3f", vpinToxicThreshold));
             return 0;
         }
 
@@ -99,8 +99,8 @@ public class DynamicPositionSizer {
         // FILTER 3: Risk-Reward Check
         // ========================================
         if (riskRewardRatio < minRiskReward) {
-            log.info("❌ [POSITION-SIZING] Risk-Reward too low: {:.2f} < {:.2f} → SIZE = 0",
-                    riskRewardRatio, minRiskReward);
+            log.info("[POSITION-SIZING] Risk-Reward too low: {} < {} -> SIZE = 0",
+                    String.format("%.2f", riskRewardRatio), String.format("%.2f", minRiskReward));
             return 0;
         }
 
@@ -108,7 +108,7 @@ public class DynamicPositionSizer {
         // STEP 1: Calculate Base Risk Amount
         // ========================================
         double baseRiskAmount = accountValue * baseRiskPercent;
-        log.debug("   Base risk (2% of account): ₹{:.2f}", baseRiskAmount);
+        log.debug("   Base risk (2% of account): {}", String.format("%.2f", baseRiskAmount));
 
         // ========================================
         // STEP 2: ML Confidence Adjustment
@@ -117,7 +117,7 @@ public class DynamicPositionSizer {
         // This makes the system more conservative
         // 0.6 → 0.36x, 0.7 → 0.49x, 0.8 → 0.64x, 0.9 → 0.81x, 1.0 → 1.0x
         double mlAdjustment = Math.pow(mlConfidence, 2);
-        log.debug("   ML adjustment (conf^2): {:.3f}", mlAdjustment);
+        log.debug("   ML adjustment (conf^2): {}", String.format("%.3f", mlAdjustment));
 
         // ========================================
         // STEP 3: GARCH Volatility Adjustment
@@ -129,7 +129,7 @@ public class DynamicPositionSizer {
         if (garchVolatility > 0) {
             volAdjustment = Math.min(1.5, targetAnnualVol / garchVolatility);
         }
-        log.debug("   Vol adjustment (targeting {}% vol): {:.3f}", targetAnnualVol * 100, volAdjustment);
+        log.debug("   Vol adjustment (targeting {}% vol): {}", targetAnnualVol * 100, String.format("%.3f", volAdjustment));
 
         // ========================================
         // STEP 4: Microstructure Adjustment (VPIN)
@@ -138,7 +138,7 @@ public class DynamicPositionSizer {
         // VPIN 0.0 → 1.0x, VPIN 0.5 → 0.71x, VPIN 0.7 → 0.43x
         double microAdjustment = 1.0 - (vpinValue / vpinToxicThreshold);
         microAdjustment = Math.max(0.0, Math.min(1.0, microAdjustment));
-        log.debug("   Micro adjustment (VPIN-based): {:.3f}", microAdjustment);
+        log.debug("   Micro adjustment (VPIN-based): {}", String.format("%.3f", microAdjustment));
 
         // ========================================
         // STEP 5: Risk-Reward Bonus
@@ -146,7 +146,7 @@ public class DynamicPositionSizer {
         // Reward higher RR ratios
         // RR 1:1 → 1.0x, RR 1:2 → 1.15x, RR 1:3 → 1.25x, RR 1:5 → 1.4x (capped)
         double rrBonus = 1.0 + Math.min(0.4, Math.log(riskRewardRatio) * 0.3);
-        log.debug("   RR bonus (reward good setups): {:.3f}", rrBonus);
+        log.debug("   RR bonus (reward good setups): {}", String.format("%.3f", rrBonus));
 
         // ========================================
         // STEP 6: Calculate Stop Loss Distance
@@ -157,7 +157,7 @@ public class DynamicPositionSizer {
             return 0;
         }
         double stopLossPercent = stopLossDistance / entryPrice;
-        log.debug("   Stop loss distance: ₹{:.2f} ({:.2f}%)", stopLossDistance, stopLossPercent * 100);
+        log.debug("   Stop loss distance: {} ({}%)", String.format("%.2f", stopLossDistance), String.format("%.2f", stopLossPercent * 100));
 
         // ========================================
         // STEP 7: Combine All Adjustments
@@ -168,8 +168,8 @@ public class DynamicPositionSizer {
                 * microAdjustment
                 * rrBonus;
 
-        log.debug("   Adjusted risk: ₹{:.2f} (base × {:.3f} × {:.3f} × {:.3f} × {:.3f})",
-                adjustedRiskAmount, mlAdjustment, volAdjustment, microAdjustment, rrBonus);
+        log.debug("   Adjusted risk: {} (base x {} x {} x {} x {})",
+                String.format("%.2f", adjustedRiskAmount), String.format("%.3f", mlAdjustment), String.format("%.3f", volAdjustment), String.format("%.3f", microAdjustment), String.format("%.3f", rrBonus));
 
         // ========================================
         // STEP 8: Convert to Quantity
@@ -197,12 +197,12 @@ public class DynamicPositionSizer {
         double portfolioPercent = (positionValue / accountValue) * 100;
         double riskPercent = (quantity * stopLossDistance / accountValue) * 100;
 
-        log.info("✅ [POSITION-SIZING] FINAL POSITION:");
-        log.info("   Quantity: {} (₹{:.2f} position, {:.2f}% of portfolio)",
-                quantity, positionValue, portfolioPercent);
-        log.info("   Risk: ₹{:.2f} ({:.2f}% of account)", quantity * stopLossDistance, riskPercent);
-        log.info("   Factors: ML={:.3f}, Vol={:.3f}, VPIN={:.3f}, RR={:.2f}",
-                mlAdjustment, volAdjustment, microAdjustment, rrBonus);
+        log.info("[POSITION-SIZING] FINAL POSITION:");
+        log.info("   Quantity: {} ({} position, {}% of portfolio)",
+                quantity, String.format("%.2f", positionValue), String.format("%.2f", portfolioPercent));
+        log.info("   Risk: {} ({}% of account)", String.format("%.2f", quantity * stopLossDistance), String.format("%.2f", riskPercent));
+        log.info("   Factors: ML={}, Vol={}, VPIN={}, RR={}",
+                String.format("%.3f", mlAdjustment), String.format("%.3f", volAdjustment), String.format("%.3f", microAdjustment), String.format("%.2f", rrBonus));
 
         return quantity;
     }
@@ -263,7 +263,7 @@ public class DynamicPositionSizer {
         double kellyFraction = (winProbability * b - q) / b;
 
         if (kellyFraction <= 0) {
-            log.info("❌ [KELLY] Negative Kelly fraction: {:.3f} → SIZE = 0", kellyFraction);
+            log.info("[KELLY] Negative Kelly fraction: {} -> SIZE = 0", String.format("%.3f", kellyFraction));
             return 0;
         }
 
@@ -274,8 +274,8 @@ public class DynamicPositionSizer {
         double stopLossDistance = Math.abs(entryPrice - stopLoss);
         int quantity = (int) ((accountValue * fractionalKelly) / stopLossDistance);
 
-        log.info("✅ [KELLY] Full Kelly: {:.3f}, Fractional: {:.3f}, Quantity: {}",
-                kellyFraction, fractionalKelly, quantity);
+        log.info("[KELLY] Full Kelly: {}, Fractional: {}, Quantity: {}",
+                String.format("%.3f", kellyFraction), String.format("%.3f", fractionalKelly), quantity);
 
         return Math.max(0, quantity);
     }

@@ -89,8 +89,8 @@ public class QuantPositionSizer {
         // Ensure minimum
         quantity = Math.max(minQuantity, quantity);
 
-        log.debug("quant_sizer_calculated entry={:.2f} sl={:.2f} risk={:.2f} conf={:.2f} mult={:.2f} qty={}",
-                entryPrice, stopLoss, riskPerShare, confidence, multiplier, quantity);
+        log.debug("quant_sizer_calculated entry={} sl={} risk={} conf={} mult={} qty={}",
+                String.format("%.2f", entryPrice), String.format("%.2f", stopLoss), String.format("%.2f", riskPerShare), String.format("%.2f", confidence), String.format("%.2f", multiplier), quantity);
 
         return quantity;
     }

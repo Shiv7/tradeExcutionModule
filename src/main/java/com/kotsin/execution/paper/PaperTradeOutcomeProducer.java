@@ -36,11 +36,11 @@ public class PaperTradeOutcomeProducer {
         try {
             // Send to main trade-outcomes topic
             outcomeKafkaTemplate.send(TOPIC, outcome.getScripCode(), outcome);
-            log.info("OUTCOME SENT | {} | signalId={} | win={} | R={:.2f} | exitReason={}",
+            log.info("OUTCOME SENT | {} | signalId={} | win={} | R={} | exitReason={}",
                     outcome.getScripCode(),
                     outcome.getSignalId(),
                     outcome.isWin(),
-                    outcome.getRMultiple(),
+                    String.format("%.2f", outcome.getRMultiple()),
                     outcome.getExitReason());
 
             // If this is a pattern-based trade, also send to pattern-outcomes topic
@@ -69,11 +69,11 @@ public class PaperTradeOutcomeProducer {
                     : outcome.getPatternId();
 
             outcomeKafkaTemplate.send(PATTERN_OUTCOMES_TOPIC, key, outcome);
-            log.info("PATTERN OUTCOME SENT | {} | pattern={} | win={} | pnl={:.2f}%",
+            log.info("PATTERN OUTCOME SENT | {} | pattern={} | win={} | pnl={}%",
                     outcome.getScripCode(),
                     outcome.getPatternId(),
                     outcome.isWin(),
-                    outcome.getPnlPct());
+                    String.format("%.2f", outcome.getPnlPct()));
         } catch (Exception e) {
             log.error("Failed to send pattern outcome: {}", e.getMessage(), e);
         }

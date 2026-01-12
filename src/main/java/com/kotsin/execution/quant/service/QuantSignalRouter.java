@@ -103,14 +103,14 @@ public class QuantSignalRouter {
             VirtualOrder order = buildVirtualOrder(signal, quantity);
             VirtualOrder filledOrder = virtualEngine.createOrder(order);
 
-            log.info("QUANT_ORDER_CREATED id={} scrip={} side={} qty={} entry={:.2f} sl={:.2f} tp1={:.2f}",
+            log.info("QUANT_ORDER_CREATED id={} scrip={} side={} qty={} entry={} sl={} tp1={}",
                     filledOrder.getId(),
                     scripCode,
                     filledOrder.getSide(),
                     quantity,
-                    signal.getEntryPrice(),
-                    signal.getStopLoss(),
-                    signal.getTarget1());
+                    String.format("%.2f", signal.getEntryPrice()),
+                    String.format("%.2f", signal.getStopLoss()),
+                    String.format("%.2f", signal.getTarget1()));
 
             // ========== Handle Hedging ==========
             if (enableHedging && signal.getHedging() != null && signal.getHedging().isRecommended()) {
@@ -118,13 +118,22 @@ public class QuantSignalRouter {
             }
 
             // ========== Record Order in Wallet ==========
-            walletService.recordOrder(
-                scripCode,
-                signal.isLong() ? "BUY" : "SELL",
-                quantity,
-                signal.getEntryPrice(),
-                "QUANT"
-            );
+            // FIX: Handle WalletService exceptions properly instead of silently ignoring
+            try {
+                String walletOrderId = walletService.recordOrder(
+                    scripCode,
+                    signal.isLong() ? "BUY" : "SELL",
+                    quantity,
+                    signal.getEntryPrice(),
+                    "QUANT"
+                );
+                log.info("QUANT_WALLET_RECORDED orderId={} scrip={}", walletOrderId, scripCode);
+            } catch (WalletService.WalletOperationException we) {
+                // Log wallet failure but don't fail the trade
+                // The virtual order was already created successfully
+                log.error("QUANT_WALLET_FAILED scrip={} orderId={} error={}",
+                        scripCode, filledOrder.getId(), we.getMessage());
+            }
 
         } catch (Exception e) {
             log.error("quant_route_error scrip={} err={}", scripCode, e.getMessage(), e);

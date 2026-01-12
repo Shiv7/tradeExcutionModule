@@ -177,13 +177,13 @@ public class CuratedSignalConsumer {
                 walletRepo.savePosition(position);
             });
 
-            log.info("PAPER TRADE ENTRY | {} | side={} | qty={} | price={:.2f} | SL={:.2f} | TP={:.2f} | signalId={}",
+            log.info("PAPER TRADE ENTRY | {} | side={} | qty={} | price={} | SL={} | TP={} | signalId={}",
                     signal.getScripCode(),
                     order.getSide(),
                     quantity,
-                    currentPrice,
-                    signal.getEntry() != null ? signal.getEntry().getStopLoss() : 0,
-                    signal.getEntry() != null ? signal.getEntry().getTarget() : 0,
+                    String.format("%.2f", currentPrice),
+                    String.format("%.2f", signal.getEntry() != null ? signal.getEntry().getStopLoss() : 0),
+                    String.format("%.2f", signal.getEntry() != null ? signal.getEntry().getTarget() : 0),
                     signal.getSignalId());
 
         } catch (Exception e) {

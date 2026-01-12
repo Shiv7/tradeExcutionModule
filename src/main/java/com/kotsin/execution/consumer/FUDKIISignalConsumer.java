@@ -189,8 +189,8 @@ public class FUDKIISignalConsumer {
 
             } else {
                 // LIVE MODE
-                log.info("FUDKII_live_mode scrip={} ageSeconds={} strength={:.3f} bb={} st={}",
-                        scripCode, ageSeconds, strength, bbBand, superTrendDirection);
+                log.info("FUDKII_live_mode scrip={} ageSeconds={} strength={} bb={} st={}",
+                        scripCode, ageSeconds, String.format("%.3f", strength), bbBand, superTrendDirection);
 
                 // Check trading hours
                 String exchange = signal.getExchange() != null ? signal.getExchange() : "N";

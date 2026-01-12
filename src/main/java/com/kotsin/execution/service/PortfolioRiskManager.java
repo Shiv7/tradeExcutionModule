@@ -115,7 +115,7 @@ public class PortfolioRiskManager {
         this.peakAccountValue = accountValue;
         this.emergencyStopActivated = false;
 
-        log.info("✅ [PORTFOLIO-RISK] Initialized with ₹{:.2f}", accountValue);
+        log.info("[PORTFOLIO-RISK] Initialized with {}", String.format("%.2f", accountValue));
         log.info("   Max Drawdown: {}%", maxDrawdownPercent * 100);
         log.info("   Max Daily Loss: {}%", maxDailyLossPercent * 100);
         log.info("   Max Positions: {}", maxConcurrentPositions);
@@ -150,8 +150,8 @@ public class PortfolioRiskManager {
         // ========================================
         double currentDrawdown = calculateCurrentDrawdown();
         if (currentDrawdown >= maxDrawdownPercent) {
-            log.error("🚨 [PORTFOLIO-RISK] MAX DRAWDOWN BREACHED: {:.2f}% >= {:.2f}%. Trade BLOCKED.",
-                    currentDrawdown * 100, maxDrawdownPercent * 100);
+            log.error("[PORTFOLIO-RISK] MAX DRAWDOWN BREACHED: {}% >= {}%. Trade BLOCKED.",
+                    String.format("%.2f", currentDrawdown * 100), String.format("%.2f", maxDrawdownPercent * 100));
             activateEmergencyStop("MAX_DRAWDOWN_BREACHED");
             return false;
         }
@@ -161,8 +161,8 @@ public class PortfolioRiskManager {
         // ========================================
         double dailyLoss = calculateDailyLoss();
         if (dailyLoss >= maxDailyLossPercent) {
-            log.error("🚨 [PORTFOLIO-RISK] DAILY LOSS LIMIT BREACHED: {:.2f}% >= {:.2f}%. Trade BLOCKED.",
-                    dailyLoss * 100, maxDailyLossPercent * 100);
+            log.error("[PORTFOLIO-RISK] DAILY LOSS LIMIT BREACHED: {}% >= {}%. Trade BLOCKED.",
+                    String.format("%.2f", dailyLoss * 100), String.format("%.2f", maxDailyLossPercent * 100));
             return false;
         }
 
@@ -180,8 +180,8 @@ public class PortfolioRiskManager {
         // ========================================
         double maxCorr = calculateMaxCorrelation(proposedTrade, currentPositions);
         if (maxCorr > this.maxCorrelation) {
-            log.warn("⚠️ [PORTFOLIO-RISK] High correlation: {:.2f} > {:.2f}. Trade BLOCKED.",
-                    maxCorr, this.maxCorrelation);
+            log.warn("[PORTFOLIO-RISK] High correlation: {} > {}. Trade BLOCKED.",
+                    String.format("%.2f", maxCorr), String.format("%.2f", this.maxCorrelation));
             return false;
         }
 
@@ -191,8 +191,8 @@ public class PortfolioRiskManager {
         String proposedSector = getSector(proposedTrade.getCompanyName());
         double sectorExposure = calculateSectorExposure(proposedSector, currentPositions, proposedTrade);
         if (sectorExposure > maxSectorConcentration) {
-            log.warn("⚠️ [PORTFOLIO-RISK] Sector {} concentration: {:.2f}% > {:.2f}%. Trade BLOCKED.",
-                    proposedSector, sectorExposure * 100, maxSectorConcentration * 100);
+            log.warn("[PORTFOLIO-RISK] Sector {} concentration: {}% > {}%. Trade BLOCKED.",
+                    proposedSector, String.format("%.2f", sectorExposure * 100), String.format("%.2f", maxSectorConcentration * 100));
             return false;
         }
 
@@ -202,20 +202,20 @@ public class PortfolioRiskManager {
         double totalExposure = calculateTotalExposure(currentPositions, proposedTrade);
         double leverage = totalExposure / currentAccountValue;
         if (leverage > maxLeverage) {
-            log.warn("⚠️ [PORTFOLIO-RISK] Leverage too high: {:.2f}x > {:.2f}x. Trade BLOCKED.",
-                    leverage, maxLeverage);
+            log.warn("[PORTFOLIO-RISK] Leverage too high: {}x > {}x. Trade BLOCKED.",
+                    String.format("%.2f", leverage), String.format("%.2f", maxLeverage));
             return false;
         }
 
         // ========================================
         // ALL CHECKS PASSED
         // ========================================
-        log.info("✅ [PORTFOLIO-RISK] Trade APPROVED: {}", proposedTrade.getScripCode());
-        log.info("   Drawdown: {:.2f}%, Daily Loss: {:.2f}%, Positions: {}/{}",
-                currentDrawdown * 100, dailyLoss * 100,
+        log.info("[PORTFOLIO-RISK] Trade APPROVED: {}", proposedTrade.getScripCode());
+        log.info("   Drawdown: {}%, Daily Loss: {}%, Positions: {}/{}",
+                String.format("%.2f", currentDrawdown * 100), String.format("%.2f", dailyLoss * 100),
                 currentPositions.size() + 1, maxConcurrentPositions);
-        log.info("   Correlation: {:.2f}, Sector: {} ({:.2f}%), Leverage: {:.2f}x",
-                maxCorr, proposedSector, sectorExposure * 100, leverage);
+        log.info("   Correlation: {}, Sector: {} ({}%), Leverage: {}x",
+                String.format("%.2f", maxCorr), proposedSector, String.format("%.2f", sectorExposure * 100), String.format("%.2f", leverage));
 
         return true;
     }
@@ -238,11 +238,11 @@ public class PortfolioRiskManager {
         perf.totalPnL += pnl;
         perf.tradeCount++;
 
-        log.info("💰 [PORTFOLIO-RISK] Portfolio updated: ₹{:.2f} (PnL: ₹{:.2f})", newValue, pnl);
-        log.info("   Peak: ₹{:.2f}, Drawdown: {:.2f}%, Daily PnL: ₹{:.2f}",
-                peakAccountValue,
-                calculateCurrentDrawdown() * 100,
-                perf.totalPnL);
+        log.info("[PORTFOLIO-RISK] Portfolio updated: {} (PnL: {})", String.format("%.2f", newValue), String.format("%.2f", pnl));
+        log.info("   Peak: {}, Drawdown: {}%, Daily PnL: {}",
+                String.format("%.2f", peakAccountValue),
+                String.format("%.2f", calculateCurrentDrawdown() * 100),
+                String.format("%.2f", perf.totalPnL));
     }
 
     /**
@@ -355,12 +355,12 @@ public class PortfolioRiskManager {
         this.emergencyStopActivated = true;
         this.emergencyStopTime = LocalDateTime.now();
 
-        log.error("🚨🚨🚨 [PORTFOLIO-RISK] EMERGENCY STOP ACTIVATED 🚨🚨🚨");
+        log.error("[PORTFOLIO-RISK] EMERGENCY STOP ACTIVATED");
         log.error("   Reason: {}", reason);
         log.error("   Time: {}", emergencyStopTime);
-        log.error("   Account: ₹{:.2f}, Drawdown: {:.2f}%",
-                currentAccountValue, calculateCurrentDrawdown() * 100);
-        log.error("🚨 ALL NEW TRADES BLOCKED UNTIL MANUAL RESET 🚨");
+        log.error("   Account: {}, Drawdown: {}%",
+                String.format("%.2f", currentAccountValue), String.format("%.2f", calculateCurrentDrawdown() * 100));
+        log.error("ALL NEW TRADES BLOCKED UNTIL MANUAL RESET");
 
         // TODO: Send critical alert via Telegram/Email
     }

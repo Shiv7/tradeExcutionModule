@@ -166,8 +166,8 @@ public class MasterArchSignalConsumer {
                 
             } else {
                 // LIVE MODE
-                log.info("🎯 masterarch_live_mode scrip={} ageSeconds={} score={:.3f} decision={} lots={} hedge={}",
-                        scripCode, ageSeconds, finalScore, decision, recommendedLots, hedgeRecommended);
+                log.info("masterarch_live_mode scrip={} ageSeconds={} score={} decision={} lots={} hedge={}",
+                        scripCode, ageSeconds, String.format("%.3f", finalScore), decision, recommendedLots, hedgeRecommended);
 
                 // Check trading hours
                 String exchange = signal.getExchange() != null ? signal.getExchange() : "N";
