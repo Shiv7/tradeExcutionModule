@@ -29,6 +29,10 @@ public class QuantTradingSignal {
     private long timestamp;
     private String timeframe;
     private String humanReadableTime;
+    private String exchange;         // FIX: Added exchange field (N=NSE, B=BSE, M=MCX)
+
+    // Enrichment note from SMTIS pipeline
+    private String enrichmentNote;
 
     // Pattern identification (Phase 6)
     private String patternId;
@@ -90,10 +94,16 @@ public class QuantTradingSignal {
     }
 
     /**
-     * Get exchange from scripCode
+     * Get exchange - uses explicit exchange field first, then derives from scripCode
      */
     public String getExchange() {
+        // FIX: Use explicit exchange field if set
+        if (exchange != null && !exchange.isEmpty()) {
+            return exchange;
+        }
+        // Fallback: derive from scripCode
         if (scripCode == null) return "N";
+        if (scripCode.contains("_M_") || scripCode.startsWith("M_") || scripCode.contains("MCX")) return "M";
         if (scripCode.contains("_N_") || scripCode.startsWith("N_")) return "N";
         if (scripCode.contains("_B_") || scripCode.startsWith("B_")) return "B";
         return "N";
@@ -146,7 +156,16 @@ public class QuantTradingSignal {
         MEAN_REVERSION,
         SQUEEZE,
         EXHAUSTION,
-        MOMENTUM
+        MOMENTUM,
+        // FIX: Added missing types from TradingSignalPublisher.mapSourceToSignalType()
+        // These are sent by streamingcandle but were not in this enum!
+        FLOW_REVERSAL_LONG,
+        FLOW_REVERSAL_SHORT,
+        CONFLUENCE_BREAKOUT,
+        CONFLUENCE_BREAKDOWN,
+        SMART_MONEY_ACCUMULATION,
+        MULTI_TIMEFRAME_ALIGNMENT,
+        REVERSAL_PATTERN
     }
 
     @Data
