@@ -85,6 +85,62 @@ public class QuantTradingSignal {
     private boolean actionable;
     private String actionableReason;
 
+    // ========== CONTEXT-AWARE ENHANCEMENTS (SMTIS v2.0) ==========
+
+    // Session Context
+    private Double sessionPosition;              // Position in session range (0-100)
+    private String sessionPositionDesc;          // AT_SESSION_LOW, MIDDLE, AT_SESSION_HIGH
+    private Boolean vBottomDetected;             // V-bottom reversal detected
+    private Boolean vTopDetected;                // V-top distribution detected
+    private Integer failedBreakoutCount;         // Resistance holding strength
+    private Integer failedBreakdownCount;        // Support holding strength
+    private String currentSession;               // MCX_MORNING, MCX_EVENING, etc.
+
+    // Family Context (Multi-Instrument Analysis)
+    private String familyBias;                   // BULLISH, BEARISH, WEAK_BULLISH, WEAK_BEARISH, NEUTRAL
+    private Double familyAlignment;              // 0-100 percentage
+    private Boolean fullyAligned;                // All instruments aligned
+    private Boolean hasDivergence;               // Options vs price divergence
+    private java.util.List<String> divergences;  // Divergence details
+    private Boolean shortSqueezeSetup;           // Short squeeze detected
+    private Boolean longSqueezeSetup;            // Long squeeze detected
+    private String familyInterpretation;         // Human-readable context
+
+    // Event Tracking (Adaptive Learning)
+    private java.util.List<String> triggerEvents;    // Events that triggered this signal
+    private Integer eventCount;                      // Total events detected
+    private java.util.List<String> matchedEvents;    // Pattern/setup matched events
+    private Integer confirmedEventsCount;            // Previously confirmed events
+    private Integer failedEventsCount;               // Previously failed events
+    private Double eventConfirmationRate;            // Historical confirmation rate (0-100)
+
+    // Adaptive Modifiers
+    private Double contextModifier;                  // Combined modifier applied to confidence
+    private String modifierBreakdown;                // Explanation of modifiers
+    private Double originalConfidence;               // Pre-modifier confidence
+    private java.util.List<String> modifierReasons;  // List of modifier reasons
+
+    // Technical Context
+    private String superTrendDirection;              // BULLISH, BEARISH
+    private Boolean superTrendFlip;                  // Just flipped
+    private Double bbPercentB;                       // Bollinger %B position
+    private Boolean bbSqueeze;                       // BB squeeze detected
+    private Double nearestSupport;                   // Nearest support level
+    private Double nearestResistance;                // Nearest resistance level
+    private Double dailyPivot;                       // Daily pivot level
+    private Double maxPainLevel;                     // Options max pain
+    private Double gammaFlipLevel;                   // GEX flip level
+    private String gexRegime;                        // BULLISH_GAMMA, BEARISH_GAMMA, NEUTRAL
+
+    // Invalidation Monitoring
+    private java.util.List<InvalidationCondition> invalidationWatch;  // Conditions to monitor
+    private Double invalidationPrice;                // Price that invalidates signal
+    private String invalidationReason;               // Why it would be invalidated
+
+    // Predictions
+    private java.util.List<String> predictedEvents;  // Expected follow-on events
+    private String expectedPriceAction;              // Expected price behavior
+
     /**
      * Check if signal is actionable for trading
      */
@@ -245,5 +301,17 @@ public class QuantTradingSignal {
         private String deltaBias;
         private String vegaStructure;
         private double riskScore;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class InvalidationCondition {
+        private String condition;           // Description of the condition
+        private String monitorType;         // PRICE, TIME, EVENT, VOLUME
+        private Double threshold;           // Numeric threshold if applicable
+        private String action;              // What to do if triggered (EXIT, REDUCE, ALERT)
     }
 }
