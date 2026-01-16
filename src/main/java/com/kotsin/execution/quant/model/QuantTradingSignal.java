@@ -138,7 +138,7 @@ public class QuantTradingSignal {
     private String invalidationReason;               // Why it would be invalidated
 
     // Predictions
-    private java.util.List<String> predictedEvents;  // Expected follow-on events
+    private java.util.List<PredictedEvent> predictedEvents;  // Expected follow-on events
     private String expectedPriceAction;              // Expected price behavior
 
     /**
@@ -328,6 +328,38 @@ public class QuantTradingSignal {
                     .condition(value)
                     .monitorType("GENERAL")
                     .action("ALERT")
+                    .build();
+        }
+    }
+
+    /**
+     * Predicted follow-on events for the signal.
+     * Matches streamingcandle's PredictedFollowOn structure.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PredictedEvent {
+        private String event;           // What should happen
+        private String timeframe;       // When (e.g., "15-30 minutes")
+        private Double probability;     // How likely (0-1)
+        private String confirmation;    // What would confirm it
+        
+        /**
+         * FIX: Handle string-only deserialization gracefully.
+         * When the producer sends a plain string, convert to PredictedEvent.
+         * 
+         * @param value The plain string event description
+         * @return PredictedEvent with the string as the event field
+         */
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public static PredictedEvent fromString(String value) {
+            return PredictedEvent.builder()
+                    .event(value)
+                    .timeframe("UNKNOWN")
+                    .probability(0.5)
                     .build();
         }
     }
