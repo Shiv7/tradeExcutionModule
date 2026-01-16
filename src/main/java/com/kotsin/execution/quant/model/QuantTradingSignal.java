@@ -313,5 +313,22 @@ public class QuantTradingSignal {
         private String monitorType;         // PRICE, TIME, EVENT, VOLUME
         private Double threshold;           // Numeric threshold if applicable
         private String action;              // What to do if triggered (EXIT, REDUCE, ALERT)
+        
+        /**
+         * FIX: Handle string-only deserialization gracefully.
+         * When the producer sends a plain string (e.g., "Trend breaks down"),
+         * Jackson will use this factory method to create an InvalidationCondition.
+         * 
+         * @param value The plain string condition
+         * @return InvalidationCondition with the string as the condition field
+         */
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public static InvalidationCondition fromString(String value) {
+            return InvalidationCondition.builder()
+                    .condition(value)
+                    .monitorType("GENERAL")
+                    .action("ALERT")
+                    .build();
+        }
     }
 }
