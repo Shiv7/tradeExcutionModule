@@ -62,12 +62,17 @@ public class PortfolioRiskManager {
     @Value("${portfolio.max-sector-concentration:0.40}")
     private double maxSectorConcentration;
 
+    // FIX: Initial account value from config (default 100,000 for virtual trading)
+    @Value("${portfolio.initial-account-value:100000}")
+    private double initialAccountValue;
+
     // REMOVED: Hardcoded sector mappings
     // Now using SectorMappingService with 100+ mappings from CSV
 
     /**
-     * Validate configuration on startup
+     * Validate configuration on startup and initialize portfolio
      * CRITICAL FIX: Added validation to prevent invalid config
+     * CRITICAL FIX: Added auto-initialization with configured account value
      */
     @jakarta.annotation.PostConstruct
     public void validateConfiguration() {
@@ -102,8 +107,12 @@ public class PortfolioRiskManager {
             log.error(errorMsg);
             throw new IllegalStateException(errorMsg);
         }
-        
+
         log.info("✅ [PORTFOLIO-RISK] Configuration validated successfully");
+
+        // FIX: Auto-initialize portfolio with configured account value
+        // This prevents Infinity leverage errors from uninitialized portfolio
+        initialize(initialAccountValue);
     }
 
     /**
@@ -296,12 +305,23 @@ public class PortfolioRiskManager {
 
     /**
      * Calculate sector exposure including proposed trade
+     *
+     * FIX: Skip sector concentration for first few trades (allow portfolio to build up)
+     * When portfolio is empty or has < 3 positions, we can't meaningfully enforce
+     * sector concentration - the first trade would always be 100% of some sector.
      */
     private double calculateSectorExposure(
             String sector,
             List<ActiveTrade> positions,
             ActiveTrade proposedTrade
     ) {
+        // FIX: Allow first few trades to bypass sector concentration
+        // This prevents blocking the first trade which would always be 100% concentration
+        if (positions.size() < 3) {
+            log.debug("[PORTFOLIO-RISK] Skipping sector concentration check - building portfolio ({} positions)", positions.size());
+            return 0.0;  // Return 0 to allow the trade
+        }
+
         double sectorValue = 0.0;
         double totalValue = 0.0;
 
