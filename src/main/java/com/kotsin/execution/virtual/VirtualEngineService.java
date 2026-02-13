@@ -3,12 +3,16 @@ package com.kotsin.execution.virtual;
 import com.kotsin.execution.paper.PaperTradeOutcomeProducer;
 import com.kotsin.execution.paper.model.PaperTradeOutcome;
 import com.kotsin.execution.producer.ProfitLossProducer;
+import com.kotsin.execution.tracking.service.OrderStatusTracker;
 import com.kotsin.execution.virtual.model.VirtualOrder;
 import com.kotsin.execution.virtual.model.VirtualPosition;
 import com.kotsin.execution.virtual.model.VirtualSettings;
+import com.kotsin.execution.wallet.service.WalletTransactionService;
+import com.kotsin.execution.wallet.service.WalletTransactionService.MarginCheckResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -26,18 +30,39 @@ public class VirtualEngineService {
     private final VirtualWalletRepository repo;
     private final PriceProvider prices;
     private final VirtualEventBus bus;
-    
+
     @Autowired(required = false)
     private PaperTradeOutcomeProducer outcomeProducer;
-    
+
     @Autowired(required = false)
     private ProfitLossProducer profitLossProducer;
-    
+
+    @Autowired(required = false)
+    private WalletTransactionService walletTransactionService;
+
+    @Autowired(required = false)
+    private OrderStatusTracker orderStatusTracker;
+
+    @Value("${wallet.enabled:true}")
+    private boolean walletEnabled;
+
+    @Value("${wallet.id:virtual-wallet-1}")
+    private String defaultWalletId;
+
     // BUG-009 FIX: Per-scripCode locking to prevent race conditions
     private final ConcurrentHashMap<String, ReentrantLock> scripLocks = new ConcurrentHashMap<>();
-    
+
     private ReentrantLock getLock(String scripCode) {
         return scripLocks.computeIfAbsent(scripCode, k -> new ReentrantLock());
+    }
+
+    /**
+     * Get current open position count
+     */
+    private int getOpenPositionCount() {
+        return (int) repo.listPositions().stream()
+                .filter(p -> p.getQtyOpen() > 0)
+                .count();
     }
 
     public VirtualOrder createOrder(VirtualOrder req){
@@ -46,6 +71,48 @@ public class VirtualEngineService {
         req.setCreatedAt(now);
         req.setUpdatedAt(now);
         req.setStatus(VirtualOrder.Status.NEW);
+
+        // FIX: Determine price for margin calculation
+        Double estimatedPrice = req.getCurrentPrice();
+        if (estimatedPrice == null || estimatedPrice <= 0) {
+            estimatedPrice = prices.getLtp(req.getScripCode());
+        }
+        if (estimatedPrice == null || estimatedPrice <= 0) {
+            estimatedPrice = req.getLimitPrice();
+        }
+        if (estimatedPrice == null || estimatedPrice <= 0) {
+            estimatedPrice = 100.0; // Fallback for margin check
+        }
+
+        // FIX: Check margin before creating order
+        if (walletEnabled && walletTransactionService != null) {
+            double requiredMargin = estimatedPrice * req.getQty();
+            int openPositions = getOpenPositionCount();
+
+            MarginCheckResult marginCheck = walletTransactionService.checkMarginAvailable(
+                    defaultWalletId, requiredMargin, openPositions);
+
+            if (!marginCheck.isSuccess()) {
+                log.warn("❌ Order REJECTED - margin check failed: scripCode={}, qty={}, required={}, reason={}",
+                        req.getScripCode(), req.getQty(), requiredMargin, marginCheck.getMessage());
+                req.setStatus(VirtualOrder.Status.REJECTED);
+                req.setRejectionReason(marginCheck.getMessage());
+                repo.saveOrder(req);
+                bus.publish("order.rejected", req);
+                // Track rejection
+                if (orderStatusTracker != null) {
+                    orderStatusTracker.trackOrderRejected(req, marginCheck.getMessage());
+                }
+                return req;
+            }
+            log.info("✓ Margin check passed: scripCode={}, required={}, available={}",
+                    req.getScripCode(), requiredMargin, marginCheck.getAvailableMargin());
+        }
+
+        // Track order creation
+        if (orderStatusTracker != null) {
+            orderStatusTracker.trackOrderCreated(req, defaultWalletId);
+        }
 
         // Fill immediately for MARKET; LIMIT left pending for MVP
         if (req.getType() == VirtualOrder.Type.MARKET){
@@ -68,6 +135,10 @@ public class VirtualEngineService {
             req.setStatus(VirtualOrder.Status.FILLED);
             applyToPosition(req, ltp);
             bus.publish("order.filled", req);
+            // Track order fill
+            if (orderStatusTracker != null) {
+                orderStatusTracker.trackOrderFilled(req);
+            }
             log.info("✅ MARKET order filled: scripCode={}, entryPrice={}", req.getScripCode(), ltp);
         } else {
             req.setStatus(VirtualOrder.Status.PENDING);
@@ -196,7 +267,24 @@ public class VirtualEngineService {
         p.setUpdatedAt(System.currentTimeMillis());
         repo.savePosition(p);
         bus.publish("position.updated", p);
-        
+
+        // FIX: Deduct margin from wallet when position opens/increases
+        if (walletEnabled && walletTransactionService != null && filled.getQty() > 0) {
+            try {
+                walletTransactionService.deductMargin(
+                        defaultWalletId,
+                        filled.getId(),
+                        p.getScripCode(),
+                        p.getScripCode(), // symbol
+                        filled.getSide().toString(),
+                        filled.getQty(),
+                        fill
+                );
+            } catch (Exception e) {
+                log.error("Failed to deduct margin for order {}: {}", filled.getId(), e.getMessage());
+            }
+        }
+
         // BUG-002 FIX: Publish P&L entry event to Kafka
         if (profitLossProducer != null) {
             profitLossProducer.publishVirtualTradeEntry(
@@ -233,6 +321,10 @@ public class VirtualEngineService {
                     repo.saveOrder(o);
                     applyToPosition(o, ltp);
                     bus.publish("order.filled", o);
+                    // Track LIMIT order fill
+                    if (orderStatusTracker != null) {
+                        orderStatusTracker.trackOrderFilled(o);
+                    }
                 }
             } finally {
                 lock.unlock();
@@ -251,14 +343,34 @@ public class VirtualEngineService {
                     continue;
                 }
                 boolean changed = false;
+
+                // Update live price + unrealized P&L for dashboard display
+                if (p.getQtyOpen() > 0) {
+                    p.setCurrentPrice(ltp);
+                    double uPnl = (p.getSide() == VirtualPosition.Side.LONG)
+                            ? (ltp - p.getAvgEntry()) * p.getQtyOpen()
+                            : (p.getAvgEntry() - ltp) * p.getQtyOpen();
+                    p.setUnrealizedPnl(uPnl);
+                    changed = true;
+                }
             // SL
             if (p.getQtyOpen()>0 && p.getSl()!=null){
                 if (p.getSide()== VirtualPosition.Side.LONG && ltp <= p.getSl()){
+                    double slPnl = (ltp - p.getAvgEntry()) * p.getQtyOpen();
                     changed |= closeAt(p, ltp, p.getQtyOpen(), false, "STOP_LOSS");
                     bus.publish("sl.hit", p);
+                    // Track SL hit
+                    if (orderStatusTracker != null) {
+                        orderStatusTracker.trackSlHit(p, ltp, slPnl);
+                    }
                 } else if (p.getSide()== VirtualPosition.Side.SHORT && ltp >= p.getSl()){
+                    double slPnl = (p.getAvgEntry() - ltp) * p.getQtyOpen();
                     changed |= closeAt(p, ltp, p.getQtyOpen(), false, "STOP_LOSS");
                     bus.publish("sl.hit", p);
+                    // Track SL hit
+                    if (orderStatusTracker != null) {
+                        orderStatusTracker.trackSlHit(p, ltp, slPnl);
+                    }
                 }
             }
             if (p.getQtyOpen()==0){ repo.savePosition(p); continue; }
@@ -267,8 +379,13 @@ public class VirtualEngineService {
             if (Boolean.FALSE.equals(p.getTp1Hit()) && p.getTp1()!=null){
                 if (p.getSide()== VirtualPosition.Side.LONG && ltp >= p.getTp1()){
                     int partial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
+                    double tp1Pnl = (ltp - p.getAvgEntry()) * partial;
                     changed |= closeAt(p, ltp, partial, true, "TP1_PARTIAL");
                     p.setTp1Hit(true);
+                    // Track TP1 hit
+                    if (orderStatusTracker != null) {
+                        orderStatusTracker.trackTp1Hit(p, ltp, partial, tp1Pnl);
+                    }
                     // Move SL to BE
                     if (p.getSl()==null || p.getSl() < p.getAvgEntry()) p.setSl(p.getAvgEntry());
                     // Arm trailing if configured
@@ -289,8 +406,13 @@ public class VirtualEngineService {
                     bus.publish("tp1.hit", p);
                 } else if (p.getSide()== VirtualPosition.Side.SHORT && ltp <= p.getTp1()){
                     int partial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
+                    double tp1Pnl = (p.getAvgEntry() - ltp) * partial;
                     changed |= closeAt(p, ltp, partial, true, "TP1_PARTIAL");
                     p.setTp1Hit(true);
+                    // Track TP1 hit
+                    if (orderStatusTracker != null) {
+                        orderStatusTracker.trackTp1Hit(p, ltp, partial, tp1Pnl);
+                    }
                     if (p.getSl()==null || p.getSl() > p.getAvgEntry()) p.setSl(p.getAvgEntry());
                     if (p.getTrailingValue()!=null && p.getTrailingType()!=null && !"NONE".equals(p.getTrailingType())){
                         p.setTrailingActive(true);
@@ -372,12 +494,37 @@ public class VirtualEngineService {
         p.setRealizedPnl(p.getRealizedPnl() + pnl);
         int remaining = p.getQtyOpen() - qty;
         p.setQtyOpen(Math.max(0, remaining));
-        
+
+        // FIX: Credit P&L to wallet when position closes
+        if (walletEnabled && walletTransactionService != null) {
+            try {
+                walletTransactionService.creditPnl(
+                        defaultWalletId,
+                        p.getScripCode() + "_" + p.getOpenedAt(),
+                        p.getScripCode(),
+                        p.getScripCode(), // symbol
+                        p.getSide().toString(),
+                        qty,
+                        p.getAvgEntry(),
+                        price,
+                        exitReason != null ? exitReason : "UNKNOWN"
+                );
+                log.info("WALLET_PNL_CREDITED scrip={} pnl={} exit={}", p.getScripCode(), pnl, exitReason);
+            } catch (Exception e) {
+                log.error("Failed to credit P&L for position {}: {}", p.getScripCode(), e.getMessage());
+            }
+        }
+
         // If position fully closed and has signalId, send outcome to StreamingCandle
         if (p.getQtyOpen() == 0 && p.getSignalId() != null && outcomeProducer != null) {
             sendOutcome(p, price, pnl, exitReason);
         }
-        
+
+        // Track position close
+        if (p.getQtyOpen() == 0 && orderStatusTracker != null) {
+            orderStatusTracker.trackPositionClosed(p, price, pnl, exitReason);
+        }
+
         // BUG-002 FIX: Publish P&L exit event to Kafka for dashboard
         if (profitLossProducer != null) {
             profitLossProducer.publishVirtualTradeExit(
@@ -390,7 +537,7 @@ public class VirtualEngineService {
                 exitReason != null ? exitReason : "UNKNOWN"
             );
         }
-        
+
         if (p.getQtyOpen()==0) p.setAvgEntry(0);
         return true;
     }

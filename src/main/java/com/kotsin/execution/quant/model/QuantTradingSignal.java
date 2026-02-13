@@ -221,7 +221,9 @@ public class QuantTradingSignal {
         CONFLUENCE_BREAKDOWN,
         SMART_MONEY_ACCUMULATION,
         MULTI_TIMEFRAME_ALIGNMENT,
-        REVERSAL_PATTERN
+        REVERSAL_PATTERN,
+        // FIX: FUDKII signal type from streaming candle's SignalEngine
+        FUDKII
     }
 
     @Data

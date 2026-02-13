@@ -26,7 +26,11 @@ public class VirtualPosition {
     private Double trailAnchor;   // last peak/trough reference
     private long openedAt;
     private long updatedAt;
-    
+
+    // Live market data (updated every 500ms in process loop)
+    private Double currentPrice;
+    private double unrealizedPnl;
+
     // Signal linkage for stats tracking
     private String signalId;      // Links back to SignalHistory in StreamingCandle
     private String signalType;    // e.g., "BREAKOUT_RETEST"

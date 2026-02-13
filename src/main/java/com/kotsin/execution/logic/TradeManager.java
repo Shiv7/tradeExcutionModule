@@ -305,6 +305,16 @@ public class TradeManager {
                     : entryPrice;
             trade.addMetadata("fillEntryPrice", fill);
             try { profitLossProducer.publishTradeEntry(trade, fill); } catch (Exception ignore) {}
+            // Publish trade entry event for orchestrator READY → POSITIONED transition
+            try {
+                tradeResultProducer.publishTradeEntry(
+                    trade.getScripCode(),
+                    trade.isBullish() ? "LONG" : "SHORT",
+                    fill, trade.getStopLoss(), trade.getTarget1(),
+                    trade.getPositionSize(), orderId,
+                    trade.getStrategyName(), trade.getTradeId()
+                );
+            } catch (Exception ignore) {}
         } catch (Exception ex) {
             trade.addMetadata("brokerError", ex.toString());
             log.error("Broker order failed for {}: {}", trade.getScripCode(), ex.toString(), ex);

@@ -21,15 +21,14 @@ import java.time.ZonedDateTime;
 /**
  * QuantSignalConsumer - Consumes QuantTradingSignal from StreamingCandle.
  *
- * Topic: quant-trading-signals
+ * Topic: trading-signals-v2
  *
- * Receives institutional-grade trading signals with:
- * - Full entry/exit/stop parameters
- * - Position sizing recommendations
- * - Hedging suggestions
- * - Greeks summary
+ * Implements 3-layer quality gate:
+ * 1. Quality Gate: quantScore, confidence, exhaustion thresholds
+ * 2. Hard Gate: risk-reward ratio validation
+ * 3. MTF Gate: family alignment and trend confirmation
  *
- * Routes signals to VirtualEngineService for paper trading.
+ * Routes validated signals to VirtualEngineService for paper trading.
  */
 @Service
 @Slf4j
@@ -49,20 +48,41 @@ public class QuantSignalConsumer {
     @Value("${quant.signals.enable-virtual-trading:true}")
     private boolean enableVirtualTrading;
 
-    // FIX: Removed score and confidence thresholds to trade ALL signals
-    // Previously these were blocking valid signals:
-    // @Value("${quant.signals.min-score:65}")
-    // private double minScore;
-    // @Value("${quant.signals.min-confidence:0.6}")
-    // private double minConfidence;
+    // ========== Quality Gate Configuration ==========
+    @Value("${quant.gates.enabled:true}")
+    private boolean gatesEnabled;
+
+    @Value("${quant.gates.quality.enabled:true}")
+    private boolean qualityGateEnabled;
+
+    @Value("${quant.gates.quality.min-quant-score:50}")
+    private double minQuantScore;
+
+    @Value("${quant.gates.quality.min-confidence:0.55}")
+    private double minConfidence;
+
+    @Value("${quant.gates.quality.max-exhaustion:0.75}")
+    private double maxExhaustion;
+
+    // ========== Hard Gate Configuration ==========
+    @Value("${quant.gates.hard.enabled:true}")
+    private boolean hardGateEnabled;
+
+    @Value("${quant.gates.hard.min-risk-reward:1.5}")
+    private double minRiskReward;
+
+    // ========== MTF Gate Configuration ==========
+    @Value("${quant.gates.mtf.enabled:true}")
+    private boolean mtfGateEnabled;
+
+    @Value("${quant.gates.mtf.min-family-alignment:0.60}")
+    private double minFamilyAlignment;
+
+    @Value("${quant.gates.mtf.require-trend-alignment:true}")
+    private boolean requireTrendAlignment;
 
     /**
      * Consume QuantTradingSignal from Kafka topic
-     * NOTE: Changed from deprecated "quant-trading-signals" to unified "trading-signals-v2"
-     *
-     * FIX: Added Acknowledgment parameter for manual offset commit.
-     * This ensures offsets are only committed after successful processing,
-     * preventing message loss on processing failures.
      */
     @KafkaListener(
             topics = "trading-signals-v2",
@@ -81,7 +101,6 @@ public class QuantSignalConsumer {
 
             if (signal == null || signal.getScripCode() == null) {
                 log.debug("quant_signal_null topic={} partition={} offset={}", topic, partition, offset);
-                // FIX: Acknowledge even for null signals to avoid reprocessing
                 if (ack != null) ack.acknowledge();
                 return;
             }
@@ -98,32 +117,43 @@ public class QuantSignalConsumer {
             }
 
             // ========== Actionability Check ==========
-            // FIX: Removed actionability check - trade ALL signals regardless of actionable flag
-            // Previously this was blocking signals where actionable=false or entry/stop/target were 0
             if (!signal.isActionable()) {
-                log.info("quant_signal_actionable_bypass scrip={} signalId={} entryPrice={} stopLoss={} target1={} (TRADING ANYWAY)",
+                log.info("quant_signal_skipped_not_actionable scrip={} signalId={} entry={} sl={} tp={} actionable={} (WATCH signals have no prices yet)",
                         scripCode, signalId,
-                        signal.getEntryPrice(), signal.getStopLoss(), signal.getTarget1());
-                // Continue processing instead of returning
-            }
-
-            // FIX: REMOVED Score and Confidence Threshold checks - trade ALL signals
-            // Previously these were blocking valid signals:
-            // - minScore check was rejecting signals with quantScore < 65
-            // - minConfidence check was rejecting signals with confidence < 0.6
-            // Now we log the values but don't filter
-            log.info("quant_signal_scores scrip={} quantScore={} confidence={} (NO THRESHOLD - TRADING ALL)",
-                    scripCode, signal.getQuantScore(), signal.getConfidence());
-
-            // ========== Age Check ==========
-            final Instant signalTs = Instant.ofEpochMilli(signal.getTimestamp());
-            long ageSeconds = Math.abs(receivedAt.getEpochSecond() - signalTs.getEpochSecond());
-
-            if (ageSeconds > MAX_SIGNAL_AGE_SECONDS) {
-                log.info("quant_signal_stale scrip={} age={}s max={}s score={}",
-                        scripCode, ageSeconds, MAX_SIGNAL_AGE_SECONDS, signal.getQuantScore());
+                        signal.getEntryPrice(), signal.getStopLoss(), signal.getTarget1(), signal.isActionable());
                 if (ack != null) ack.acknowledge();
                 return;
+            }
+
+            // ========== 3-LAYER QUALITY GATES ==========
+            if (gatesEnabled) {
+                String rejection = applyQualityGates(signal);
+                if (rejection != null) {
+                    log.info("QUANT_SIGNAL_REJECTED scrip={} score={} confidence={} reason={}",
+                            scripCode,
+                            String.format("%.1f", signal.getQuantScore()),
+                            String.format("%.2f", signal.getConfidence()),
+                            rejection);
+                    if (ack != null) ack.acknowledge();
+                    return;
+                }
+            }
+
+            // ========== Age Check ==========
+            long rawTs = signal.getTimestamp();
+            if (rawTs > 0) {
+                long tsMillis = rawTs < 1_000_000_000_000L ? rawTs * 1000 : rawTs;
+                final Instant signalTs = Instant.ofEpochMilli(tsMillis);
+                long ageSeconds = Math.abs(receivedAt.getEpochSecond() - signalTs.getEpochSecond());
+
+                if (ageSeconds > MAX_SIGNAL_AGE_SECONDS) {
+                    log.info("quant_signal_stale scrip={} age={}s max={}s score={}",
+                            scripCode, ageSeconds, MAX_SIGNAL_AGE_SECONDS, signal.getQuantScore());
+                    if (ack != null) ack.acknowledge();
+                    return;
+                }
+            } else {
+                log.debug("quant_signal_no_timestamp scrip={} - skipping age check", scripCode);
             }
 
             // ========== Trading Hours Check ==========
@@ -137,14 +167,16 @@ public class QuantSignalConsumer {
             }
 
             // ========== Log Signal Details ==========
-            log.info("QUANT_SIGNAL_RECEIVED scrip={} score={} type={} direction={} entry={} sl={} tp={}",
+            log.info("QUANT_SIGNAL_ACCEPTED scrip={} score={} confidence={} type={} direction={} entry={} sl={} tp={} rr={}",
                     scripCode,
                     String.format("%.1f", signal.getQuantScore()),
+                    String.format("%.2f", signal.getConfidence()),
                     signal.getSignalType(),
                     signal.getDirection(),
                     String.format("%.2f", signal.getEntryPrice()),
                     String.format("%.2f", signal.getStopLoss()),
-                    String.format("%.2f", signal.getTarget1()));
+                    String.format("%.2f", signal.getTarget1()),
+                    String.format("%.2f", signal.getRiskRewardRatio()));
 
             if (signal.getHedging() != null && signal.getHedging().isRecommended()) {
                 log.info("   HEDGING: type={} instrument={} ratio={}",
@@ -170,15 +202,133 @@ public class QuantSignalConsumer {
                 log.info("quant_virtual_disabled scrip={} score={}", scripCode, signal.getQuantScore());
             }
 
-            // FIX: Acknowledge after successful processing
+            // Acknowledge after successful processing
             if (ack != null) ack.acknowledge();
 
         } catch (Exception e) {
             log.error("quant_signal_processing_error topic={} partition={} offset={} err={}",
                     topic, partition, offset, e.getMessage(), e);
-            // FIX: Still acknowledge to prevent infinite retry loop
-            // The error is logged, and we don't want to block other messages
             if (ack != null) ack.acknowledge();
         }
+    }
+
+    /**
+     * Apply 3-layer quality gates to the signal.
+     *
+     * @return null if signal passes all gates, or rejection reason string
+     */
+    private String applyQualityGates(QuantTradingSignal signal) {
+
+        // ====== GATE 1: Quality Gate ======
+        if (qualityGateEnabled) {
+            double quantScore = signal.getQuantScore();
+            double confidence = signal.getConfidence();
+
+            if (quantScore < minQuantScore) {
+                return String.format("QUALITY_GATE: quantScore=%.1f < min=%.1f", quantScore, minQuantScore);
+            }
+
+            if (confidence < minConfidence) {
+                return String.format("QUALITY_GATE: confidence=%.2f < min=%.2f", confidence, minConfidence);
+            }
+
+            // Check quality score (0-100, complementary to quantScore)
+            int qualityScore = signal.getQualityScore();
+            if (qualityScore > 0 && qualityScore < 40) {
+                return String.format("QUALITY_GATE: qualityScore=%d < min=40", qualityScore);
+            }
+        }
+
+        // ====== GATE 2: Hard Gate - Risk/Reward Validation ======
+        if (hardGateEnabled) {
+            double riskReward = signal.getRiskRewardRatio();
+            if (riskReward > 0 && riskReward < minRiskReward) {
+                return String.format("HARD_GATE: riskReward=%.2f < min=%.2f", riskReward, minRiskReward);
+            }
+
+            // Validate price levels make sense
+            double entry = signal.getEntryPrice();
+            double sl = signal.getStopLoss();
+            double tp = signal.getTarget1();
+
+            if (entry <= 0 || sl <= 0 || tp <= 0) {
+                return "HARD_GATE: invalid price levels (zero or negative)";
+            }
+
+            String direction = signal.getDirection();
+            if ("LONG".equalsIgnoreCase(direction)) {
+                if (sl >= entry) {
+                    return String.format("HARD_GATE: LONG but SL=%.2f >= entry=%.2f", sl, entry);
+                }
+                if (tp <= entry) {
+                    return String.format("HARD_GATE: LONG but TP=%.2f <= entry=%.2f", tp, entry);
+                }
+            } else if ("SHORT".equalsIgnoreCase(direction)) {
+                if (sl <= entry) {
+                    return String.format("HARD_GATE: SHORT but SL=%.2f <= entry=%.2f", sl, entry);
+                }
+                if (tp >= entry) {
+                    return String.format("HARD_GATE: SHORT but TP=%.2f >= entry=%.2f", tp, entry);
+                }
+            }
+        }
+
+        // ====== GATE 3: MTF Gate - Multi-Timeframe Alignment ======
+        if (mtfGateEnabled) {
+            // Check family alignment (equity + futures + options should agree)
+            Double familyAlignment = signal.getFamilyAlignment();
+            if (familyAlignment != null && familyAlignment > 0) {
+                double alignmentRatio = familyAlignment / 100.0; // Convert 0-100 to 0-1
+                if (alignmentRatio < minFamilyAlignment) {
+                    return String.format("MTF_GATE: familyAlignment=%.0f%% < min=%.0f%%",
+                            familyAlignment, minFamilyAlignment * 100);
+                }
+            }
+
+            // Check trend alignment with higher timeframe
+            if (requireTrendAlignment) {
+                String direction = signal.getDirection();
+                String superTrend = signal.getSuperTrendDirection();
+                String familyBias = signal.getFamilyBias();
+
+                // If SuperTrend data is available, signal direction must align
+                if (superTrend != null && !superTrend.isEmpty() && direction != null) {
+                    boolean trendAligned = false;
+                    if ("LONG".equalsIgnoreCase(direction) &&
+                            ("BULLISH".equalsIgnoreCase(superTrend) || "UP".equalsIgnoreCase(superTrend))) {
+                        trendAligned = true;
+                    } else if ("SHORT".equalsIgnoreCase(direction) &&
+                            ("BEARISH".equalsIgnoreCase(superTrend) || "DOWN".equalsIgnoreCase(superTrend))) {
+                        trendAligned = true;
+                    }
+
+                    if (!trendAligned) {
+                        return String.format("MTF_GATE: direction=%s vs superTrend=%s (misaligned)",
+                                direction, superTrend);
+                    }
+                }
+
+                // If family bias is available, signal direction must align
+                if (familyBias != null && !familyBias.isEmpty() &&
+                        !"NEUTRAL".equalsIgnoreCase(familyBias) && direction != null) {
+                    boolean familyAligned = false;
+                    if ("LONG".equalsIgnoreCase(direction) &&
+                            (familyBias.toUpperCase().contains("BULLISH"))) {
+                        familyAligned = true;
+                    } else if ("SHORT".equalsIgnoreCase(direction) &&
+                            (familyBias.toUpperCase().contains("BEARISH"))) {
+                        familyAligned = true;
+                    }
+
+                    if (!familyAligned) {
+                        return String.format("MTF_GATE: direction=%s vs familyBias=%s (misaligned)",
+                                direction, familyBias);
+                    }
+                }
+            }
+        }
+
+        // All gates passed
+        return null;
     }
 }

@@ -46,7 +46,15 @@ public class VirtualOrderController {
         }
     }
 
-    // Removed legacy endpoints: listOrders, listPositions (use SSE /api/virtual/stream instead)
+    @GetMapping("/orders")
+    public ResponseEntity<?> listOrders(@RequestParam(defaultValue = "200") int limit) {
+        return ResponseEntity.ok(repo.listOrders(limit));
+    }
+
+    @GetMapping("/positions")
+    public ResponseEntity<?> listPositions() {
+        return ResponseEntity.ok(repo.listPositions());
+    }
 
     @PostMapping("/close/{scripCode}")
     public ResponseEntity<?> close(@PathVariable String scripCode){

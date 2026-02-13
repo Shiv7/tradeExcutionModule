@@ -6,7 +6,7 @@ import lombok.Data;
 public class VirtualOrder {
     public enum Side { BUY, SELL }
     public enum Type { MARKET, LIMIT }
-    public enum Status { NEW, PENDING, FILLED, PARTIAL, CANCELED, COMPLETED }
+    public enum Status { NEW, PENDING, FILLED, PARTIAL, CANCELED, COMPLETED, REJECTED }
 
     private String id;
     private String scripCode;
@@ -27,6 +27,7 @@ public class VirtualOrder {
     private long createdAt;
     private long updatedAt;
     private Status status;
+    private String rejectionReason; // FIX: Reason if order was rejected (margin, risk, etc.)
 
     // Signal metadata (for quant signals)
     private String signalId;

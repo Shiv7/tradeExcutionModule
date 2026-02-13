@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -16,6 +19,9 @@ public class TradeResultProducer {
 
     @Value("${kafka.topics.results.trade-results:trade-results}")
     private String tradeResultsTopic;
+
+    @Value("${kafka.topics.entries.trade-entries:trade-entries}")
+    private String tradeEntriesTopic;
 
     public boolean publishTradeResult(TradeResult result) {
         try {
@@ -27,6 +33,31 @@ public class TradeResultProducer {
         } catch (Exception e) {
             log.error("Failed to publish TradeResult: {}", e.toString(), e);
             return false;
+        }
+    }
+
+    /**
+     * Publish a trade entry event for the orchestrator to transition READY → POSITIONED.
+     */
+    public void publishTradeEntry(String scripCode, String direction, double entryPrice,
+            double stopLoss, double takeProfit, int quantity, String orderId, String strategy, String signalId) {
+        try {
+            Map<String, Object> event = new HashMap<>();
+            event.put("scripCode", scripCode);
+            event.put("direction", direction);
+            event.put("entryPrice", entryPrice);
+            event.put("stopLoss", stopLoss);
+            event.put("takeProfit", takeProfit);
+            event.put("quantity", quantity);
+            event.put("entryTime", System.currentTimeMillis());
+            event.put("orderId", orderId);
+            event.put("strategyId", strategy);
+            event.put("signalId", signalId);
+            kafkaTemplate.send(tradeEntriesTopic, scripCode, event);
+            log.info("trade_entry_published topic={} scrip={} dir={} entry={} sl={} tp={}",
+                    tradeEntriesTopic, scripCode, direction, entryPrice, stopLoss, takeProfit);
+        } catch (Exception e) {
+            log.error("Failed to publish trade entry for {}: {}", scripCode, e.toString(), e);
         }
     }
 
