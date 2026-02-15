@@ -6,6 +6,7 @@ import com.kotsin.execution.producer.ProfitLossProducer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import com.kotsin.execution.service.*;
+import com.kotsin.execution.service.MLPredictionService.MLPrediction;
 import com.kotsin.execution.broker.BrokerOrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -33,6 +35,7 @@ public class TradeManager {
     private final TradeAnalysisService tradeAnalysisService;
     private final HistoricalDataClient historicalDataClient;
     private final RedisTemplate<String, String> executionStringRedisTemplate;
+    private final MLPredictionService mlPredictionService;
 
     @Value("${trade.options.slippage.ticks.exit:1}")
     private int optionSlippageTicksExit;
@@ -66,6 +69,22 @@ public class TradeManager {
     private double trailStage2StopR;
     @Value("${trade.trail.stage3.stopR:1.0}")
     private double trailStage3StopR;
+
+    // ML Gate configuration for pivot retest strategy
+    @Value("${trade.ml.gate.enabled:true}")
+    private boolean mlGateEnabled;
+
+    @Value("${trade.ml.gate.min-confidence:0.60}")
+    private double mlMinConfidence;
+
+    @Value("${trade.ml.gate.vpin-max-toxicity:0.70}")
+    private double mlMaxVpinToxicity;
+
+    @Value("${trade.ml.gate.require-direction-alignment:true}")
+    private boolean mlRequireDirectionAlignment;
+
+    @Value("${trade.ml.gate.allow-hold-if-high-confidence:true}")
+    private boolean mlAllowHoldIfHighConfidence;
 
     /** Main entry: evaluate a new candle and, if eligible, execute the best ready trade. */
     public void processCandle(Candlestick candle) {
@@ -156,6 +175,16 @@ public class TradeManager {
         }
         log.info("Trade Readiness PASSED for {}: Pivot retest complete.", trade.getScripCode());
 
+        // ====== ML QUALITY GATE (Pivot Retest Strategy Enhancement) ======
+        if (mlGateEnabled) {
+            boolean mlPassed = checkMLGate(trade);
+            if (!mlPassed) {
+                log.info("Trade Readiness FAILED for {}: ML gate rejected.", trade.getScripCode());
+                return false;
+            }
+            log.info("Trade Readiness PASSED for {}: ML gate approved.", trade.getScripCode());
+        }
+
         // Use companyName as canonical key for candles (aligned with Candlestick model)
         List<Candlestick> history = recentCandles.get(trade.getCompanyName());
         boolean volumeConfirmed = tradeAnalysisService.confirmVolumeProfile(candle, history);
@@ -188,6 +217,120 @@ public class TradeManager {
             trade.addMetadata("breachCandle", candle);
         }
         return trade.getMetadata().containsKey("breachCandle") && hasReclaimed;
+    }
+
+    /**
+     * ML Quality Gate for Pivot Retest Strategy.
+     *
+     * Reads ML prediction from Redis (written by Python ML service) and validates:
+     * 1. Direction alignment: ML prediction agrees with trade direction
+     * 2. Minimum confidence: ML confidence exceeds threshold
+     * 3. VPIN toxicity: Flow is not adversely selected
+     * 4. Regime check: Market regime is not extreme/adverse
+     *
+     * If ML prediction is unavailable (service down), the gate PASSES
+     * to avoid blocking trades when ML is offline — fail-open design.
+     *
+     * Side effects: Stores ML metadata on the trade for position sizing and logging.
+     */
+    private boolean checkMLGate(ActiveTrade trade) {
+        try {
+            Optional<MLPrediction> mlOpt = mlPredictionService.getBestPrediction(trade.getScripCode());
+
+            if (mlOpt.isEmpty()) {
+                // Fail-open: if ML is unavailable, don't block the trade
+                log.info("ML_GATE scrip={} result=PASS_NO_DATA (ML prediction unavailable, fail-open)",
+                        trade.getScripCode());
+                trade.addMetadata("mlGateResult", "PASS_NO_DATA");
+                return true;
+            }
+
+            MLPrediction ml = mlOpt.get();
+            trade.addMetadata("mlPrediction", ml.getPrediction());
+            trade.addMetadata("mlConfidence", ml.getConfidence());
+            trade.addMetadata("mlRegime", ml.getRegime());
+            trade.addMetadata("mlRegimeScore", ml.getRegimeScore());
+            trade.addMetadata("mlVpinToxicity", ml.getVpinToxicity());
+            trade.addMetadata("mlBetSignal", ml.getBetSignal());
+
+            // Gate 1: Direction alignment
+            if (mlRequireDirectionAlignment) {
+                boolean aligned = mlPredictionService.isDirectionAligned(ml, trade.isBullish());
+
+                if (!aligned) {
+                    // Allow HOLD predictions if confidence is high on the trade's side probabilities
+                    if ("HOLD".equals(ml.getPrediction()) && mlAllowHoldIfHighConfidence
+                            && ml.getConfidence() >= mlMinConfidence) {
+                        log.info("ML_GATE scrip={} direction=HOLD but confidence={} >= threshold, allowing",
+                                trade.getScripCode(), String.format("%.2f", ml.getConfidence()));
+                    } else {
+                        log.info("ML_GATE scrip={} result=REJECT direction={} vs trade={} confidence={}",
+                                trade.getScripCode(), ml.getPrediction(),
+                                trade.isBullish() ? "BULLISH" : "BEARISH",
+                                String.format("%.2f", ml.getConfidence()));
+                        trade.addMetadata("mlGateResult", "REJECT_DIRECTION");
+                        return false;
+                    }
+                }
+            }
+
+            // Gate 2: Minimum confidence
+            if (ml.getConfidence() < mlMinConfidence) {
+                log.info("ML_GATE scrip={} result=REJECT confidence={} < min={}",
+                        trade.getScripCode(),
+                        String.format("%.2f", ml.getConfidence()),
+                        String.format("%.2f", mlMinConfidence));
+                trade.addMetadata("mlGateResult", "REJECT_LOW_CONFIDENCE");
+                return false;
+            }
+
+            // Gate 3: VPIN toxicity — high VPIN means informed traders are active
+            if (mlPredictionService.isFlowToxic(ml)) {
+                log.info("ML_GATE scrip={} result=REJECT vpinToxicity={} > max={}",
+                        trade.getScripCode(),
+                        String.format("%.2f", ml.getVpinToxicity()),
+                        String.format("%.2f", mlMaxVpinToxicity));
+                trade.addMetadata("mlGateResult", "REJECT_TOXIC_FLOW");
+                return false;
+            }
+
+            // Gate 4: Regime check — don't enter in extreme adverse regimes
+            if (mlPredictionService.isRegimeAdverse(ml)) {
+                // Only block if regime direction opposes trade direction
+                boolean regimeOpposes = (trade.isBullish() && ml.getRegimeScore() < -0.5)
+                        || (!trade.isBullish() && ml.getRegimeScore() > 0.5);
+                if (regimeOpposes) {
+                    log.info("ML_GATE scrip={} result=REJECT regime={} score={} opposes trade direction",
+                            trade.getScripCode(), ml.getRegime(),
+                            String.format("%.2f", ml.getRegimeScore()));
+                    trade.addMetadata("mlGateResult", "REJECT_ADVERSE_REGIME");
+                    return false;
+                }
+            }
+
+            // All ML gates passed — apply position sizing from bet signal
+            if (ml.getPositionSizeMultiplier() > 0) {
+                trade.addMetadata("positionSizeMultiplier", ml.getPositionSizeMultiplier());
+                log.info("ML_GATE scrip={} applied positionSizeMultiplier={}",
+                        trade.getScripCode(), String.format("%.2f", ml.getPositionSizeMultiplier()));
+            }
+
+            log.info("ML_GATE scrip={} result=PASS pred={} conf={} regime={} vpin={} bet={}",
+                    trade.getScripCode(), ml.getPrediction(),
+                    String.format("%.2f", ml.getConfidence()),
+                    ml.getRegime(),
+                    String.format("%.2f", ml.getVpinToxicity()),
+                    String.format("%.2f", ml.getBetSignal()));
+
+            trade.addMetadata("mlGateResult", "PASS");
+            return true;
+
+        } catch (Exception e) {
+            // Fail-open on errors
+            log.warn("ML_GATE scrip={} result=PASS_ERROR err={}", trade.getScripCode(), e.getMessage());
+            trade.addMetadata("mlGateResult", "PASS_ERROR");
+            return true;
+        }
     }
 
     private void calculateRiskReward(ActiveTrade trade, Candlestick candle, PivotData pivots) {

@@ -32,5 +32,6 @@ public class VirtualOrder {
     // Signal metadata (for quant signals)
     private String signalId;
     private String signalType;
+    private String signalSource;  // Strategy source: FUDKII, FUKAA, PIVOT, etc.
     private String rationale;
 }

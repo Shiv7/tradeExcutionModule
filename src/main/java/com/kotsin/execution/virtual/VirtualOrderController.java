@@ -38,6 +38,7 @@ public class VirtualOrderController {
             o.setTrailingType(req.trailingType);
             o.setTrailingValue(req.trailingValue);
             o.setTrailingStep(req.trailingStep);
+            o.setSignalSource(req.signalSource);
             VirtualOrder saved = engine.createOrder(o);
             return ResponseEntity.ok(saved);
         } catch (Exception e){
@@ -93,6 +94,7 @@ public class VirtualOrderController {
         public int qty; public Double limitPrice; public Double sl; public Double tp1; public Double tp2; public Double tp1ClosePercent;
         public String trailingType; public Double trailingValue; public Double trailingStep;
         public Double currentPrice;  // FIX: For MARKET orders, use this as entry price fallback
+        public String signalSource;  // Strategy source: FUDKII, FUKAA, PIVOT, etc.
     }
 
     @lombok.Data

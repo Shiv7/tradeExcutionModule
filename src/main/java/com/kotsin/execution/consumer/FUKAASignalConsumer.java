@@ -22,26 +22,27 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
 /**
- * FUDKIISignalConsumer - Consumes standalone FUDKII strategy signals
+ * FUKAASignalConsumer - Consumes volume-confirmed FUKAA strategy signals
  *
- * Topic: kotsin_FUDKII
+ * Topic: kotsin_FUKAA
  *
- * FUDKII (Fear, Uncertainty, Doubt, Knowledge, Information, Intelligence) is a
- * standalone BB-SuperTrend based ignition strategy that identifies high-probability
- * breakout/breakdown signals.
+ * FUKAA signals are volume-filtered FUDKII signals that passed the 2x average
+ * volume surge check on T-1, T, or T+1 candles. Only IMMEDIATE_PASS and
+ * T_PLUS_1_PASS outcomes are published to this topic.
  *
  * Signal Format:
- * - scripCode, companyName, timestamp
- * - direction: BULLISH/BEARISH
- * - strength: -1.0 to +1.0
- * - entryPrice, stopLoss, target1, target2
- * - bbBand: UPPER/LOWER (Bollinger Band touch)
- * - superTrendDirection: UP/DOWN
+ * - scripCode, companyName, direction (BULLISH/BEARISH)
+ * - triggerPrice, triggerTime, triggerScore (0-100)
+ * - bbUpper, bbLower, superTrend (for SL/target derivation)
+ * - fukaaOutcome (IMMEDIATE_PASS / T_PLUS_1_PASS)
+ * - passedCandle (T_MINUS_1 / T / T_PLUS_1)
+ * - rank (volume surge magnitude)
+ * - volumeT, volumeTMinus1, avgVolume, surgeT, surgeTMinus1
  */
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class FUDKIISignalConsumer {
+public class FUKAASignalConsumer {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final long BACKTEST_THRESHOLD_SECONDS = 120;
@@ -58,15 +59,15 @@ public class FUDKIISignalConsumer {
     @Value("${trading.mode.live:true}")
     private boolean liveTradeEnabled;
 
-    @Value("${fudkii.min.trigger.score:50.0}")
+    @Value("${fukaa.min.trigger.score:50.0}")
     private double minTriggerScore;
 
     @KafkaListener(
-            topics = "kotsin_FUDKII",
-            groupId = "${app.kafka.consumer.fudkii-group-id:fudkii-executor}",
+            topics = "kotsin_FUKAA",
+            groupId = "${app.kafka.consumer.fukaa-group-id:fukaa-executor}",
             containerFactory = "curatedSignalKafkaListenerContainerFactory"
     )
-    public void processFUDKIISignal(String payload, ConsumerRecord<?, ?> rec) {
+    public void processFUKAASignal(String payload, ConsumerRecord<?, ?> rec) {
         final String topic = rec.topic();
         final int partition = rec.partition();
         final long offset = rec.offset();
@@ -78,68 +79,69 @@ public class FUDKIISignalConsumer {
             // ========== Extract Core Fields ==========
             String scripCode = root.path("scripCode").asText();
             if (scripCode == null || scripCode.isEmpty()) {
-                // Try familyId as fallback
                 scripCode = root.path("familyId").asText();
             }
 
             if (scripCode == null || scripCode.isEmpty()) {
-                log.debug("fudkii_no_scripcode topic={} partition={} offset={}", topic, partition, offset);
+                log.debug("fukaa_no_scripcode topic={} partition={} offset={}", topic, partition, offset);
                 return;
             }
-
-            // ========== Parse FUDKII Signal ==========
-            String companyName = root.path("companyName").asText(
-                    root.path("symbol").asText(scripCode));
 
             // Only process triggered signals
             boolean triggered = root.path("triggered").asBoolean(false);
             if (!triggered) {
-                log.debug("fudkii_not_triggered scrip={}", scripCode);
+                log.debug("fukaa_not_triggered scrip={}", scripCode);
                 return;
             }
 
-            // Parse triggerTime ISO string to epoch millis (primary), fallback to timestamp field
+            // ========== Parse FUKAA Signal ==========
+            String companyName = root.path("companyName").asText(
+                    root.path("symbol").asText(scripCode));
+            String direction = root.path("direction").asText("");
+            double triggerPrice = root.path("triggerPrice").asDouble(0);
+            double triggerScore = root.path("triggerScore").asDouble(0);
+
+            // FUKAA-specific fields
+            String fukaaOutcome = root.path("fukaaOutcome").asText("");
+            String passedCandle = root.path("passedCandle").asText("");
+            double rank = root.path("rank").asDouble(0);
+
+            // BB-SuperTrend components for SL/target derivation
+            double bbUpper = root.path("bbUpper").asDouble(0);
+            double bbLower = root.path("bbLower").asDouble(0);
+            double superTrend = root.path("superTrend").asDouble(0);
+            String trend = root.path("trend").asText("");
+
+            // Volume fields (for logging/rationale)
+            double surgeT = root.path("surgeT").asDouble(0);
+            double surgeTMinus1 = root.path("surgeTMinus1").asDouble(0);
+
+            // Check minimum trigger score threshold
+            if (triggerScore < minTriggerScore) {
+                log.debug("fukaa_below_threshold scrip={} score={} min={}",
+                        scripCode, triggerScore, minTriggerScore);
+                return;
+            }
+
+            // Parse timestamp from triggerTime ISO string
             String triggerTimeStr = root.path("triggerTime").asText("");
             long timestamp;
             try {
                 Instant triggerInstant = Instant.parse(triggerTimeStr);
                 timestamp = triggerInstant.toEpochMilli();
             } catch (Exception e) {
+                // Fallback: try timestamp field or current time
                 timestamp = root.path("timestamp").asLong(System.currentTimeMillis());
             }
 
-            // Get triggerScore (0-100) -- NOT "strength" which doesn't exist in FUDKII signals
-            double triggerScore = root.path("triggerScore").asDouble(0);
-
-            // Check minimum trigger score threshold
-            if (triggerScore < minTriggerScore) {
-                log.debug("fudkii_below_threshold scrip={} score={} min={}",
-                        scripCode, triggerScore, minTriggerScore);
-                return;
-            }
-
-            // Direction
-            String direction = root.path("direction").asText();
-            String trend = root.path("trend").asText("");
-            if (direction == null || direction.isEmpty()) {
+            // Determine direction
+            if (direction.isEmpty()) {
                 direction = "UP".equalsIgnoreCase(trend) ? "BULLISH" : "BEARISH";
             }
             boolean longSignal = "BULLISH".equalsIgnoreCase(direction);
             boolean shortSignal = "BEARISH".equalsIgnoreCase(direction);
 
-            // BB-SuperTrend components (for SL/target fallback if pivot targets missing)
-            double bbUpper = root.path("bbUpper").asDouble(0);
-            double bbLower = root.path("bbLower").asDouble(0);
-            double superTrend = root.path("superTrend").asDouble(0);
-
-            // Get entry price (triggerPrice is the primary field in FUDKII signals)
-            double entryPrice = root.path("triggerPrice").asDouble(0);
-            if (entryPrice <= 0) {
-                entryPrice = root.path("entryPrice").asDouble(
-                        root.path("price").asDouble(0));
-            }
-
-            // Get pivot-enriched targets (preferred) or derive from BB/ST
+            // ========== Read Pivot-Enriched Targets (preferred) or Derive from BB/ST ==========
             double stopLoss = root.path("stopLoss").asDouble(0);
             double target1 = root.path("target1").asDouble(0);
             double target2 = root.path("target2").asDouble(0);
@@ -148,61 +150,62 @@ public class FUDKIISignalConsumer {
             boolean pivotSource = root.path("pivotSource").asBoolean(false);
 
             // Derive SL/targets from BB/ST if pivot targets not present
-            if (stopLoss <= 0 && entryPrice > 0) {
+            if (stopLoss <= 0 && triggerPrice > 0) {
                 stopLoss = longSignal
                         ? Math.min(bbLower, superTrend)
                         : Math.max(bbUpper, superTrend);
             }
-            double risk = Math.abs(entryPrice - stopLoss);
+            double risk = Math.abs(triggerPrice - stopLoss);
             if (target1 <= 0 && risk > 0) {
                 target1 = longSignal
-                        ? entryPrice + 2 * risk
-                        : entryPrice - 2 * risk;
+                        ? triggerPrice + 2 * risk
+                        : triggerPrice - 2 * risk;
             }
             if (target2 <= 0 && risk > 0) {
                 target2 = longSignal
-                        ? entryPrice + 3 * risk
-                        : entryPrice - 3 * risk;
+                        ? triggerPrice + 3 * risk
+                        : triggerPrice - 3 * risk;
             }
             if (riskReward <= 0 && risk > 0) {
-                riskReward = Math.abs(target1 - entryPrice) / risk;
+                riskReward = Math.abs(target1 - triggerPrice) / risk;
             }
 
             // Validate trade parameters
-            if (entryPrice <= 0 || stopLoss <= 0 || target1 <= 0) {
-                log.warn("fudkii_invalid_params scrip={} entry={} sl={} t1={} bbL={} bbU={} st={}",
-                        scripCode, entryPrice, stopLoss, target1, bbLower, bbUpper, superTrend);
+            if (triggerPrice <= 0 || stopLoss <= 0 || target1 <= 0) {
+                log.warn("fukaa_invalid_params scrip={} entry={} sl={} t1={} bbL={} bbU={} st={}",
+                        scripCode, triggerPrice, stopLoss, target1, bbLower, bbUpper, superTrend);
                 return;
             }
 
             // ========== Idempotency Check ==========
-            String idKey = "FUDKII|" + scripCode + "|" + triggerTimeStr;
+            String idKey = "FUKAA|" + scripCode + "|" + triggerTimeStr;
             if (processedSignalsCache.asMap().putIfAbsent(idKey, Boolean.TRUE) != null) {
-                log.info("fudkii_duplicate key={} scrip={}", idKey, scripCode);
+                log.info("fukaa_duplicate key={} scrip={}", idKey, scripCode);
                 return;
             }
 
             // ========== Convert to StrategySignal ==========
-            String rationale = String.format("FUDKII: %s score=%.0f | BB[%.2f-%.2f] ST=%.2f | pivot=%s",
-                    direction, triggerScore, bbLower, bbUpper, superTrend, pivotSource);
+            String rationale = String.format("FUKAA: %s via %s | Rank=%.2f Score=%.2f | BB[%.2f-%.2f] ST=%.2f | SurgeT=%.2fx T-1=%.2fx",
+                    fukaaOutcome, passedCandle, rank, triggerScore,
+                    bbLower, bbUpper, superTrend, surgeT, surgeTMinus1);
 
             StrategySignal signal = StrategySignal.builder()
                     .scripCode(scripCode)
                     .companyName(companyName)
                     .timestamp(timestamp)
-                    .signal("FUDKII_" + (longSignal ? "LONG" : "SHORT"))
+                    .signal("FUKAA_" + (longSignal ? "LONG" : "SHORT"))
                     .confidence(Math.min(1.0, triggerScore / 100.0))
                     .rationale(rationale)
                     .direction(direction)
                     .longSignal(longSignal)
                     .shortSignal(shortSignal)
-                    .entryPrice(entryPrice)
+                    .entryPrice(triggerPrice)
                     .stopLoss(stopLoss)
                     .target1(target1)
                     .target2(target2)
                     .riskRewardRatio(riskReward)
                     .positionSizeMultiplier(1.0)
-                    .xfactorFlag(triggerScore >= 80)
+                    .xfactorFlag(rank >= 10.0)
                     .build();
 
             signal.parseScripCode();
@@ -214,23 +217,23 @@ public class FUDKIISignalConsumer {
 
             if (ageSeconds > BACKTEST_THRESHOLD_SECONDS) {
                 // BACKTEST MODE
-                log.info("FUDKII_backtest_mode scrip={} ageSeconds={} score={} pivot={}",
-                        scripCode, ageSeconds, triggerScore, pivotSource);
+                log.info("FUKAA_backtest_mode scrip={} ageSeconds={} score={} outcome={} rank={}",
+                        scripCode, ageSeconds, triggerScore, fukaaOutcome, rank);
 
                 BacktestTrade result = backtestEngine.runBacktest(signal, signalTimeIst.toLocalDateTime());
-                log.info("fudkii_backtest_complete scrip={} profit={}", result.getScripCode(), result.getProfit());
+                log.info("fukaa_backtest_complete scrip={} profit={}", result.getScripCode(), result.getProfit());
 
             } else {
                 // LIVE MODE
-                log.info("FUDKII_live_mode scrip={} ageSeconds={} score={} pivot={}",
-                        scripCode, ageSeconds, triggerScore, pivotSource);
+                log.info("FUKAA_live_mode scrip={} ageSeconds={} score={} outcome={} passedCandle={} rank={}",
+                        scripCode, ageSeconds, triggerScore, fukaaOutcome, passedCandle, String.format("%.2f", rank));
 
                 // Check trading hours
                 String exchange = signal.getExchange() != null ? signal.getExchange() : "N";
                 final ZonedDateTime receivedIst = receivedAt.atZone(IST);
 
                 if (!tradingHoursService.shouldProcessTrade(exchange, receivedIst.toLocalDateTime())) {
-                    log.info("fudkii_outside_hours scrip={} exch={}", scripCode, exchange);
+                    log.info("fukaa_outside_hours scrip={} exch={}", scripCode, exchange);
                     return;
                 }
 
@@ -240,8 +243,8 @@ public class FUDKIISignalConsumer {
                 virtualTrade.setRationale(rationale);
                 backtestRepository.save(virtualTrade);
 
-                log.info("FUDKII_virtual_trade created id={} scrip={} score={}",
-                        virtualTrade.getId(), scripCode, triggerScore);
+                log.info("FUKAA_virtual_trade created id={} scrip={} score={} outcome={}",
+                        virtualTrade.getId(), scripCode, triggerScore, fukaaOutcome);
 
                 // Forward to TradeManager for execution
                 if (liveTradeEnabled) {
@@ -250,7 +253,7 @@ public class FUDKIISignalConsumer {
             }
 
         } catch (Exception e) {
-            log.error("fudkii_processing_error topic={} partition={} offset={} err={}",
+            log.error("fukaa_processing_error topic={} partition={} offset={} err={}",
                     topic, partition, offset, e.toString(), e);
         }
     }

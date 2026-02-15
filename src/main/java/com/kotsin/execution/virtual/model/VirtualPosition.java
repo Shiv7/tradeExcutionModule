@@ -34,5 +34,6 @@ public class VirtualPosition {
     // Signal linkage for stats tracking
     private String signalId;      // Links back to SignalHistory in StreamingCandle
     private String signalType;    // e.g., "BREAKOUT_RETEST"
+    private String signalSource;  // Strategy source: FUDKII, FUKAA, PIVOT, etc.
     private double positionSizeMultiplier;  // From gate chain
 }

@@ -1901,3 +1901,114 @@
 2026-02-13 13:20:36 - QUANT_SIGNAL_ROUTED scrip=472788 signalId=472788_5m_1770988836636
 2026-02-13 13:20:36 - ❌ Order REJECTED - margin check failed: scripCode=472788, qty=1, required=15724.0, reason=Max open positions limit reached: 52/10
 2026-02-13 13:20:36 - TRACKING_ORDER_REJECTED orderId=7d213196-78b3-4ad7-8a03-a760825c6d63 scrip=472788 reason=Max open positions limit reached: 52/10
+2026-02-13 14:30:28 - QUANT_SIGNAL_REJECTED scrip=472786 score=32.4 confidence=0.51 reason=QUALITY_GATE: quantScore=32.4 < min=50.0
+2026-02-13 14:30:28 - ❌ Order REJECTED - margin check failed: scripCode=472786, qty=1, required=126700.0, reason=Max open positions limit reached: 52/10
+2026-02-13 14:30:28 - TRACKING_ORDER_REJECTED orderId=83aef00e-56e8-428b-acfd-14f75e30cc6c scrip=472786 reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:14 - QUANT_SIGNAL_REJECTED scrip=477173 score=44.9 confidence=0.68 reason=QUALITY_GATE: quantScore=44.9 < min=50.0
+2026-02-13 14:40:14 - QUANT_SIGNAL_REJECTED scrip=467013 score=42.5 confidence=0.58 reason=QUALITY_GATE: quantScore=42.5 < min=50.0
+2026-02-13 14:40:18 - QUANT_SIGNAL_REJECTED scrip=477173 score=44.9 confidence=0.68 reason=QUALITY_GATE: quantScore=44.9 < min=50.0
+2026-02-13 14:40:31 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1496.0, reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:31 - TRACKING_ORDER_REJECTED orderId=11315a21-f13b-4c9b-a519-c58acec9932b scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:31 - ❌ Order REJECTED - margin check failed: scripCode=467013, qty=1, required=5672.0, reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:31 - TRACKING_ORDER_REJECTED orderId=1361ec84-f42e-451b-b5df-3aec2a756982 scrip=467013 reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:31 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1496.0, reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:31 - TRACKING_ORDER_REJECTED orderId=c457755a-b294-434c-8440-265b5dd72681 scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:35 - QUANT_SIGNAL_REJECTED scrip=477173 score=44.9 confidence=0.68 reason=QUALITY_GATE: quantScore=44.9 < min=50.0
+2026-02-13 14:40:35 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1496.0, reason=Max open positions limit reached: 52/10
+2026-02-13 14:40:35 - TRACKING_ORDER_REJECTED orderId=67974acc-4052-4606-8d52-8529334b13f9 scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 14:45:24 - quant_signal_stale scrip=477168 age=144s max=120s score=70.76379870554084
+2026-02-13 14:45:24 - ❌ Order REJECTED - margin check failed: scripCode=477168, qty=1, required=187.7, reason=Max open positions limit reached: 52/10
+2026-02-13 14:45:24 - TRACKING_ORDER_REJECTED orderId=17d791fa-4bc1-4430-bc33-12232df57437 scrip=477168 reason=Max open positions limit reached: 52/10
+2026-02-13 15:20:07 - QUANT_SIGNAL_REJECTED scrip=477173 score=58.4 confidence=0.42 reason=QUALITY_GATE: confidence=0.42 < min=0.55
+2026-02-13 15:20:07 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1495.6, reason=Max open positions limit reached: 52/10
+2026-02-13 15:20:07 - TRACKING_ORDER_REJECTED orderId=32a2db72-6cf8-4b68-8972-edc80c4e4c3d scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 15:20:18 - QUANT_SIGNAL_ACCEPTED scrip=477173 score=66.6 confidence=0.57 type=FUDKII direction=BEARISH entry=1489.90 sl=1500.90 tp=1467.91 rr=2.00
+2026-02-13 15:20:18 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 15:20:18 - quant_risk_gate_blocked scrip=477173 score=66.57785533143968
+2026-02-13 15:20:18 - QUANT_SIGNAL_ROUTED scrip=477173 signalId=477173_5m_1770996018680
+2026-02-13 15:20:18 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1489.9, reason=Max open positions limit reached: 52/10
+2026-02-13 15:20:18 - TRACKING_ORDER_REJECTED orderId=97aac274-0ab7-426a-8a6b-9a4c9221dafb scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 15:20:29 - QUANT_SIGNAL_ACCEPTED scrip=477173 score=66.6 confidence=0.57 type=FUDKII direction=BEARISH entry=1489.90 sl=1500.90 tp=1467.91 rr=2.00
+2026-02-13 15:20:29 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 15:20:29 - quant_risk_gate_blocked scrip=477173 score=66.57785533143968
+2026-02-13 15:20:29 - QUANT_SIGNAL_ROUTED scrip=477173 signalId=477173_5m_1770996029547
+2026-02-13 15:20:29 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1489.9, reason=Max open positions limit reached: 52/10
+2026-02-13 15:20:29 - TRACKING_ORDER_REJECTED orderId=2ae1af22-789e-40e2-a09f-8d467252ff3f scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 15:25:24 - QUANT_SIGNAL_REJECTED scrip=477173 score=56.5 confidence=0.55 reason=QUALITY_GATE: confidence=0.55 < min=0.55
+2026-02-13 15:25:24 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1489.1, reason=Max open positions limit reached: 52/10
+2026-02-13 15:25:24 - TRACKING_ORDER_REJECTED orderId=8497a85c-50cd-45a5-abaf-9dd4696647c3 scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 15:40:09 - QUANT_SIGNAL_ACCEPTED scrip=467385 score=85.3 confidence=0.83 type=FUDKII direction=BULLISH entry=289.60 sl=285.55 tp=297.69 rr=2.00
+2026-02-13 15:40:09 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 15:40:09 - quant_risk_gate_blocked scrip=467385 score=85.32375598167525
+2026-02-13 15:40:09 - QUANT_SIGNAL_ROUTED scrip=467385 signalId=467385_5m_1770997208980
+2026-02-13 15:40:09 - ❌ Order REJECTED - margin check failed: scripCode=467385, qty=1, required=289.6, reason=Max open positions limit reached: 52/10
+2026-02-13 15:40:09 - TRACKING_ORDER_REJECTED orderId=c426d001-95c5-42d2-b85f-c0545ff70cf5 scrip=467385 reason=Max open positions limit reached: 52/10
+2026-02-13 15:40:20 - QUANT_SIGNAL_ACCEPTED scrip=467385 score=81.6 confidence=0.83 type=FUDKII direction=BULLISH entry=289.90 sl=285.55 tp=298.59 rr=2.00
+2026-02-13 15:40:21 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 15:40:21 - quant_risk_gate_blocked scrip=467385 score=81.63687785564834
+2026-02-13 15:40:21 - QUANT_SIGNAL_ROUTED scrip=467385 signalId=467385_5m_1770997220933
+2026-02-13 15:40:21 - ❌ Order REJECTED - margin check failed: scripCode=467385, qty=1, required=289.9, reason=Max open positions limit reached: 52/10
+2026-02-13 15:40:21 - TRACKING_ORDER_REJECTED orderId=6809877a-08c2-4960-a09f-804fefbb8ec4 scrip=467385 reason=Max open positions limit reached: 52/10
+2026-02-13 15:50:15 - QUANT_SIGNAL_REJECTED scrip=472784 score=47.5 confidence=0.57 reason=QUALITY_GATE: quantScore=47.5 < min=50.0
+2026-02-13 15:50:15 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155400.0, reason=Max open positions limit reached: 52/10
+2026-02-13 15:50:15 - TRACKING_ORDER_REJECTED orderId=ab830d4b-ee41-49e5-a97b-04bc7b440486 scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 15:50:33 - QUANT_SIGNAL_REJECTED scrip=472784 score=47.5 confidence=0.57 reason=QUALITY_GATE: quantScore=47.5 < min=50.0
+2026-02-13 15:50:33 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155400.0, reason=Max open positions limit reached: 52/10
+2026-02-13 15:50:33 - TRACKING_ORDER_REJECTED orderId=8b355882-5627-4b2e-97fb-a5da5735fb33 scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 16:00:34 - QUANT_SIGNAL_ACCEPTED scrip=467386 score=67.5 confidence=0.66 type=FUDKII direction=BULLISH entry=292.80 sl=281.56 tp=315.27 rr=2.00
+2026-02-13 16:00:34 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 16:00:34 - quant_risk_gate_blocked scrip=467386 score=67.47607092804928
+2026-02-13 16:00:34 - QUANT_SIGNAL_ROUTED scrip=467386 signalId=467386_5m_1770998434275
+2026-02-13 16:00:34 - ❌ Order REJECTED - margin check failed: scripCode=467386, qty=1, required=292.8, reason=Max open positions limit reached: 52/10
+2026-02-13 16:00:34 - TRACKING_ORDER_REJECTED orderId=1d1f9071-ded2-4165-8fa9-6ee023e41646 scrip=467386 reason=Max open positions limit reached: 52/10
+2026-02-13 16:30:13 - QUANT_SIGNAL_ACCEPTED scrip=472784 score=69.1 confidence=0.80 type=FUDKII direction=BULLISH entry=155990.00 sl=153621.11 tp=160727.77 rr=2.00
+2026-02-13 16:30:13 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 16:30:13 - quant_risk_gate_blocked scrip=472784 score=69.0960697483515
+2026-02-13 16:30:13 - QUANT_SIGNAL_ROUTED scrip=472784 signalId=472784_5m_1771000213654
+2026-02-13 16:30:13 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155990.0, reason=Max open positions limit reached: 52/10
+2026-02-13 16:30:13 - TRACKING_ORDER_REJECTED orderId=9cc2c02f-8896-43aa-80e8-f62e9e5e7777 scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 16:30:19 - QUANT_SIGNAL_ACCEPTED scrip=472781 score=67.6 confidence=0.82 type=FUDKII direction=BULLISH entry=153635.00 sl=151121.40 tp=158662.21 rr=2.00
+2026-02-13 16:30:19 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 16:30:19 - quant_risk_gate_blocked scrip=472781 score=67.60260157791217
+2026-02-13 16:30:19 - QUANT_SIGNAL_ROUTED scrip=472781 signalId=472781_5m_1771000219317
+2026-02-13 16:30:19 - ❌ Order REJECTED - margin check failed: scripCode=472781, qty=1, required=153635.0, reason=Max open positions limit reached: 52/10
+2026-02-13 16:30:19 - TRACKING_ORDER_REJECTED orderId=734cbd50-42da-4ade-820c-42fb62eeab46 scrip=472781 reason=Max open positions limit reached: 52/10
+2026-02-13 17:20:08 - QUANT_SIGNAL_REJECTED scrip=472784 score=48.8 confidence=0.72 reason=QUALITY_GATE: quantScore=48.8 < min=50.0
+2026-02-13 17:20:08 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155600.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:20:08 - TRACKING_ORDER_REJECTED orderId=c723b47a-609c-4c06-a2ce-ae0dc305c87c scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 17:20:20 - QUANT_SIGNAL_ACCEPTED scrip=472784 score=53.3 confidence=0.74 type=FUDKII direction=BULLISH entry=155600.00 sl=154433.51 tp=157932.97 rr=2.00
+2026-02-13 17:20:20 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 17:20:20 - quant_risk_gate_blocked scrip=472784 score=53.33068602880537
+2026-02-13 17:20:20 - QUANT_SIGNAL_ROUTED scrip=472784 signalId=472784_5m_1771003220914
+2026-02-13 17:20:20 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155600.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:20:20 - TRACKING_ORDER_REJECTED orderId=7ae1b7e6-6ae5-45d1-8e6a-e0229af8202c scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 17:20:38 - QUANT_SIGNAL_ACCEPTED scrip=472784 score=53.3 confidence=0.74 type=FUDKII direction=BULLISH entry=155600.00 sl=154433.51 tp=157932.97 rr=2.00
+2026-02-13 17:20:38 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 17:20:38 - quant_risk_gate_blocked scrip=472784 score=53.33068602880537
+2026-02-13 17:20:38 - QUANT_SIGNAL_ROUTED scrip=472784 signalId=472784_5m_1771003238529
+2026-02-13 17:20:38 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155600.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:20:38 - TRACKING_ORDER_REJECTED orderId=f980d52c-1893-4008-aee2-9141584a7bc5 scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 17:31:02 - QUANT_SIGNAL_REJECTED scrip=477173 score=52.4 confidence=0.23 reason=QUALITY_GATE: confidence=0.23 < min=0.55
+2026-02-13 17:31:02 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1478.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:31:02 - TRACKING_ORDER_REJECTED orderId=e5f6c3e4-0d17-440d-968f-aafc3f1fb955 scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 17:31:02 - QUANT_SIGNAL_REJECTED scrip=477173 score=52.4 confidence=0.23 reason=QUALITY_GATE: confidence=0.23 < min=0.55
+2026-02-13 17:31:02 - ❌ Order REJECTED - margin check failed: scripCode=477173, qty=1, required=1478.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:31:02 - TRACKING_ORDER_REJECTED orderId=ed2b7238-17e8-4153-9c59-cc55a88f450d scrip=477173 reason=Max open positions limit reached: 52/10
+2026-02-13 17:35:18 - QUANT_SIGNAL_ACCEPTED scrip=472784 score=83.9 confidence=0.68 type=FUDKII direction=BULLISH entry=155979.00 sl=154859.56 tp=158217.88 rr=2.00
+2026-02-13 17:35:18 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 17:35:18 - quant_risk_gate_blocked scrip=472784 score=83.92837562755
+2026-02-13 17:35:18 - QUANT_SIGNAL_ROUTED scrip=472784 signalId=472784_5m_1771004118249
+2026-02-13 17:35:18 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155979.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:35:18 - TRACKING_ORDER_REJECTED orderId=09f0e740-5d35-4e39-b317-895bf0224f2b scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 17:35:31 - QUANT_SIGNAL_ACCEPTED scrip=472784 score=83.9 confidence=0.68 type=FUDKII direction=BULLISH entry=155979.00 sl=154859.56 tp=158217.88 rr=2.00
+2026-02-13 17:35:31 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 17:35:31 - quant_risk_gate_blocked scrip=472784 score=83.92837562755
+2026-02-13 17:35:31 - QUANT_SIGNAL_ROUTED scrip=472784 signalId=472784_5m_1771004131495
+2026-02-13 17:35:31 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155979.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:35:31 - TRACKING_ORDER_REJECTED orderId=c05c735a-cece-4190-a970-c2037d9dc44b scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-13 17:35:41 - QUANT_SIGNAL_ACCEPTED scrip=472784 score=83.9 confidence=0.83 type=FUDKII direction=BULLISH entry=155979.00 sl=154859.56 tp=158217.88 rr=2.00
+2026-02-13 17:35:41 - ⚠️ [PORTFOLIO-RISK] Max positions reached: 52 >= 5. Trade BLOCKED.
+2026-02-13 17:35:41 - quant_risk_gate_blocked scrip=472784 score=83.92837562755
+2026-02-13 17:35:41 - QUANT_SIGNAL_ROUTED scrip=472784 signalId=472784_5m_1771004141547
+2026-02-13 17:35:41 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155979.0, reason=Max open positions limit reached: 52/10
+2026-02-13 17:35:41 - TRACKING_ORDER_REJECTED orderId=3983d604-054b-4c6e-8327-7cc7d00cd849 scrip=472784 reason=Max open positions limit reached: 52/10

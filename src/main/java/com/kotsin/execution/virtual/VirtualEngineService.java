@@ -264,6 +264,9 @@ public class VirtualEngineService {
         if (filled.getSignalType() != null) {
             p.setSignalType(filled.getSignalType());
         }
+        if (filled.getSignalSource() != null) {
+            p.setSignalSource(filled.getSignalSource());
+        }
         p.setUpdatedAt(System.currentTimeMillis());
         repo.savePosition(p);
         bus.publish("position.updated", p);
