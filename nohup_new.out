@@ -2012,3 +2012,347 @@
 2026-02-13 17:35:41 - QUANT_SIGNAL_ROUTED scrip=472784 signalId=472784_5m_1771004141547
 2026-02-13 17:35:41 - ❌ Order REJECTED - margin check failed: scripCode=472784, qty=1, required=155979.0, reason=Max open positions limit reached: 52/10
 2026-02-13 17:35:41 - TRACKING_ORDER_REJECTED orderId=3983d604-054b-4c6e-8327-7cc7d00cd849 scrip=472784 reason=Max open positions limit reached: 52/10
+2026-02-16 03:45:01 - Reset daily counters for wallet: virtual-wallet-1
+2026-02-16 03:45:01 - Trading day reset for wallet: virtual-wallet-1 on 2026-02-16
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=881_1770701471734 scrip=881 pnl=-17.200000000000045 balance=2113202.98 dayPnl=-17.200000000000045
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=881 pnl=-17.200000000000045 exit=STOP_LOSS
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=881 exit=1257.1 pnl=-17.200000000000045 reason=STOP_LOSS
+2026-02-16 03:45:01 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 881 @ ₹1257.1 | P&L: ₹-17.20 | Reason: STOP_LOSS
+2026-02-16 03:45:01 - TRACKING_SL_HIT scrip=881 sl=1257.1 pnl=-17.200000000000045
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=19913_1770700835006 scrip=19913 pnl=5725.0 balance=2118927.98 dayPnl=5707.8
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=19913 pnl=5725.0 exit=TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=19913 exit=3850.0 pnl=5725.0 reason=TP1_PARTIAL
+2026-02-16 03:45:01 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 19913 @ ₹3850.0 | P&L: ₹5725.00 | Reason: TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_TP1_HIT scrip=19913 tp=3850.0 closedQty=50 pnl=5725.0
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=4963_1770706817047 scrip=4963 pnl=-12.899999999999864 balance=2118915.08 dayPnl=5694.900000000001
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=4963 pnl=-12.899999999999864 exit=STOP_LOSS
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=4963 exit=1403.7 pnl=-12.899999999999864 reason=STOP_LOSS
+2026-02-16 03:45:01 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 4963 @ ₹1403.7 | P&L: ₹-12.90 | Reason: STOP_LOSS
+2026-02-16 03:45:01 - TRACKING_SL_HIT scrip=4963 sl=1403.7 pnl=-12.899999999999864
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=10099_1770701472609 scrip=10099 pnl=1435.0000000000023 balance=2120350.08 dayPnl=7129.900000000003
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=10099 pnl=1435.0000000000023 exit=TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=10099 exit=1175.0 pnl=1435.0000000000023 reason=TP1_PARTIAL
+2026-02-16 03:45:01 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 10099 @ ₹1175.0 | P&L: ₹1435.00 | Reason: TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_TP1_HIT scrip=10099 tp=1175.0 closedQty=50 pnl=1435.0000000000023
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=1232_1770700945901 scrip=1232 pnl=2409.999999999991 balance=2122760.08 dayPnl=9539.899999999994
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=1232 pnl=2409.999999999991 exit=TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=1232 exit=2870.0 pnl=2409.999999999991 reason=TP1_PARTIAL
+2026-02-16 03:45:01 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 1232 @ ₹2870.0 | P&L: ₹2410.00 | Reason: TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_TP1_HIT scrip=1232 tp=2870.0 closedQty=50 pnl=2409.999999999991
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=4749_1770701084283 scrip=4749 pnl=515.0000000000006 balance=2123275.08 dayPnl=10054.899999999994
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=4749 pnl=515.0000000000006 exit=TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=4749 exit=494.0 pnl=515.0000000000006 reason=TP1_PARTIAL
+2026-02-16 03:45:01 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 4749 @ ₹494.0 | P&L: ₹515.00 | Reason: TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_TP1_HIT scrip=4749 tp=494.0 closedQty=50 pnl=515.0000000000006
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=18143_1770781942069 scrip=18143 pnl=1672.4999999999852 balance=2124947.58 dayPnl=11727.39999999998
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=18143 pnl=1672.4999999999852 exit=TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=18143 exit=262.05 pnl=1672.4999999999852 reason=TP1_PARTIAL
+2026-02-16 03:45:01 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 18143 @ ₹262.05 | P&L: ₹1672.50 | Reason: TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_TP1_HIT scrip=18143 tp=262.05 closedQty=250 pnl=1672.4999999999852
+2026-02-16 03:45:01 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=324_1770701064690 scrip=324 pnl=14815.00000000001 balance=2139762.58 dayPnl=26542.399999999987
+2026-02-16 03:45:01 - WALLET_PNL_CREDITED scrip=324 pnl=14815.00000000001 exit=TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_POSITION_CLOSED scrip=324 exit=2454.0 pnl=14815.00000000001 reason=TP1_PARTIAL
+2026-02-16 03:45:01 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 324 @ ₹2454.0 | P&L: ₹14815.00 | Reason: TP1_PARTIAL
+2026-02-16 03:45:01 - TRACKING_TP1_HIT scrip=324 tp=2454.0 closedQty=50 pnl=14815.00000000001
+2026-02-16 03:45:02 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=10753_1770703208843 scrip=10753 pnl=-1.6300000000000239 balance=2139760.95 dayPnl=28285.11749999999
+2026-02-16 03:45:02 - WALLET_PNL_CREDITED scrip=10753 pnl=-1.6300000000000239 exit=STOP_LOSS
+2026-02-16 03:45:02 - TRACKING_POSITION_CLOSED scrip=10753 exit=177.92 pnl=-1.6300000000000239 reason=STOP_LOSS
+2026-02-16 03:45:02 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 10753 @ ₹177.92 | P&L: ₹-1.63 | Reason: STOP_LOSS
+2026-02-16 03:45:02 - TRACKING_SL_HIT scrip=10753 sl=177.92 pnl=-1.6300000000000239
+2026-02-16 03:45:02 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=3518_1770700836728 scrip=3518 pnl=3725.0 balance=2143485.95 dayPnl=32010.11749999999
+2026-02-16 03:45:02 - WALLET_PNL_CREDITED scrip=3518 pnl=3725.0 exit=TP1_PARTIAL
+2026-02-16 03:45:02 - TRACKING_POSITION_CLOSED scrip=3518 exit=4131.2 pnl=3725.0 reason=TP1_PARTIAL
+2026-02-16 03:45:02 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 3518 @ ₹4131.2 | P&L: ₹3725.00 | Reason: TP1_PARTIAL
+2026-02-16 03:45:02 - TRACKING_TP1_HIT scrip=3518 tp=4131.2 closedQty=50 pnl=3725.0
+2026-02-16 03:45:03 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=2144_1770709224080 scrip=2144 pnl=4620.000000000005 balance=2148105.95 dayPnl=36630.11749999999
+2026-02-16 03:45:03 - WALLET_PNL_CREDITED scrip=2144 pnl=4620.000000000005 exit=TP1_PARTIAL
+2026-02-16 03:45:03 - TRACKING_POSITION_CLOSED scrip=2144 exit=1232.2 pnl=4620.000000000005 reason=TP1_PARTIAL
+2026-02-16 03:45:03 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 2144 @ ₹1232.2 | P&L: ₹4620.00 | Reason: TP1_PARTIAL
+2026-02-16 03:45:03 - TRACKING_TP1_HIT scrip=2144 tp=1232.2 closedQty=100 pnl=4620.000000000005
+2026-02-16 03:45:20 - quant_signal_skipped_not_actionable scrip=477169 signalId=477169_5m_30d60b15 entry=187.0 sl=187.61 tp=184.06666666666672 actionable=false (WATCH signals have no prices yet)
+2026-02-16 03:47:46 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=19061_1770701039925 scrip=19061 pnl=477.50000000000057 balance=2148583.45 dayPnl=36883.29749999999
+2026-02-16 03:47:46 - WALLET_PNL_CREDITED scrip=19061 pnl=477.50000000000057 exit=TP1_PARTIAL
+2026-02-16 03:47:46 - TRACKING_POSITION_CLOSED scrip=19061 exit=296.0 pnl=477.50000000000057 reason=TP1_PARTIAL
+2026-02-16 03:47:46 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 19061 @ ₹296.0 | P&L: ₹477.50 | Reason: TP1_PARTIAL
+2026-02-16 03:47:46 - TRACKING_TP1_HIT scrip=19061 tp=296.0 closedQty=50 pnl=477.50000000000057
+2026-02-16 03:53:29 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=1394_1770701052904 scrip=1394 pnl=6125.0 balance=2154708.45 dayPnl=42829.41249999999
+2026-02-16 03:53:29 - WALLET_PNL_CREDITED scrip=1394 pnl=6125.0 exit=TP1_PARTIAL
+2026-02-16 03:53:29 - TRACKING_POSITION_CLOSED scrip=1394 exit=2292.3 pnl=6125.0 reason=TP1_PARTIAL
+2026-02-16 03:53:29 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 1394 @ ₹2292.3 | P&L: ₹6125.00 | Reason: TP1_PARTIAL
+2026-02-16 03:53:29 - TRACKING_TP1_HIT scrip=1394 tp=2292.3 closedQty=50 pnl=6125.0
+2026-02-16 04:00:25 - quant_signal_skipped_not_actionable scrip=8479 signalId=8479_5m_325cd892 entry=3867.0 sl=3903.3411 tp=3812.211733333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:27 - quant_signal_skipped_not_actionable scrip=17818 signalId=17818_5m_53464675 entry=5075.0 sl=5126.398999999999 tp=4996.238666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:29 - quant_signal_skipped_not_actionable scrip=19585 signalId=19585_5m_fb7ac03d entry=2797.0 sl=2859.9585 tp=2689.0666666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:30 - quant_signal_skipped_not_actionable scrip=17875 signalId=17875_5m_228d4145 entry=1821.2 sl=1796.8324666666667 tp=1862.145 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:37 - quant_signal_skipped_not_actionable scrip=15141 signalId=15141_5m_a211113d entry=2108.0 sl=2122.84388 tp=2083.766666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:46 - quant_signal_skipped_not_actionable scrip=4067 signalId=4067_5m_74300a0f entry=767.0 sl=761.2793899999999 tp=776.4333333333334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:48 - quant_signal_skipped_not_actionable scrip=6656 signalId=6656_5m_8191d06c entry=1524.4 sl=1540.6418 tp=1497.4824999999998 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:49 - quant_signal_skipped_not_actionable scrip=9599 signalId=9599_5m_6d1e292a entry=418.95 sl=423.4289676000001 tp=408.5 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:00:51 - quant_signal_skipped_not_actionable scrip=31415 signalId=31415_5m_5c05ac9f entry=98.9 sl=97.7042 tp=100.82 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:01:43 - quant_signal_skipped_not_actionable scrip=2144 signalId=2144_5m_18bbebbf entry=1239.2 sl=1253.683195 tp=1214.8333333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:02:10 - quant_signal_skipped_not_actionable scrip=17029 signalId=17029_5m_cc0f00e3 entry=521.8 sl=514.6291789999999 tp=532.6208333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:02:38 - quant_signal_skipped_not_actionable scrip=20261 signalId=20261_5m_a6ece01e entry=124.86 sl=123.653697 tp=127.33483333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:02:41 - quant_signal_skipped_not_actionable scrip=12018 signalId=12018_5m_c2c48015 entry=45.69 sl=46.154437959999996 tp=44.974353333333326 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:02:53 - quant_signal_skipped_not_actionable scrip=14366 signalId=14366_5m_c29c003a entry=11.37 sl=11.233986999999999 tp=11.586666666666668 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:22 - quant_signal_skipped_not_actionable scrip=16675 signalId=16675_5m_a87f38fc entry=2041.8 sl=2029.0670666666667 tp=2066.3333333333335 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:24 - quant_signal_skipped_not_actionable scrip=9480 signalId=9480_5m_76eaff4d entry=858.9 sl=864.9597999999999 tp=848.155 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:30 - quant_signal_skipped_not_actionable scrip=4745 signalId=4745_5m_9a1156ac entry=161.78 sl=163.47963999999996 tp=158.81333333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:30 - quant_signal_skipped_not_actionable scrip=31181 signalId=31181_5m_d0106f6c entry=2239.8 sl=2276.9448 tp=2182.7082 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:34 - quant_signal_skipped_not_actionable scrip=13332 signalId=13332_5m_2ebae77e entry=13019.0 sl=13142.064999999999 tp=12830.666666666668 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:47 - quant_signal_skipped_not_actionable scrip=15332 signalId=15332_5m_84a1a7da entry=79.49 sl=80.51403999999997 tp=77.74333333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:49 - quant_signal_skipped_not_actionable scrip=1424 signalId=1424_5m_17eddaaf entry=590.15 sl=597.5594000000001 tp=578.1666666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:50 - quant_signal_skipped_not_actionable scrip=25 signalId=25_5m_7c50c485 entry=2121.3 sl=2143.111000000001 tp=2083.1833333333334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:05:54 - quant_signal_skipped_not_actionable scrip=13359 signalId=13359_5m_37dfdb8b entry=1011.0 sl=994.8063999999999 tp=1038.1333333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:06:03 - quant_signal_skipped_not_actionable scrip=10753 signalId=10753_5m_b3c9d777 entry=177.96 sl=179.317419 tp=175.55 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:06:50 - quant_signal_skipped_not_actionable scrip=19913 signalId=19913_5m_6d4491e4 entry=3893.6 sl=3921.5942 tp=3851.5166666666664 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:07:01 - quant_signal_skipped_not_actionable scrip=2963 signalId=2963_5m_8d8f9397 entry=157.98 sl=159.81566000000004 tp=155.18666666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:10:08 - quant_signal_skipped_not_actionable scrip=772 signalId=772_5m_98ee6ef8 entry=510.25 sl=514.0735950000001 tp=504.05 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:10:12 - quant_signal_skipped_not_actionable scrip=2263 signalId=2263_5m_e7ebe3f1 entry=164.92 sl=166.37876000000003 tp=162.525 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:11:52 - quant_signal_skipped_not_actionable scrip=526 signalId=526_5m_15826928 entry=370.25 sl=373.1994925 tp=364.2275 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:15:11 - quant_signal_skipped_not_actionable scrip=487675 signalId=487675_5m_fb2b1714 entry=3490.0 sl=3468.4408833333337 tp=3523.0 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:15:16 - quant_signal_skipped_not_actionable scrip=438 signalId=438_5m_5515af96 entry=255.6 sl=258.309755 tp=251.45000000000002 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:15:21 - quant_signal_skipped_not_actionable scrip=7852 signalId=7852_5m_1fe8a1fd entry=100.2 sl=102.058877 tp=96.67333333333335 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:15:21 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=14592_1770701437909 scrip=14592 pnl=-25.75 balance=2154682.7 dayPnl=42781.469999999994
+2026-02-16 04:15:21 - WALLET_PNL_CREDITED scrip=14592 pnl=-25.75 exit=STOP_LOSS
+2026-02-16 04:15:21 - TRACKING_POSITION_CLOSED scrip=14592 exit=908.65 pnl=-25.75 reason=STOP_LOSS
+2026-02-16 04:15:21 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 14592 @ ₹908.65 | P&L: ₹-25.75 | Reason: STOP_LOSS
+2026-02-16 04:15:21 - TRACKING_SL_HIT scrip=14592 sl=908.65 pnl=-25.75
+2026-02-16 04:15:28 - quant_signal_skipped_not_actionable scrip=10753 signalId=10753_5m_ea9a00c7 entry=177.4 sl=180.79786948643286 tp=170.6042610271343 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:15:33 - quant_signal_skipped_not_actionable scrip=3411 signalId=3411_5m_45a670d8 entry=4791.0 sl=4843.682362 tp=4711.666666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:15:55 - quant_signal_skipped_not_actionable scrip=13359 signalId=13359_5m_239af3ae entry=1003.1 sl=950.1724316886186 tp=1108.955136622763 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:16:18 - quant_signal_skipped_not_actionable scrip=13528 signalId=13528_5m_d6e1a29a entry=98.74 sl=93.63310897208765 tp=108.95378205582468 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:16:41 - quant_signal_skipped_not_actionable scrip=21770 signalId=21770_5m_ce0613e0 entry=1911.7 sl=1928.8667 tp=1885.855 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:17:07 - quant_signal_skipped_not_actionable scrip=488289 signalId=488289_5m_0535f10a entry=37101.0 sl=37554.642700000004 tp=35795.128 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:18:12 - quant_signal_skipped_not_actionable scrip=157 signalId=157_5m_4759805c entry=7492.0 sl=7544.55065 tp=7411.4625 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:18:12 - quant_signal_skipped_not_actionable scrip=2181 signalId=2181_5m_b65810d6 entry=35550.0 sl=35801.0425 tp=35133.33333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:18:13 - ❌ Order REJECTED - margin check failed: scripCode=2181, qty=1, required=35550.0, reason=Max open positions limit reached: 38/10
+2026-02-16 04:18:13 - TRACKING_ORDER_REJECTED orderId=78f24370-bdce-499f-8315-0348e57e214f scrip=2181 reason=Max open positions limit reached: 38/10
+2026-02-16 04:18:22 - quant_signal_skipped_not_actionable scrip=324 signalId=324_5m_060648f6 entry=2584.0 sl=2659.93926 tp=2445.092266666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:18:53 - quant_signal_skipped_not_actionable scrip=11483 signalId=11483_5m_406c2a7b entry=4168.1 sl=4192.167599999999 tp=4130.7 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:19:14 - quant_signal_skipped_not_actionable scrip=21238 signalId=21238_5m_f5231647 entry=990.3 sl=997.5912000000001 tp=979.3000000000001 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:20:06 - quant_signal_skipped_not_actionable scrip=3432 signalId=3432_5m_9cd23974 entry=1128.0 sl=1139.02016 tp=1108.6333333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:20:10 - quant_signal_skipped_not_actionable scrip=13528 signalId=13528_5m_f0db9fa5 entry=99.14 sl=97.77073333333333 tp=101.46666666666665 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:20:29 - quant_signal_skipped_not_actionable scrip=11571 signalId=11571_5m_4b025fc9 entry=167.34 sl=164.77370883333333 tp=171.4745 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:25:42 - quant_signal_skipped_not_actionable scrip=14418 signalId=14418_5m_932d7199 entry=1599.3 sl=1579.9005333333334 tp=1632.5833333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:30:53 - quant_signal_skipped_not_actionable scrip=14592 signalId=14592_5m_d866b1af entry=911.0 sl=920.7610129999999 tp=892.7583333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:35:08 - quant_signal_skipped_not_actionable scrip=1007 signalId=1007_5m_6650701f entry=107.71 sl=107.62965857142858 tp=108.19576666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:40:14 - quant_signal_skipped_not_actionable scrip=18721 signalId=18721_5m_deb59308 entry=1267.7 sl=1289.4387299999999 tp=1230.6200000000001 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:45:07 - quant_signal_skipped_not_actionable scrip=451669 signalId=451669_5m_442d40c5 entry=240553.0 sl=244515.41405200004 tp=233387.6666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:45:24 - quant_signal_skipped_not_actionable scrip=21690 signalId=21690_5m_a022adf4 entry=11746.0 sl=11603.912333333334 tp=12101.264666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:45:32 - quant_signal_skipped_not_actionable scrip=10243 signalId=10243_5m_4bcb6bcf entry=444.3 sl=438.122 tp=453.82 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:45:33 - quant_signal_skipped_not_actionable scrip=3220 signalId=3220_5m_7c56afec entry=1088.65 sl=1076.4020483333334 tp=1108.4333333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:45:43 - quant_signal_skipped_not_actionable scrip=13786 signalId=13786_5m_1e963a41 entry=1465.0 sl=1450.1993222666667 tp=1495.8474999999999 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:46:41 - quant_signal_skipped_not_actionable scrip=17869 signalId=17869_5m_0ab5a25d entry=481.85 sl=468.2262553266509 tp=509.09748934669824 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:46:50 - quant_signal_skipped_not_actionable scrip=20261 signalId=20261_5m_af61c743 entry=126.75 sl=121.9129176192771 tp=136.4241647614458 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:50:58 - quant_signal_skipped_not_actionable scrip=11543 signalId=11543_5m_03fc114e entry=1366.9 sl=1343.4494498666668 tp=1404.1666666666665 actionable=false (WATCH signals have no prices yet)
+2026-02-16 04:58:10 - quant_signal_skipped_not_actionable scrip=10999 signalId=10999_5m_bb714b70 entry=15095.0 sl=15212.364 tp=14887.833333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:00:44 - quant_signal_skipped_not_actionable scrip=9599 signalId=9599_5m_cb121a6a entry=417.6 sl=422.049915 tp=408.8833333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:01:15 - quant_signal_skipped_not_actionable scrip=305 signalId=305_5m_526751f1 entry=11095.0 sl=11008.771666666666 tp=11249.25 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:10:10 - quant_signal_skipped_not_actionable scrip=9480 signalId=9480_5m_f140918b entry=855.7 sl=862.8735524999998 tp=843.5209333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:10:19 - quant_signal_skipped_not_actionable scrip=13359 signalId=13359_5m_c59cae77 entry=1011.0 sl=994.8063999999999 tp=1038.1565333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:15:36 - quant_signal_skipped_not_actionable scrip=27066 signalId=27066_5m_15f80a29 entry=342.2 sl=328.63371145231065 tp=369.33257709537867 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:15:37 - ❌ Order REJECTED - margin check failed: scripCode=27066, qty=1, required=342.2, reason=Max open positions limit reached: 38/10
+2026-02-16 05:15:37 - TRACKING_ORDER_REJECTED orderId=4d49911c-e040-4ae1-8e72-99bd022d0a94 scrip=27066 reason=Max open positions limit reached: 38/10
+2026-02-16 05:15:44 - quant_signal_skipped_not_actionable scrip=5900 signalId=5900_5m_091377ce entry=1347.3 sl=1324.1028703096433 tp=1393.6942593807132 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:17:47 - quant_signal_skipped_not_actionable scrip=477168 signalId=477168_5m_a68fe5ee entry=188.2 sl=187.66583333333332 tp=189.59999999999997 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:18:51 - quant_signal_skipped_not_actionable scrip=20261 signalId=20261_5m_e3c758eb entry=127.01 sl=125.55837999999999 tp=129.24516666666665 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:26:53 - quant_signal_skipped_not_actionable scrip=1624 signalId=1624_5m_5496302f entry=173.92 sl=175.44068099999998 tp=171.19416666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:31:57 - quant_signal_skipped_not_actionable scrip=19585 signalId=19585_5m_5f893bc4 entry=2826.7 sl=2890.9703999999997 tp=2729.6 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:36:26 - quant_signal_skipped_not_actionable scrip=13528 signalId=13528_5m_e9480bf0 entry=99.7 sl=98.28636666666667 tp=102.16333333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:40:43 - quant_signal_skipped_not_actionable scrip=16675 signalId=16675_5m_d5949714 entry=2043.7 sl=2029.5552550000002 tp=2066.3333333333335 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:45:39 - quant_signal_skipped_not_actionable scrip=14366 signalId=14366_5m_8ad277dd entry=11.37 sl=11.224439466666666 tp=11.636666666666663 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:46:20 - quant_signal_skipped_not_actionable scrip=275 signalId=275_5m_8688e73b entry=1172.6 sl=1139.5214469440484 tp=1238.7571061119029 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:46:21 - quant_signal_skipped_not_actionable scrip=10099 signalId=10099_5m_48df8bfa entry=1218.1 sl=1185.4462417793065 tp=1283.4075164413866 actionable=false (WATCH signals have no prices yet)
+2026-02-16 05:52:39 - quant_signal_skipped_not_actionable scrip=275 signalId=275_5m_183191a1 entry=1170.8 sl=1155.4511333333332 tp=1193.9333333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:05:14 - quant_signal_skipped_not_actionable scrip=8075 signalId=8075_5m_cc6e8de9 entry=2131.8 sl=2149.8911999999996 tp=2103.95 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:05:14 - quant_signal_skipped_not_actionable scrip=14413 signalId=14413_5m_fa48f205 entry=33360.0 sl=33689.87025 tp=32861.75 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:05:46 - quant_signal_skipped_not_actionable scrip=3363 signalId=3363_5m_81a336f2 entry=3807.0 sl=3764.04183 tp=3880.366666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:06:34 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=13359_1770701085421 scrip=13359 pnl=-86.70000000000027 balance=2154596.0 dayPnl=42625.94999999999
+2026-02-16 06:06:34 - WALLET_PNL_CREDITED scrip=13359 pnl=-86.70000000000027 exit=STOP_LOSS
+2026-02-16 06:06:34 - TRACKING_POSITION_CLOSED scrip=13359 exit=1024.7 pnl=-86.70000000000027 reason=STOP_LOSS
+2026-02-16 06:06:34 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 13359 @ ₹1024.7 | P&L: ₹-86.70 | Reason: STOP_LOSS
+2026-02-16 06:06:34 - TRACKING_SL_HIT scrip=13359 sl=1024.7 pnl=-86.70000000000027
+2026-02-16 06:10:04 - quant_signal_skipped_not_actionable scrip=11630 signalId=11630_5m_38453628 entry=369.4 sl=366.53213333333343 tp=374.11125 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:10:11 - quant_signal_skipped_not_actionable scrip=11915 signalId=11915_5m_af1f9c10 entry=20.79 sl=20.942301 tp=20.500000000000004 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:10:43 - quant_signal_skipped_not_actionable scrip=342 signalId=342_5m_5c20e733 entry=731.0 sl=723.1674333333334 tp=743.85 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:15:12 - quant_signal_skipped_not_actionable scrip=487675 signalId=487675_5m_ff58b2ef entry=3465.0 sl=3425.136 tp=3526.0 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:15:21 - quant_signal_skipped_not_actionable scrip=1348 signalId=1348_5m_23d5c3f6 entry=5488.5 sl=5547.4728 tp=5395.470666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:15:21 - ❌ Order REJECTED - margin check failed: scripCode=1348, qty=1, required=5488.5, reason=Max open positions limit reached: 37/10
+2026-02-16 06:15:21 - TRACKING_ORDER_REJECTED orderId=a98514d4-4e7e-4cd4-94a8-dc8269b26cd7 scrip=1348 reason=Max open positions limit reached: 37/10
+2026-02-16 06:15:23 - quant_signal_skipped_not_actionable scrip=17971 signalId=17971_5m_d63b7b28 entry=762.35 sl=768.2641947999999 tp=752.5666666666668 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:15:28 - quant_signal_skipped_not_actionable scrip=22377 signalId=22377_5m_e30fc3c2 entry=1066.45 sl=1044.9473192067567 tp=1103.2897916666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:16:21 - quant_signal_skipped_not_actionable scrip=1024 signalId=1024_5m_1ccb5bd9 entry=123.8 sl=123.70889285714286 tp=124.30725000000001 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:16:21 - ❌ Order REJECTED - margin check failed: scripCode=1024, qty=1, required=123.8, reason=Max open positions limit reached: 37/10
+2026-02-16 06:16:21 - TRACKING_ORDER_REJECTED orderId=a341f04f-3985-47e3-80e8-91075b40a941 scrip=1024 reason=Max open positions limit reached: 37/10
+2026-02-16 06:17:42 - quant_signal_skipped_not_actionable scrip=18921 signalId=18921_5m_42f80fcc entry=454.15 sl=449.9982 tp=460.45000000000005 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:18:48 - quant_signal_skipped_not_actionable scrip=694 signalId=694_5m_43a52263 entry=1346.0 sl=1335.40883 tp=1368.4924 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:20:41 - quant_signal_skipped_not_actionable scrip=8479 signalId=8479_5m_35e92819 entry=3828.2 sl=3857.0119600000003 tp=3782.443333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:20:48 - quant_signal_skipped_not_actionable scrip=22377 signalId=22377_5m_bc271038 entry=1068.45 sl=1058.4505233333334 tp=1086.7925 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:23:27 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=24948_1770701423948 scrip=24948 pnl=-4.199999999999989 balance=2154591.8 dayPnl=42725.009999999995
+2026-02-16 06:23:27 - WALLET_PNL_CREDITED scrip=24948 pnl=-4.199999999999989 exit=STOP_LOSS
+2026-02-16 06:23:27 - TRACKING_POSITION_CLOSED scrip=24948 exit=292.65 pnl=-4.199999999999989 reason=STOP_LOSS
+2026-02-16 06:23:27 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 24948 @ ₹292.65 | P&L: ₹-4.20 | Reason: STOP_LOSS
+2026-02-16 06:23:27 - TRACKING_SL_HIT scrip=24948 sl=292.65 pnl=-4.199999999999989
+2026-02-16 06:24:22 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=8479_1770708726669 scrip=8479 pnl=-54.30000000000018 balance=2154537.5 dayPnl=42662.814999999995
+2026-02-16 06:24:22 - WALLET_PNL_CREDITED scrip=8479 pnl=-54.30000000000018 exit=STOP_LOSS
+2026-02-16 06:24:22 - TRACKING_POSITION_CLOSED scrip=8479 exit=3821.0 pnl=-54.30000000000018 reason=STOP_LOSS
+2026-02-16 06:24:22 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 8479 @ ₹3821.0 | P&L: ₹-54.30 | Reason: STOP_LOSS
+2026-02-16 06:24:22 - TRACKING_SL_HIT scrip=8479 sl=3821.0 pnl=-54.30000000000018
+2026-02-16 06:25:07 - quant_signal_skipped_not_actionable scrip=477168 signalId=477168_5m_03affa1e entry=188.0 sl=186.8755 tp=190.463 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:37:18 - quant_signal_skipped_not_actionable scrip=472784 signalId=472784_5m_daba8320 entry=155599.0 sl=154593.3936 tp=157294.3333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:40:13 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=13310_1770709810199 scrip=13310 pnl=4720.000000000027 balance=2159257.5 dayPnl=47382.760000000024
+2026-02-16 06:40:13 - WALLET_PNL_CREDITED scrip=13310 pnl=4720.000000000027 exit=TP1_PARTIAL
+2026-02-16 06:40:13 - TRACKING_POSITION_CLOSED scrip=13310 exit=4483.7 pnl=4720.000000000027 reason=TP1_PARTIAL
+2026-02-16 06:40:13 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 13310 @ ₹4483.7 | P&L: ₹4720.00 | Reason: TP1_PARTIAL
+2026-02-16 06:40:13 - TRACKING_TP1_HIT scrip=13310 tp=4483.7 closedQty=50 pnl=4720.000000000027
+2026-02-16 06:40:17 - quant_signal_skipped_not_actionable scrip=760 signalId=760_5m_1ad2749a entry=689.65 sl=683.4137666666667 tp=699.49 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:40:47 - quant_signal_skipped_not_actionable scrip=477172 signalId=477172_5m_672202f4 entry=323.4 sl=321.2562 tp=327.3991666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:43:23 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=22377_1770717633442 scrip=22377 pnl=1127.4999999999977 balance=2160385.0 dayPnl=48429.29500000002
+2026-02-16 06:43:23 - WALLET_PNL_CREDITED scrip=22377 pnl=1127.4999999999977 exit=TP1_PARTIAL
+2026-02-16 06:43:23 - TRACKING_POSITION_CLOSED scrip=22377 exit=1076.5 pnl=1127.4999999999977 reason=TP1_PARTIAL
+2026-02-16 06:43:23 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 22377 @ ₹1076.5 | P&L: ₹1127.50 | Reason: TP1_PARTIAL
+2026-02-16 06:43:23 - TRACKING_TP1_HIT scrip=22377 tp=1076.5 closedQty=50 pnl=1127.4999999999977
+2026-02-16 06:46:16 - quant_signal_skipped_not_actionable scrip=15083 signalId=15083_5m_95e2ce81 entry=1537.1 sl=1496.0792020656627 tp=1619.1415958686744 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:46:27 - quant_signal_skipped_not_actionable scrip=4668 signalId=4668_5m_472e9cda entry=289.55 sl=285.16617537945643 tp=298.31764924108717 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:46:59 - quant_signal_skipped_not_actionable scrip=3563 signalId=3563_5m_5ef7ddf6 entry=983.5 sl=943.813697662913 tp=1062.872604674174 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:47:27 - quant_signal_skipped_not_actionable scrip=17971 signalId=17971_5m_83ba21de entry=770.55 sl=753.2694398214333 tp=805.1111203571334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:49:26 - quant_signal_skipped_not_actionable scrip=19061 signalId=19061_5m_42d081dc entry=300.0 sl=304.01515 tp=293.8769666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:49:26 - ❌ Order REJECTED - margin check failed: scripCode=19061, qty=1, required=300.0, reason=Max open positions limit reached: 33/10
+2026-02-16 06:49:26 - TRACKING_ORDER_REJECTED orderId=29a1e19f-701f-49a0-88d6-b7c353b45a40 scrip=19061 reason=Max open positions limit reached: 33/10
+2026-02-16 06:49:32 - quant_signal_skipped_not_actionable scrip=14418 signalId=14418_5m_d66386cd entry=1633.0 sl=1615.5540833333334 tp=1669.6333333333332 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:50:13 - quant_signal_skipped_not_actionable scrip=15141 signalId=15141_5m_839204d9 entry=2115.3 sl=2130.15514 tp=2090.6333333333328 actionable=false (WATCH signals have no prices yet)
+2026-02-16 06:50:13 - ❌ Order REJECTED - margin check failed: scripCode=15141, qty=1, required=2115.3, reason=Max open positions limit reached: 33/10
+2026-02-16 06:50:13 - TRACKING_ORDER_REJECTED orderId=9faeb753-6556-4497-94f6-c5fb6d101fb5 scrip=15141 reason=Max open positions limit reached: 33/10
+2026-02-16 06:55:44 - quant_signal_skipped_not_actionable scrip=13528 signalId=13528_5m_a861de03 entry=100.25 sl=98.70219999999999 tp=102.8505 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:06:12 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=20261_1770701061467 scrip=20261 pnl=-5.080000000000027 balance=2160379.92 dayPnl=48354.45250000002
+2026-02-16 07:06:12 - WALLET_PNL_CREDITED scrip=20261 pnl=-5.080000000000027 exit=STOP_LOSS
+2026-02-16 07:06:12 - TRACKING_POSITION_CLOSED scrip=20261 exit=127.2 pnl=-5.080000000000027 reason=STOP_LOSS
+2026-02-16 07:06:12 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 20261 @ ₹127.2 | P&L: ₹-5.08 | Reason: STOP_LOSS
+2026-02-16 07:06:12 - TRACKING_SL_HIT scrip=20261 sl=127.2 pnl=-5.080000000000027
+2026-02-16 07:10:35 - quant_signal_skipped_not_actionable scrip=25780 signalId=25780_5m_82b092ea entry=2235.0 sl=2252.6629999999996 tp=2203.0 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:12:56 - quant_signal_skipped_not_actionable scrip=11723 signalId=11723_5m_6962bfb6 entry=1239.0 sl=1230.66374 tp=1252.185 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:13:14 - quant_signal_skipped_not_actionable scrip=29135 signalId=29135_5m_bcb33f8a entry=474.4 sl=468.5256541666667 tp=483.7875 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:15:43 - quant_signal_skipped_not_actionable scrip=8479 signalId=8479_5m_3c3271b4 entry=3828.0 sl=3858.29285 tp=3782.443333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:16:24 - quant_signal_skipped_not_actionable scrip=18921 signalId=18921_5m_db1050b1 entry=456.6 sl=446.84147347345163 tp=476.1170530530968 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:16:43 - quant_signal_skipped_not_actionable scrip=13528 signalId=13528_5m_98f17126 entry=100.07 sl=98.34187542666668 tp=102.8505 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:17:13 - quant_signal_skipped_not_actionable scrip=4717 signalId=4717_5m_ecf71e5c entry=164.04 sl=161.54114239362818 tp=169.03771521274362 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:17:27 - quant_signal_skipped_not_actionable scrip=999920005 signalId=999920005_5m_ac53bd2e entry=60701.35 sl=60117.62065991175 tp=61868.808680176495 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:17:44 - quant_signal_skipped_not_actionable scrip=4745 signalId=4745_5m_8c6123d2 entry=164.5 sl=160.87607590019937 tp=171.74784819960126 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:22:20 - quant_signal_skipped_not_actionable scrip=17971 signalId=17971_5m_1cf36205 entry=773.1 sl=764.4617625000001 tp=786.1333333333334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:22:38 - quant_signal_skipped_not_actionable scrip=22377 signalId=22377_5m_ab39f848 entry=1069.4 sl=1058.326605 tp=1086.7925 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:22:39 - quant_signal_skipped_not_actionable scrip=21174 signalId=21174_5m_76870139 entry=1349.2 sl=1329.7351999999998 tp=1378.8118 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:22:41 - quant_signal_skipped_not_actionable scrip=2031 signalId=2031_5m_f9a0f22b entry=3488.3 sl=3515.9704050000005 tp=3440.133333333334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:23:33 - quant_signal_skipped_not_actionable scrip=20825 signalId=20825_5m_920cc79d entry=194.05 sl=196.1387612 tp=190.88 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:23:55 - quant_signal_skipped_not_actionable scrip=31415 signalId=31415_5m_9a50c2fa entry=99.25 sl=97.40446733333333 tp=102.1975 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:24:26 - quant_signal_skipped_not_actionable scrip=20374 signalId=20374_5m_4f490b91 entry=423.85 sl=418.56951666666674 tp=432.81666666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:24:54 - quant_signal_skipped_not_actionable scrip=694 signalId=694_5m_efe7fa9c entry=1349.6 sl=1336.6713 tp=1376.5 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:30:56 - quant_signal_skipped_not_actionable scrip=14154 signalId=14154_5m_b16f6bab entry=1224.9 sl=1236.86212 tp=1202.6 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:31:22 - quant_signal_skipped_not_actionable scrip=31181 signalId=31181_5m_565ff696 entry=2325.8 sl=2285.06571 tp=2388.2575 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:32:12 - quant_signal_skipped_not_actionable scrip=18143 signalId=18143_5m_7505f9da entry=260.35 sl=262.1845725 tp=256.4833333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:33:50 - quant_signal_skipped_not_actionable scrip=2029 signalId=2029_5m_8eda43e6 entry=111.86 sl=111.12006450000001 tp=112.99375 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:38:10 - quant_signal_skipped_not_actionable scrip=467013 signalId=467013_5m_51a3f995 entry=5702.0 sl=5714.921428571429 tp=5662.4 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:40:23 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=5900_1770701033175 scrip=5900 pnl=-19.0 balance=2160360.92 dayPnl=48343.95000000002
+2026-02-16 07:40:23 - WALLET_PNL_CREDITED scrip=5900 pnl=-19.0 exit=STOP_LOSS
+2026-02-16 07:40:23 - TRACKING_POSITION_CLOSED scrip=5900 exit=1358.5 pnl=-19.0 reason=STOP_LOSS
+2026-02-16 07:40:23 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 5900 @ ₹1358.5 | P&L: ₹-19.00 | Reason: STOP_LOSS
+2026-02-16 07:40:23 - TRACKING_SL_HIT scrip=5900 sl=1358.5 pnl=-19.0
+2026-02-16 07:40:43 - quant_signal_skipped_not_actionable scrip=11373 signalId=11373_5m_7ac66c6a entry=381.4 sl=378.66615 tp=385.6575 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:42:26 - quant_signal_skipped_not_actionable scrip=11184 signalId=11184_5m_a755c318 entry=82.62 sl=81.96382716666668 tp=83.89999999999999 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:46:04 - quant_signal_skipped_not_actionable scrip=3363 signalId=3363_5m_24938d9b entry=3840.3 sl=3761.003677555055 tp=3998.89264488989 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:50:54 - quant_signal_skipped_not_actionable scrip=17400 signalId=17400_5m_b9506b5c entry=77.1 sl=76.25036033333333 tp=78.40883333333335 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:50:56 - quant_signal_skipped_not_actionable scrip=3363 signalId=3363_5m_7c9021fb entry=3846.0 sl=3816.090856666667 tp=3896.67 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:55:07 - quant_signal_skipped_not_actionable scrip=342 signalId=342_5m_ecbb19ea entry=734.85 sl=728.801975 tp=745.075 actionable=false (WATCH signals have no prices yet)
+2026-02-16 07:59:09 - quant_signal_skipped_not_actionable scrip=438 signalId=438_5m_623340f8 entry=261.25 sl=258.59843333333333 tp=265.85 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:10:57 - quant_signal_skipped_not_actionable scrip=220 signalId=220_5m_a6eaf978 entry=124.79 sl=123.86178 tp=126.20627333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:13:15 - quant_signal_skipped_not_actionable scrip=467014 signalId=467014_5m_e4175916 entry=5698.0 sl=5715.828571428572 tp=5654.176 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:15:10 - quant_signal_skipped_not_actionable scrip=477172 signalId=477172_5m_8af3c8c0 entry=323.1 sl=322.1257142857143 tp=325.45833333333326 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:15:15 - quant_signal_skipped_not_actionable scrip=451666 signalId=451666_5m_5a9ed30a entry=239312.0 sl=241606.49015 tp=235490.6 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:15:42 - quant_signal_skipped_not_actionable scrip=467 signalId=467_5m_be9485db entry=703.75 sl=694.9303682615259 tp=721.3892634769481 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:16:58 - quant_signal_skipped_not_actionable scrip=2029 signalId=2029_5m_0d1aa721 entry=112.83 sl=110.70992702402029 tp=117.07014595195942 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:30:54 - quant_signal_skipped_not_actionable scrip=4749 signalId=4749_5m_5fea30c8 entry=502.6 sl=499.61792833333334 tp=508.49 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:35:09 - quant_signal_skipped_not_actionable scrip=477172 signalId=477172_5m_e3604a64 entry=323.25 sl=321.58055 tp=327.5405833333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:35:23 - quant_signal_skipped_not_actionable scrip=305 signalId=305_5m_dddc316e entry=11184.0 sl=11088.112666666666 tp=11339.666666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:37:07 - quant_signal_skipped_not_actionable scrip=694 signalId=694_5m_f99b0930 entry=1349.6 sl=1341.1124 tp=1364.79 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:40:29 - quant_signal_skipped_not_actionable scrip=13 signalId=13_5m_b0c4b41b entry=5887.5 sl=5845.45067 tp=5953.0875 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:40:50 - quant_signal_skipped_not_actionable scrip=4745 signalId=4745_5m_63cdf8d7 entry=165.23 sl=163.8782533333333 tp=167.7733333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:41:02 - quant_signal_skipped_not_actionable scrip=14366 signalId=14366_5m_bf6a9605 entry=11.46 sl=11.374039666666667 tp=11.609499999999999 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:41:03 - quant_signal_skipped_not_actionable scrip=3063 signalId=3063_5m_a82d8faa entry=678.75 sl=674.0803875 tp=686.42375 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:46:05 - quant_signal_skipped_not_actionable scrip=25907 signalId=25907_5m_2b470cdd entry=3119.0 sl=3091.700873333333 tp=3169.8999999999996 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:46:36 - quant_signal_skipped_not_actionable scrip=1922 signalId=1922_5m_925f40cd entry=422.2 sl=418.91050000000007 tp=427.225 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:46:36 - ❌ Order REJECTED - margin check failed: scripCode=1922, qty=1, required=422.2, reason=Max open positions limit reached: 31/10
+2026-02-16 08:46:36 - TRACKING_ORDER_REJECTED orderId=930488ba-c190-4fcf-8a03-431682fdbe6f scrip=1922 reason=Max open positions limit reached: 31/10
+2026-02-16 08:47:25 - quant_signal_skipped_not_actionable scrip=1232 signalId=1232_5m_8c290864 entry=2913.4 sl=2897.7595333333334 tp=2939.94 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:47:40 - quant_signal_skipped_not_actionable scrip=10604 signalId=10604_5m_9f1ad1b8 entry=2025.8 sl=2000.5172966688149 tp=2076.3654066623703 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:48:18 - quant_signal_skipped_not_actionable scrip=16669 signalId=16669_5m_ccfd3147 entry=9671.5 sl=9722.239000000001 tp=9581.795833333334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:48:48 - quant_signal_skipped_not_actionable scrip=477165 signalId=477165_5m_9175faa5 entry=309.05 sl=308.3616666666667 tp=311.3375 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:49:04 - quant_signal_skipped_not_actionable scrip=477167 signalId=477167_5m_8fa95cac entry=1205.5 sl=1196.62695 tp=1219.695 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:50:39 - quant_signal_skipped_not_actionable scrip=467014 signalId=467014_5m_099087c2 entry=5688.0 sl=5703.452380952382 tp=5639.833333333334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:51:04 - quant_signal_skipped_not_actionable scrip=25780 signalId=25780_5m_6771efd6 entry=2218.0 sl=2232.318225 tp=2192.33 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:51:30 - quant_signal_skipped_not_actionable scrip=11915 signalId=11915_5m_289e14f6 entry=20.89 sl=20.76838 tp=21.073666666666664 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:52:10 - quant_signal_skipped_not_actionable scrip=11351 signalId=11351_5m_af2f965e entry=294.0 sl=292.29424 tp=297.80708333333337 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:52:26 - quant_signal_skipped_not_actionable scrip=14418 signalId=14418_5m_0a2fbb09 entry=1638.9 sl=1625.6538433333333 tp=1663.7333333333331 actionable=false (WATCH signals have no prices yet)
+2026-02-16 08:52:36 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=3426_1770702419167 scrip=3426 pnl=447.49999999999943 balance=2160808.42 dayPnl=48886.22500000002
+2026-02-16 08:52:36 - WALLET_PNL_CREDITED scrip=3426 pnl=447.49999999999943 exit=TP1_PARTIAL
+2026-02-16 08:52:36 - TRACKING_POSITION_CLOSED scrip=3426 exit=381.9 pnl=447.49999999999943 reason=TP1_PARTIAL
+2026-02-16 08:52:36 - 💰 [V-P&L] Published VIRTUAL_TRADE_EXIT: 3426 @ ₹381.9 | P&L: ₹447.50 | Reason: TP1_PARTIAL
+2026-02-16 08:52:36 - TRACKING_TP1_HIT scrip=3426 tp=381.9 closedQty=50 pnl=447.49999999999943
+2026-02-16 08:55:26 - quant_signal_skipped_not_actionable scrip=220 signalId=220_5m_70ef2d88 entry=124.02 sl=123.14322 tp=125.46616666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:00:27 - quant_signal_skipped_not_actionable scrip=2885 signalId=2885_5m_4b71d5b5 entry=1431.7 sl=1423.02824 tp=1450.5 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:01:51 - quant_signal_skipped_not_actionable scrip=13786 signalId=13786_5m_476788ba entry=1467.8 sl=1456.9136666666666 tp=1484.7649999999999 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:05:45 - quant_signal_skipped_not_actionable scrip=467013 signalId=467013_5m_05ac2772 entry=5684.0 sl=5700.97619047619 tp=5641.333333333334 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:10:28 - quant_signal_skipped_not_actionable scrip=21770 signalId=21770_5m_9593e7b8 entry=1916.3 sl=1906.382095 tp=1935.35 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:11:20 - quant_signal_skipped_not_actionable scrip=3426 signalId=3426_5m_e0dc80a4 entry=384.1 sl=381.2692666666666 tp=389.19 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:15:44 - quant_signal_skipped_not_actionable scrip=2885 signalId=2885_5m_1c9f415a entry=1436.0 sl=1411.7269821215566 tp=1484.5460357568868 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:15:46 - quant_signal_skipped_not_actionable scrip=30125 signalId=30125_5m_51b0f49c entry=147.63 sl=143.68697919452006 tp=155.51604161095986 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:16:03 - quant_signal_skipped_not_actionable scrip=11351 signalId=11351_5m_24d8310c entry=294.3 sl=289.86709470361274 tp=303.16581059277456 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:17:03 - quant_signal_skipped_not_actionable scrip=999920041 signalId=999920041_5m_e101777c entry=28267.8 sl=28055.867636000115 tp=28691.664727999767 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:17:23 - quant_signal_skipped_not_actionable scrip=999920000 signalId=999920000_5m_1a659d84 entry=25643.9 sl=25450.114220527543 tp=26031.47155894492 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:19:03 - quant_signal_skipped_not_actionable scrip=3103 signalId=3103_5m_138ecc43 entry=26295.0 sl=26162.278916666666 tp=26780.0 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:19:08 - quant_signal_skipped_not_actionable scrip=10753 signalId=10753_5m_3a4fd9e6 entry=181.35 sl=179.978322 tp=183.49599999999998 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:20:12 - quant_signal_skipped_not_actionable scrip=487675 signalId=487675_5m_f6d27774 entry=3404.0 sl=3423.27288 tp=3374.333333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:20:51 - quant_signal_skipped_not_actionable scrip=13332 signalId=13332_5m_c68b76de entry=13050.0 sl=12966.348666666665 tp=13188.666666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:20:52 - quant_signal_skipped_not_actionable scrip=236 signalId=236_5m_708db73f entry=2400.0 sl=2382.35075 tp=2429.15 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:20:57 - quant_signal_skipped_not_actionable scrip=11723 signalId=11723_5m_08b16cec entry=1247.5 sl=1240.1954716666667 tp=1261.9926 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:26:24 - quant_signal_skipped_not_actionable scrip=17869 signalId=17869_5m_daddf10a entry=488.7 sl=484.4458333333332 tp=497.6833333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:30:04 - WALLET_PNL_CREDIT walletId=virtual-wallet-1 positionId=676_1770717656361 scrip=676 pnl=-3.400000000000034 balance=2160805.02 dayPnl=48612.517500000016
+2026-02-16 09:30:04 - WALLET_PNL_CREDITED scrip=676 pnl=-3.400000000000034 exit=STOP_LOSS
+2026-02-16 09:30:04 - TRACKING_POSITION_CLOSED scrip=676 exit=341.35 pnl=-3.400000000000034 reason=STOP_LOSS
+2026-02-16 09:30:04 - 💸 [V-P&L] Published VIRTUAL_TRADE_EXIT: 676 @ ₹341.35 | P&L: ₹-3.40 | Reason: STOP_LOSS
+2026-02-16 09:30:04 - TRACKING_SL_HIT scrip=676 sl=341.35 pnl=-3.400000000000034
+2026-02-16 09:30:38 - quant_signal_skipped_not_actionable scrip=3363 signalId=3363_5m_b453bdf1 entry=3880.6 sl=3844.0922416666667 tp=3936.733333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:30:50 - quant_signal_skipped_not_actionable scrip=9552 signalId=9552_5m_f7084af7 entry=311.0 sl=308.881 tp=314.53999999999996 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:31:27 - quant_signal_skipped_not_actionable scrip=1007 signalId=1007_5m_30f5dfd2 entry=107.7225 sl=107.63919047619045 tp=108.19576666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:32:51 - quant_signal_skipped_not_actionable scrip=17869 signalId=17869_5m_968caa37 entry=490.75 sl=485.61894906666663 tp=500.4166666666666 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:33:05 - quant_signal_skipped_not_actionable scrip=212 signalId=212_5m_eb6dddc9 entry=206.13 sl=204.2774596666667 tp=209.16252866666665 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:34:20 - quant_signal_skipped_not_actionable scrip=21238 signalId=21238_5m_eb1d8808 entry=1009.3 sl=1003.0440583333333 tp=1020.775 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:34:34 - quant_signal_skipped_not_actionable scrip=14299 signalId=14299_5m_20fc6819 entry=411.4 sl=408.4897166666667 tp=416.0821666666667 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:34:46 - quant_signal_skipped_not_actionable scrip=881 signalId=881_5m_051dd5e3 entry=1271.7 sl=1267.2128571428573 tp=1282.3666666666668 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:34:46 - quant_signal_skipped_not_actionable scrip=10753 signalId=10753_5m_919ec242 entry=182.15 sl=180.224828 tp=185.35 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:34:46 - quant_signal_skipped_not_actionable scrip=4668 signalId=4668_5m_522cfb5f entry=292.1 sl=290.02379 tp=295.3333333333333 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:34:49 - quant_signal_skipped_not_actionable scrip=11915 signalId=11915_5m_9a68471a entry=20.95 sl=20.82659666666667 tp=21.175 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:35:08 - quant_signal_skipped_not_actionable scrip=3103 signalId=3103_5m_a55d4df0 entry=26295.0 sl=26162.278916666666 tp=26505.0 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:35:24 - quant_signal_skipped_not_actionable scrip=4306 signalId=4306_5m_f2ad599a entry=1086.0 sl=1078.98271 tp=1096.8333333333335 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:40:17 - quant_signal_skipped_not_actionable scrip=526 signalId=526_5m_99546d82 entry=374.15 sl=371.7799499999999 tp=378.89750000000004 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:40:59 - quant_signal_skipped_not_actionable scrip=13786 signalId=13786_5m_35941d96 entry=1474.6 sl=1461.8712316666665 tp=1495.8474999999999 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:42:18 - quant_signal_skipped_not_actionable scrip=16675 signalId=16675_5m_2645dd24 entry=2050.9 sl=2043.9995238095241 tp=2066.3333333333335 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:42:48 - quant_signal_skipped_not_actionable scrip=10666 signalId=10666_5m_104fb7f5 entry=120.45 sl=119.623773 tp=121.69999999999999 actionable=false (WATCH signals have no prices yet)
+2026-02-16 09:50:42 - quant_signal_skipped_not_actionable scrip=467014 signalId=467014_5m_1c8a694e entry=5679.0 sl=5709.3793000000005 tp=5631.7 actionable=false (WATCH signals have no prices yet)
+2026-02-16 11:45:07 - quant_signal_skipped_not_actionable scrip=477172 signalId=477172_5m_821d56c9 entry=323.0 sl=322.10571428571427 tp=324.42479166666664 actionable=false (WATCH signals have no prices yet)
+2026-02-16 14:30:14 - quant_signal_skipped_not_actionable scrip=467013 signalId=467013_5m_81e0f90e entry=5755.0 sl=5678.805960372404 tp=5907.388079255192 actionable=false (WATCH signals have no prices yet)
+2026-02-16 14:30:16 - quant_signal_skipped_not_actionable scrip=467014 signalId=467014_5m_8cb6f391 entry=5756.0 sl=5678.515017182581 tp=5910.969965634838 actionable=false (WATCH signals have no prices yet)
+2026-02-16 17:00:09 - quant_signal_skipped_not_actionable scrip=477166 signalId=477166_5m_78c80dda entry=307.35 sl=309.8724033129463 tp=303.2265888888889 actionable=false (WATCH signals have no prices yet)
+2026-02-16 17:00:09 - ❌ Order REJECTED - margin check failed: scripCode=477166, qty=1, required=307.35, reason=Max open positions limit reached: 29/10
+2026-02-16 17:00:09 - TRACKING_ORDER_REJECTED orderId=ab96b888-dd16-4244-9a54-87597dde6bbd scrip=477166 reason=Max open positions limit reached: 29/10
+[[1;34mINFO[m] [1m------------------------------------------------------------------------[m
+[[1;34mINFO[m] [1;31mBUILD FAILURE[m
+[[1;34mINFO[m] [1m------------------------------------------------------------------------[m
+[[1;34mINFO[m] Total time:  4 d 04:10 h
+[[1;34mINFO[m] Finished at: 2026-02-16T20:12:03Z
+[[1;34mINFO[m] [1m------------------------------------------------------------------------[m
+[[1;31mERROR[m] Failed to execute goal [32morg.springframework.boot:spring-boot-maven-plugin:3.1.0:run[m [1m(default-cli)[m on project [36mtrade-execution-module[m: [1;31mProcess terminated with exit code: 137[m -> [1m[Help 1][m
+[[1;31mERROR[m] 
+[[1;31mERROR[m] To see the full stack trace of the errors, re-run Maven with the [1m-e[m switch.
+[[1;31mERROR[m] Re-run Maven using the [1m-X[m switch to enable full debug logging.
+[[1;31mERROR[m] 
+[[1;31mERROR[m] For more information about the errors and possible solutions, please read the following articles:
+[[1;31mERROR[m] [1m[Help 1][m http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException

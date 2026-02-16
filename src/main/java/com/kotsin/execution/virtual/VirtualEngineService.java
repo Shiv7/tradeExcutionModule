@@ -487,6 +487,29 @@ public class VirtualEngineService {
         }
     }
 
+    /** EOD: Close all open positions at 15:25 IST. */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 25 15 * * MON-FRI", zone = "Asia/Kolkata")
+    void eodCloseAll() {
+        log.info("EOD_CLOSE_ALL triggered at 15:25 IST");
+        for (var p : repo.listPositions()) {
+            if (p.getQtyOpen() > 0) {
+                ReentrantLock lock = getLock(p.getScripCode());
+                lock.lock();
+                try {
+                    Double ltp = prices.getLtp(p.getScripCode());
+                    if (ltp == null || ltp <= 0) ltp = p.getAvgEntry(); // fallback
+                    closeAt(p, ltp, p.getQtyOpen(), false, "EOD");
+                    p.setUpdatedAt(System.currentTimeMillis());
+                    repo.savePosition(p);
+                    bus.publish("eod.close", p);
+                    log.info("EOD_CLOSED scrip={} price={} pnl={}", p.getScripCode(), ltp, p.getRealizedPnl());
+                } finally {
+                    lock.unlock();
+                }
+            }
+        }
+    }
+
     private boolean closeAt(VirtualPosition p, double price, int qty, boolean partial){
         return closeAt(p, price, qty, partial, null);
     }

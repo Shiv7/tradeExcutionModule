@@ -10,6 +10,12 @@ import com.kotsin.execution.model.StrategySignal;
 import com.kotsin.execution.repository.BacktestTradeRepository;
 import com.kotsin.execution.service.BacktestEngine;
 import com.kotsin.execution.service.TradingHoursService;
+import com.kotsin.execution.virtual.PriceProvider;
+import com.kotsin.execution.virtual.VirtualEngineService;
+import com.kotsin.execution.virtual.VirtualWalletRepository;
+import com.kotsin.execution.virtual.model.VirtualOrder;
+import com.kotsin.execution.virtual.model.VirtualPosition;
+import com.kotsin.execution.virtual.model.VirtualSettings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -20,6 +26,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Optional;
 
 /**
  * FUKAASignalConsumer - Consumes volume-confirmed FUKAA strategy signals
@@ -52,6 +59,9 @@ public class FUKAASignalConsumer {
     private final BacktestEngine backtestEngine;
     private final BacktestTradeRepository backtestRepository;
     private final Cache<String, Boolean> processedSignalsCache;
+    private final VirtualEngineService virtualEngine;
+    private final VirtualWalletRepository walletRepo;
+    private final PriceProvider priceProvider;
 
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -250,11 +260,70 @@ public class FUKAASignalConsumer {
                 if (liveTradeEnabled) {
                     tradeManager.addSignalToWatchlist(signal, receivedIst.toLocalDateTime());
                 }
+
+                // SWITCH detection + Paper trade via VirtualEngineService
+                handlePaperTrade(signal, scripCode, companyName, longSignal, "FUKAA");
             }
 
         } catch (Exception e) {
             log.error("fukaa_processing_error topic={} partition={} offset={} err={}",
                     topic, partition, offset, e.toString(), e);
+        }
+    }
+
+    private void handlePaperTrade(StrategySignal signal, String scripCode,
+                                  String companyName, boolean longSignal, String source) {
+        try {
+            String numericScrip = signal.getNumericScripCode() != null ? signal.getNumericScripCode() : scripCode;
+
+            // SWITCH detection: if opposite position exists, close it first
+            Optional<VirtualPosition> existingPos = walletRepo.getPosition(numericScrip)
+                    .filter(p -> p.getQtyOpen() > 0);
+            if (existingPos.isPresent()) {
+                VirtualPosition pos = existingPos.get();
+                boolean existingIsLong = pos.getSide() == VirtualPosition.Side.LONG;
+                if (existingIsLong != longSignal) {
+                    log.info("{}_SWITCH scrip={} oldSide={} newSide={}", source, numericScrip,
+                             pos.getSide(), longSignal ? "LONG" : "SHORT");
+                    virtualEngine.closePosition(numericScrip);
+                } else {
+                    log.debug("{}_same_direction_skip scrip={}", source, numericScrip);
+                    return;
+                }
+            }
+
+            // Create paper trade
+            double price = signal.getEntryPrice();
+            Double ltp = priceProvider.getLtp(numericScrip);
+            if (ltp != null && ltp > 0) price = ltp;
+
+            VirtualSettings settings = walletRepo.loadSettings();
+            int qty = price > 0 ? (int) Math.floor(settings.getAccountValue() * 0.02 / price) : 1;
+            if (qty < 1) qty = 1;
+
+            VirtualOrder order = new VirtualOrder();
+            order.setScripCode(numericScrip);
+            order.setSide(longSignal ? VirtualOrder.Side.BUY : VirtualOrder.Side.SELL);
+            order.setType(VirtualOrder.Type.MARKET);
+            order.setQty(qty);
+            order.setCurrentPrice(price);
+            order.setSl(signal.getStopLoss());
+            order.setTp1(signal.getTarget1());
+            order.setTp2(signal.getTarget2());
+            order.setTp1ClosePercent(0.5);  // 50% at T1
+            order.setTrailingType("PCT");
+            order.setTrailingValue(1.0);    // 1% trail after T1
+            order.setTrailingStep(0.5);
+            order.setSignalId(signal.getSignal() + "_" + numericScrip + "_" + signal.getTimestamp());
+            order.setSignalType(signal.getSignal());
+            order.setSignalSource(source);
+
+            VirtualOrder executed = virtualEngine.createOrder(order);
+            log.info("{}_paper_trade scrip={} status={} qty={} entry={} SL={} T1={}",
+                     source, numericScrip, executed.getStatus(), qty, price,
+                     signal.getStopLoss(), signal.getTarget1());
+        } catch (Exception e) {
+            log.error("{}_paper_trade_error scrip={} err={}", source, scripCode, e.getMessage());
         }
     }
 }

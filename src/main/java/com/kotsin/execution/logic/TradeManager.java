@@ -6,10 +6,10 @@ import com.kotsin.execution.producer.ProfitLossProducer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import com.kotsin.execution.service.*;
-import com.kotsin.execution.service.MLPredictionService.MLPrediction;
 import com.kotsin.execution.broker.BrokerOrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -18,7 +18,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -31,11 +30,8 @@ public class TradeManager {
     private final TelegramNotificationService telegramNotificationService;
     private final ProfitLossProducer profitLossProducer;
     private final BrokerOrderService brokerOrderService;
-    private final PivotService pivotCacheService;
-    private final TradeAnalysisService tradeAnalysisService;
     private final HistoricalDataClient historicalDataClient;
     private final RedisTemplate<String, String> executionStringRedisTemplate;
-    private final MLPredictionService mlPredictionService;
 
     @Value("${trade.options.slippage.ticks.exit:1}")
     private int optionSlippageTicksExit;
@@ -70,21 +66,6 @@ public class TradeManager {
     @Value("${trade.trail.stage3.stopR:1.0}")
     private double trailStage3StopR;
 
-    // ML Gate configuration for pivot retest strategy
-    @Value("${trade.ml.gate.enabled:true}")
-    private boolean mlGateEnabled;
-
-    @Value("${trade.ml.gate.min-confidence:0.60}")
-    private double mlMinConfidence;
-
-    @Value("${trade.ml.gate.vpin-max-toxicity:0.70}")
-    private double mlMaxVpinToxicity;
-
-    @Value("${trade.ml.gate.require-direction-alignment:true}")
-    private boolean mlRequireDirectionAlignment;
-
-    @Value("${trade.ml.gate.allow-hold-if-high-confidence:true}")
-    private boolean mlAllowHoldIfHighConfidence;
 
     /** Main entry: evaluate a new candle and, if eligible, execute the best ready trade. */
     public void processCandle(Candlestick candle) {
@@ -101,11 +82,6 @@ public class TradeManager {
             return;
         }
 
-        // Time window guard (based on candle timestamp)
-        if (!tradeAnalysisService.isWithinGoldenWindows(candle.getWindowStartMillis())) {
-            log.debug("Outside golden windows. Skipping candle processing.");
-            return;
-        }
         log.info("PASSED initial checks.");
 
         // Maintain per-instrument history used by readiness checks
@@ -157,215 +133,39 @@ public class TradeManager {
 
 
 
-    /** Readiness evaluation: pivots retest → volume profile → candle pattern → RR calc. */
+    /** Readiness evaluation: FUDKII/FUKAA signals execute immediately with pre-computed SL/targets. */
     private boolean isTradeReadyForExecution(ActiveTrade trade, Candlestick candle) {
-        log.info("--- Begin Trade Readiness Evaluation for {} ---", trade.getScripCode());
-
-        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode(), trade.getSignalTime().toLocalDate());
-        if (pivots == null) {
-            log.warn("Trade Readiness FAILED for {}: Could not fetch pivot data.", trade.getScripCode());
+        log.info("--- Trade Readiness: FUDKII/FUKAA direct execution for {} ---", trade.getScripCode());
+        // Signal already has SL/T1/T2 from StreamingCandle (pivot-enriched or BB/ST derived)
+        // No additional gates needed -- trust the signal source
+        if (trade.getStopLoss() == null || trade.getStopLoss() <= 0 ||
+            trade.getTarget1() == null || trade.getTarget1() <= 0) {
+            log.warn("Trade {} missing SL={} or T1={}, cannot execute",
+                     trade.getScripCode(), trade.getStopLoss(), trade.getTarget1());
             return false;
         }
-        log.info("Trade Readiness PASSED for {}: Fetched pivot data.", trade.getScripCode());
-
-        boolean retestCompleted = checkPivotRetest(trade, candle, pivots.getPivot());
-        if (!retestCompleted) {
-            log.info("Trade Readiness FAILED for {}: Pivot retest not complete.", trade.getScripCode());
-            return false;
-        }
-        log.info("Trade Readiness PASSED for {}: Pivot retest complete.", trade.getScripCode());
-
-        // ====== ML QUALITY GATE (Pivot Retest Strategy Enhancement) ======
-        if (mlGateEnabled) {
-            boolean mlPassed = checkMLGate(trade);
-            if (!mlPassed) {
-                log.info("Trade Readiness FAILED for {}: ML gate rejected.", trade.getScripCode());
-                return false;
-            }
-            log.info("Trade Readiness PASSED for {}: ML gate approved.", trade.getScripCode());
-        }
-
-        // Use companyName as canonical key for candles (aligned with Candlestick model)
-        List<Candlestick> history = recentCandles.get(trade.getCompanyName());
-        boolean volumeConfirmed = tradeAnalysisService.confirmVolumeProfile(candle, history);
-        if (!volumeConfirmed) {
-            log.info("Trade Readiness FAILED for {}: Volume not confirmed.", trade.getScripCode());
-            return false;
-        }
-        log.info("Trade Readiness PASSED for {}: Volume confirmed.", trade.getScripCode());
-
-        Candlestick previousCandle = (history != null && history.size() > 1) ? history.get(history.size() - 2) : null;
-        boolean candlePatternConfirmed = trade.isBullish()
-                ? tradeAnalysisService.isBullishEngulfing(previousCandle, candle)
-                : tradeAnalysisService.isBearishEngulfing(previousCandle, candle);
-        if (!candlePatternConfirmed) {
-            log.info("Trade Readiness FAILED for {}: Candlestick pattern not confirmed.", trade.getScripCode());
-            return false;
-        }
-        log.info("Trade Readiness PASSED for {}: Candlestick pattern confirmed.", trade.getScripCode());
-
-        calculateRiskReward(trade, candle, pivots);
-        log.info("--- All Readiness Checks Passed for {} ---", trade.getScripCode());
+        trade.addMetadata("potentialRR", trade.getRiskRewardRatio());
+        log.info("--- Trade Ready for {} SL={} T1={} T2={} ---",
+                 trade.getScripCode(), trade.getStopLoss(), trade.getTarget1(), trade.getTarget2());
         return true;
-    }
-
-    private boolean checkPivotRetest(ActiveTrade trade, Candlestick candle, double pivot) {
-        boolean hasBreached = trade.isBullish() ? candle.getLow() <= pivot : candle.getHigh() >= pivot;
-        boolean hasReclaimed = trade.isBullish() ? candle.getClose() > pivot : candle.getClose() < pivot;
-
-        if (hasBreached && trade.getMetadata().get("breachCandle") == null) {
-            trade.addMetadata("breachCandle", candle);
-        }
-        return trade.getMetadata().containsKey("breachCandle") && hasReclaimed;
-    }
-
-    /**
-     * ML Quality Gate for Pivot Retest Strategy.
-     *
-     * Reads ML prediction from Redis (written by Python ML service) and validates:
-     * 1. Direction alignment: ML prediction agrees with trade direction
-     * 2. Minimum confidence: ML confidence exceeds threshold
-     * 3. VPIN toxicity: Flow is not adversely selected
-     * 4. Regime check: Market regime is not extreme/adverse
-     *
-     * If ML prediction is unavailable (service down), the gate PASSES
-     * to avoid blocking trades when ML is offline — fail-open design.
-     *
-     * Side effects: Stores ML metadata on the trade for position sizing and logging.
-     */
-    private boolean checkMLGate(ActiveTrade trade) {
-        try {
-            Optional<MLPrediction> mlOpt = mlPredictionService.getBestPrediction(trade.getScripCode());
-
-            if (mlOpt.isEmpty()) {
-                // Fail-open: if ML is unavailable, don't block the trade
-                log.info("ML_GATE scrip={} result=PASS_NO_DATA (ML prediction unavailable, fail-open)",
-                        trade.getScripCode());
-                trade.addMetadata("mlGateResult", "PASS_NO_DATA");
-                return true;
-            }
-
-            MLPrediction ml = mlOpt.get();
-            trade.addMetadata("mlPrediction", ml.getPrediction());
-            trade.addMetadata("mlConfidence", ml.getConfidence());
-            trade.addMetadata("mlRegime", ml.getRegime());
-            trade.addMetadata("mlRegimeScore", ml.getRegimeScore());
-            trade.addMetadata("mlVpinToxicity", ml.getVpinToxicity());
-            trade.addMetadata("mlBetSignal", ml.getBetSignal());
-
-            // Gate 1: Direction alignment
-            if (mlRequireDirectionAlignment) {
-                boolean aligned = mlPredictionService.isDirectionAligned(ml, trade.isBullish());
-
-                if (!aligned) {
-                    // Allow HOLD predictions if confidence is high on the trade's side probabilities
-                    if ("HOLD".equals(ml.getPrediction()) && mlAllowHoldIfHighConfidence
-                            && ml.getConfidence() >= mlMinConfidence) {
-                        log.info("ML_GATE scrip={} direction=HOLD but confidence={} >= threshold, allowing",
-                                trade.getScripCode(), String.format("%.2f", ml.getConfidence()));
-                    } else {
-                        log.info("ML_GATE scrip={} result=REJECT direction={} vs trade={} confidence={}",
-                                trade.getScripCode(), ml.getPrediction(),
-                                trade.isBullish() ? "BULLISH" : "BEARISH",
-                                String.format("%.2f", ml.getConfidence()));
-                        trade.addMetadata("mlGateResult", "REJECT_DIRECTION");
-                        return false;
-                    }
-                }
-            }
-
-            // Gate 2: Minimum confidence
-            if (ml.getConfidence() < mlMinConfidence) {
-                log.info("ML_GATE scrip={} result=REJECT confidence={} < min={}",
-                        trade.getScripCode(),
-                        String.format("%.2f", ml.getConfidence()),
-                        String.format("%.2f", mlMinConfidence));
-                trade.addMetadata("mlGateResult", "REJECT_LOW_CONFIDENCE");
-                return false;
-            }
-
-            // Gate 3: VPIN toxicity — high VPIN means informed traders are active
-            if (mlPredictionService.isFlowToxic(ml)) {
-                log.info("ML_GATE scrip={} result=REJECT vpinToxicity={} > max={}",
-                        trade.getScripCode(),
-                        String.format("%.2f", ml.getVpinToxicity()),
-                        String.format("%.2f", mlMaxVpinToxicity));
-                trade.addMetadata("mlGateResult", "REJECT_TOXIC_FLOW");
-                return false;
-            }
-
-            // Gate 4: Regime check — don't enter in extreme adverse regimes
-            if (mlPredictionService.isRegimeAdverse(ml)) {
-                // Only block if regime direction opposes trade direction
-                boolean regimeOpposes = (trade.isBullish() && ml.getRegimeScore() < -0.5)
-                        || (!trade.isBullish() && ml.getRegimeScore() > 0.5);
-                if (regimeOpposes) {
-                    log.info("ML_GATE scrip={} result=REJECT regime={} score={} opposes trade direction",
-                            trade.getScripCode(), ml.getRegime(),
-                            String.format("%.2f", ml.getRegimeScore()));
-                    trade.addMetadata("mlGateResult", "REJECT_ADVERSE_REGIME");
-                    return false;
-                }
-            }
-
-            // All ML gates passed — apply position sizing from bet signal
-            if (ml.getPositionSizeMultiplier() > 0) {
-                trade.addMetadata("positionSizeMultiplier", ml.getPositionSizeMultiplier());
-                log.info("ML_GATE scrip={} applied positionSizeMultiplier={}",
-                        trade.getScripCode(), String.format("%.2f", ml.getPositionSizeMultiplier()));
-            }
-
-            log.info("ML_GATE scrip={} result=PASS pred={} conf={} regime={} vpin={} bet={}",
-                    trade.getScripCode(), ml.getPrediction(),
-                    String.format("%.2f", ml.getConfidence()),
-                    ml.getRegime(),
-                    String.format("%.2f", ml.getVpinToxicity()),
-                    String.format("%.2f", ml.getBetSignal()));
-
-            trade.addMetadata("mlGateResult", "PASS");
-            return true;
-
-        } catch (Exception e) {
-            // Fail-open on errors
-            log.warn("ML_GATE scrip={} result=PASS_ERROR err={}", trade.getScripCode(), e.getMessage());
-            trade.addMetadata("mlGateResult", "PASS_ERROR");
-            return true;
-        }
-    }
-
-    private void calculateRiskReward(ActiveTrade trade, Candlestick candle, PivotData pivots) {
-        double entryPrice = candle.getClose();
-        double stopLoss = trade.isBullish() ? candle.getLow() * 0.999 : candle.getHigh() * 1.001;
-        double risk = Math.abs(entryPrice - stopLoss);
-
-        double potentialTarget = findNextLogicalTarget(trade.isBullish(), entryPrice, pivots);
-        double reward = Math.abs(potentialTarget - entryPrice);
-
-        trade.setStopLoss(stopLoss);
-        trade.setTarget1(potentialTarget);
-        if (risk > 0) {
-            trade.addMetadata("potentialRR", reward / risk);
-        } else {
-            trade.addMetadata("potentialRR", 0.0);
-        }
-    }
-
-    private double findNextLogicalTarget(boolean isBullish, double entryPrice, PivotData pivots) {
-        if (isBullish) {
-            if (pivots.getR1() > entryPrice) return pivots.getR1();
-            if (pivots.getR2() > entryPrice) return pivots.getR2();
-            if (pivots.getR3() > entryPrice) return pivots.getR3();
-            return pivots.getR4();
-        } else {
-            if (pivots.getS1() < entryPrice) return pivots.getS1();
-            if (pivots.getS2() < entryPrice) return pivots.getS2();
-            if (pivots.getS3() < entryPrice) return pivots.getS3();
-            return pivots.getS4();
-        }
     }
 
     /** Add/refresh a trade candidate and pre-load recent candles for that instrument. */
     public boolean addSignalToWatchlist(StrategySignal signal, LocalDateTime signalReceivedTime) {
+        // SWITCH detection: if active trade exists for same scrip in opposite direction, close it
+        ActiveTrade open = activeTrade.get();
+        if (open != null && open.getScripCode().equals(signal.getNumericScripCode())) {
+            boolean openIsBullish = open.isBullish();
+            boolean newIsBullish = signal.isLongSignal() || signal.isBullish();
+            if (openIsBullish != newIsBullish) {
+                log.info("SWITCH_DETECTED scrip={} oldSide={} newSide={}",
+                         signal.getNumericScripCode(),
+                         openIsBullish ? "LONG" : "SHORT",
+                         newIsBullish ? "LONG" : "SHORT");
+                forceExitTrade(open, "SWITCH");
+            }
+        }
+
         ActiveTrade trade = createBulletproofTrade(signal, signalReceivedTime);
         waitingTrades.put(trade.getScripCode(), trade);
         log.info("Added/Updated trade for {} to watchlist. Total watchlist size: {}", trade.getScripCode(), waitingTrades.size());
@@ -384,16 +184,11 @@ public class TradeManager {
         return true;
     }
 
-    /** Execute entry: set trade fields, (later) place broker order, emit notifications. */
+    /** Execute entry: set trade fields, place broker order, emit notifications. */
     private void executeEntry(ActiveTrade trade, Candlestick confirmationCandle) {
         double entryPrice = confirmationCandle.getClose();
-        PivotData pivots = pivotCacheService.getDailyPivots(trade.getScripCode(), trade.getSignalTime().toLocalDate());
-        if (pivots == null) {
-            log.error("Could not fetch pivots for {}. Aborting entry.", trade.getScripCode());
-            return;
-        }
 
-        // Stop/Target were (re)calculated in calculateRiskReward()
+        // SL/T1/T2 are pre-computed by the signal source (StreamingCandle pivot-enriched or BB/ST derived)
         trade.setEntryTriggered(true);
         trade.setEntryPrice(entryPrice);
         trade.setEntryTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(confirmationCandle.getWindowStartMillis()), IST));
@@ -544,40 +339,83 @@ public class TradeManager {
 
     /** Evaluate TP/SL against the current bar and exit if hit. */
     private void evaluateAndMaybeExit(ActiveTrade trade, Candlestick bar) {
-        // Trailing stop logic using forwardtesting 1-min bars
+        // 1. R-based trailing stop updates
+        updateTrailingStop(trade, bar);
+
+        // 2. Update extrema since entry
+        trade.setHighSinceEntry(Math.max(trade.getHighSinceEntry(), bar.getHigh()));
+        trade.setLowSinceEntry(Math.min(trade.getLowSinceEntry(), bar.getLow()));
+        trade.updatePrice(bar.getClose(), LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(bar.getWindowStartMillis()), IST));
+
+        // 3. Check SL (full close)
+        boolean hitSL = trade.isBullish() ? bar.getLow() <= trade.getStopLoss()
+                : bar.getHigh() >= trade.getStopLoss();
+        if (hitSL) {
+            exitTrade(trade, trade.getStopLoss(), "STOP_LOSS");
+            return;
+        }
+
+        // 4. Check T1 (partial exit: 50%)
+        if (!Boolean.TRUE.equals(trade.getTarget1Hit()) && trade.getTarget1() != null && trade.getTarget1() > 0) {
+            boolean hitT1 = trade.isBullish() ? bar.getHigh() >= trade.getTarget1()
+                    : bar.getLow() <= trade.getTarget1();
+            if (hitT1) {
+                trade.setTarget1Hit(true);
+                trade.setStatus(ActiveTrade.TradeStatus.PARTIAL_EXIT);
+                int partialQty = Math.max(1, trade.getPositionSize() / 2);
+                int remaining = trade.getPositionSize() - partialQty;
+                // Move SL to breakeven
+                trade.setStopLoss(trade.getEntryPrice());
+                log.info("T1_HIT scrip={} partial_close={} remaining={} SL->BE",
+                         trade.getScripCode(), partialQty, remaining);
+                publishPartialExit(trade, trade.getTarget1(), partialQty, "TARGET1_PARTIAL");
+                trade.setPositionSize(remaining);
+                if (remaining <= 0) {
+                    // If position was size 1, full close at T1
+                    exitTrade(trade, trade.getTarget1(), "TARGET1");
+                    return;
+                }
+            }
+        }
+
+        // 5. Check T2 (full exit of remaining)
+        if (Boolean.TRUE.equals(trade.getTarget1Hit()) && trade.getTarget2() != null && trade.getTarget2() > 0) {
+            boolean hitT2 = trade.isBullish() ? bar.getHigh() >= trade.getTarget2()
+                    : bar.getLow() <= trade.getTarget2();
+            if (hitT2) {
+                exitTrade(trade, trade.getTarget2(), "TARGET2");
+                return;
+            }
+        }
+    }
+
+    /** R-based trailing stop: 3 stages. */
+    private void updateTrailingStop(ActiveTrade trade, Candlestick bar) {
         try {
             double entry = trade.getEntryPrice();
             double r = Math.abs(entry - trade.getStopLoss());
-            if (r > 0.0 && trade.getStatus() == ActiveTrade.TradeStatus.ACTIVE) {
-                Integer stage = (Integer) trade.getMetadata().getOrDefault("trailStage", 0);
-                if (trade.isBullish()) {
-                    double up = Math.max(trade.getHighSinceEntry(), bar.getHigh());
-                    if (stage < 1 && up >= entry + trailStage1R * r) { trade.setStopLoss(entry + trailStage1StopR * r); trade.getMetadata().put("trailStage", 1); log.info("trail_s1 scrip={}", trade.getScripCode()); }
-                    else if (stage < 2 && up >= entry + trailStage2R * r) { trade.setStopLoss(entry + trailStage2StopR * r); trade.getMetadata().put("trailStage", 2); log.info("trail_s2 scrip={}", trade.getScripCode()); }
-                    else if (stage < 3 && up >= entry + trailStage3R * r) { trade.setStopLoss(entry + trailStage3StopR * r); trade.getMetadata().put("trailStage", 3); log.info("trail_s3 scrip={}", trade.getScripCode()); }
-                } else {
-                    double dn = Math.min(trade.getLowSinceEntry(), bar.getLow());
-                    if (stage < 1 && dn <= entry - trailStage1R * r) { trade.setStopLoss(entry - trailStage1StopR * r); trade.getMetadata().put("trailStage", 1); log.info("trail_s1 scrip={} (bear)", trade.getScripCode()); }
-                    else if (stage < 2 && dn <= entry - trailStage2R * r) { trade.setStopLoss(entry - trailStage2StopR * r); trade.getMetadata().put("trailStage", 2); log.info("trail_s2 scrip={} (bear)", trade.getScripCode()); }
-                    else if (stage < 3 && dn <= entry - trailStage3R * r) { trade.setStopLoss(entry - trailStage3StopR * r); trade.getMetadata().put("trailStage", 3); log.info("trail_s3 scrip={} (bear)", trade.getScripCode()); }
-                }
+            if (r <= 0.0 || (trade.getStatus() != ActiveTrade.TradeStatus.ACTIVE
+                    && trade.getStatus() != ActiveTrade.TradeStatus.PARTIAL_EXIT)) return;
+
+            Integer stage = (Integer) trade.getMetadata().getOrDefault("trailStage", 0);
+            if (trade.isBullish()) {
+                double up = Math.max(trade.getHighSinceEntry(), bar.getHigh());
+                if (stage < 1 && up >= entry + trailStage1R * r) { trade.setStopLoss(entry + trailStage1StopR * r); trade.getMetadata().put("trailStage", 1); log.info("trail_s1 scrip={}", trade.getScripCode()); }
+                else if (stage < 2 && up >= entry + trailStage2R * r) { trade.setStopLoss(entry + trailStage2StopR * r); trade.getMetadata().put("trailStage", 2); log.info("trail_s2 scrip={}", trade.getScripCode()); }
+                else if (stage < 3 && up >= entry + trailStage3R * r) { trade.setStopLoss(entry + trailStage3StopR * r); trade.getMetadata().put("trailStage", 3); log.info("trail_s3 scrip={}", trade.getScripCode()); }
+            } else {
+                double dn = Math.min(trade.getLowSinceEntry(), bar.getLow());
+                if (stage < 1 && dn <= entry - trailStage1R * r) { trade.setStopLoss(entry - trailStage1StopR * r); trade.getMetadata().put("trailStage", 1); log.info("trail_s1 scrip={} (bear)", trade.getScripCode()); }
+                else if (stage < 2 && dn <= entry - trailStage2R * r) { trade.setStopLoss(entry - trailStage2StopR * r); trade.getMetadata().put("trailStage", 2); log.info("trail_s2 scrip={} (bear)", trade.getScripCode()); }
+                else if (stage < 3 && dn <= entry - trailStage3R * r) { trade.setStopLoss(entry - trailStage3StopR * r); trade.getMetadata().put("trailStage", 3); log.info("trail_s3 scrip={} (bear)", trade.getScripCode()); }
             }
         } catch (Exception ignore) {}
-        // Update extrema since entry
-        trade.setHighSinceEntry(Math.max(trade.getHighSinceEntry(), bar.getHigh()));
-        trade.setLowSinceEntry(Math.min(trade.getLowSinceEntry(), bar.getLow()));
+    }
 
-        boolean hitSL = trade.isBullish() ? bar.getLow() <= trade.getStopLoss()
-                : bar.getHigh() >= trade.getStopLoss();
-        boolean hitT1 = trade.isBullish() ? bar.getHigh() >= trade.getTarget1()
-                : bar.getLow() <= trade.getTarget1();
-
-        if (!hitSL && !hitT1) return;
-
-        String reason = hitSL ? "STOP_LOSS" : "TARGET1";
-        double exitPrice = hitSL ? trade.getStopLoss() : trade.getTarget1();
-
-        // Place exit (market/limit) with the broker (re-price using Redis if available)
+    /** Full exit: close position, publish result, clear active trade. */
+    private void exitTrade(ActiveTrade trade, double exitPrice, String reason) {
+        // Place exit order via broker
         try {
             String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
             String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
@@ -618,10 +456,9 @@ public class TradeManager {
         } catch (Exception ex) {
             trade.addMetadata("brokerExitError", ex.toString());
             log.error("Broker exit failed for {}: {}", trade.getScripCode(), ex.toString(), ex);
-            return; // keep trade active; will retry next bar
         }
 
-        // Publish result & clear
+        // Publish trade result
         TradeResult result = new TradeResult();
         result.setTradeId(trade.getTradeId());
         result.setScripCode(trade.getScripCode());
@@ -632,19 +469,91 @@ public class TradeManager {
 
         // Paper P&L
         try {
-            double fillEntry = 0.0;
+            double fillEntry = trade.getEntryPrice();
             Object fe = trade.getMetadata().get("fillEntryPrice");
-            if (fe instanceof Number n) fillEntry = n.doubleValue(); else fillEntry = trade.getEntryPrice();
-            double fillExit = exitPrice;
-            Object ox = trade.getMetadata().get("orderLimitPriceExit");
-            if (ox instanceof Number n) fillExit = n.doubleValue();
-            double pnl = (trade.isBullish() ? (fillExit - fillEntry) : (fillEntry - fillExit)) * trade.getPositionSize();
-            profitLossProducer.publishTradeExit(trade, fillExit, reason, pnl);
+            if (fe instanceof Number n) fillEntry = n.doubleValue();
+            double pnl = (trade.isBullish() ? (exitPrice - fillEntry) : (fillEntry - exitPrice)) * trade.getPositionSize();
+            profitLossProducer.publishTradeExit(trade, exitPrice, reason, pnl);
         } catch (Exception ignore) {}
 
         trade.setStatus(ActiveTrade.TradeStatus.COMPLETED);
         activeTrade.set(null);
-        log.info("Trade completed: {} reason={} PnL={}", trade.getScripCode(), reason,
-                (trade.isBullish() ? exitPrice - trade.getEntryPrice() : trade.getEntryPrice() - exitPrice));
+        log.info("Trade EXITED: {} reason={} exitPrice={} PnL={}",
+                 trade.getScripCode(), reason, exitPrice,
+                 (trade.isBullish() ? exitPrice - trade.getEntryPrice() : trade.getEntryPrice() - exitPrice));
+    }
+
+    /** Publish partial exit (T1) event to Kafka. */
+    private void publishPartialExit(ActiveTrade trade, double exitPrice, int qty, String reason) {
+        try {
+            double fillEntry = trade.getEntryPrice();
+            Object fe = trade.getMetadata().get("fillEntryPrice");
+            if (fe instanceof Number n) fillEntry = n.doubleValue();
+            double pnl = (trade.isBullish() ? (exitPrice - fillEntry) : (fillEntry - exitPrice)) * qty;
+
+            // Publish partial P&L
+            profitLossProducer.publishTradeExit(trade, exitPrice, reason, pnl);
+
+            // Place partial exit order via broker
+            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
+            String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
+            String exType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+            BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
+            String exitOrderId = brokerOrderService.placeMarketOrder(orderScrip, exch, exType, sideToClose, qty);
+            trade.addMetadata("partialExitOrderId", exitOrderId);
+            log.info("Partial exit order: id={} scrip={} qty={} reason={} pnl={}", exitOrderId, orderScrip, qty, reason, pnl);
+        } catch (Exception ex) {
+            log.error("Partial exit failed for {}: {}", trade.getScripCode(), ex.getMessage());
+        }
+    }
+
+    /** Force-exit trade at current market price. Used by SWITCH and EOD. */
+    public void forceExitTrade(ActiveTrade trade, String reason) {
+        double exitPrice = trade.getCurrentPrice() != null ? trade.getCurrentPrice() : trade.getEntryPrice();
+
+        // Place exit order via broker
+        try {
+            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
+            String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
+            String exType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+            BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
+            String exitOrderId = brokerOrderService.placeMarketOrder(orderScrip, exch, exType, sideToClose, trade.getPositionSize());
+            trade.addMetadata("exitOrderId", exitOrderId);
+        } catch (Exception ex) {
+            log.error("Force exit broker order failed for {}: {}", trade.getScripCode(), ex.getMessage());
+        }
+
+        // Publish trade result
+        TradeResult result = new TradeResult();
+        result.setTradeId(trade.getTradeId());
+        result.setScripCode(trade.getScripCode());
+        result.setEntryPrice(trade.getEntryPrice());
+        result.setExitPrice(exitPrice);
+        result.setExitReason(reason);
+        tradeResultProducer.publishTradeResult(result);
+
+        // P&L
+        double pnl = (trade.isBullish() ? (exitPrice - trade.getEntryPrice()) : (trade.getEntryPrice() - exitPrice)) * trade.getPositionSize();
+        try { profitLossProducer.publishTradeExit(trade, exitPrice, reason, pnl); } catch (Exception ignore) {}
+
+        trade.setStatus(ActiveTrade.TradeStatus.COMPLETED);
+        activeTrade.set(null);
+        log.info("FORCE_EXIT {} reason={} exitPrice={} pnl={}", trade.getScripCode(), reason, exitPrice, pnl);
+    }
+
+    /** EOD: Close active trade and clear waiting trades at 15:25 IST. */
+    @Scheduled(cron = "0 25 15 * * MON-FRI", zone = "Asia/Kolkata")
+    public void eodExitActiveTrade() {
+        ActiveTrade open = activeTrade.get();
+        if (open != null && (open.getStatus() == ActiveTrade.TradeStatus.ACTIVE
+                || open.getStatus() == ActiveTrade.TradeStatus.PARTIAL_EXIT)) {
+            log.info("EOD_EXIT scrip={}", open.getScripCode());
+            forceExitTrade(open, "EOD");
+        }
+        // Clear stale waiting trades
+        if (!waitingTrades.isEmpty()) {
+            log.info("EOD clearing {} stale waiting trades", waitingTrades.size());
+            waitingTrades.clear();
+        }
     }
 }
