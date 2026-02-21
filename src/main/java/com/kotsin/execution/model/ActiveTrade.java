@@ -58,6 +58,9 @@ public class ActiveTrade {
     private TradeStatus status;
     private Boolean target1Hit;
     private Boolean target2Hit;
+    private Boolean target3Hit;
+    private Boolean target4Hit;
+    private Integer originalPositionSize;  // for tranche % calculation
     private Double trailingStopLoss;
     private Boolean useTrailingStop;
     

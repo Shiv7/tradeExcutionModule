@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Optional;
@@ -166,14 +167,16 @@ public class VirtualEngineService {
         Optional<VirtualPosition> posOpt = repo.getPosition(scripCode);
         if (posOpt.isEmpty()) return Optional.empty();
         VirtualPosition p = posOpt.get();
+        if (p.getQtyOpen() <= 0) return Optional.of(p);
         Double ltp = prices.getLtp(scripCode);
         if (ltp == null) ltp = p.getAvgEntry();
-        double pnl = (p.getSide()== VirtualPosition.Side.LONG ? (ltp - p.getAvgEntry()) : (p.getAvgEntry() - ltp)) * p.getQtyOpen();
-        p.setRealizedPnl(p.getRealizedPnl() + pnl);
-        p.setQtyOpen(0);
+        // Use closeAt() so wallet credit, Kafka events, and outcome publishing all fire
+        closeAt(p, ltp, p.getQtyOpen(), false, "SWITCH");
         p.setUpdatedAt(System.currentTimeMillis());
-        repo.savePosition(p);
         bus.publish("position.closed", p);
+        // Delete closed position from Redis to prevent zombie accumulation
+        repo.deletePosition(scripCode);
+        log.info("POSITION_CLOSED_AND_DELETED scrip={} pnl={}", scripCode, p.getRealizedPnl());
         return Optional.of(p);
     }
 
@@ -267,6 +270,12 @@ public class VirtualEngineService {
         if (filled.getSignalSource() != null) {
             p.setSignalSource(filled.getSignalSource());
         }
+        if (filled.getExchange() != null) {
+            p.setExchange(filled.getExchange());
+        }
+        if (filled.getInstrumentSymbol() != null) {
+            p.setInstrumentSymbol(filled.getInstrumentSymbol());
+        }
         p.setUpdatedAt(System.currentTimeMillis());
         repo.savePosition(p);
         bus.publish("position.updated", p);
@@ -336,6 +345,10 @@ public class VirtualEngineService {
 
         // Triggers for positions
         for (var p : repo.listPositions()){
+            // Skip strategy positions — managed by StrategyTradeExecutor (dashboard module)
+            if (p.getStrategy() != null && !p.getStrategy().isEmpty()) {
+                continue;
+            }
             // BUG-009 FIX: Lock per scripCode
             ReentrantLock lock = getLock(p.getScripCode());
             if (!lock.tryLock()) continue;
@@ -487,12 +500,56 @@ public class VirtualEngineService {
         }
     }
 
-    /** EOD: Close all open positions at 15:25 IST. */
+    // ==================== EXCHANGE-AWARE EOD CLOSE ====================
+
+    /** NSE/BSE EOD: Close NSE/BSE positions at 15:25 IST. */
     @org.springframework.scheduling.annotation.Scheduled(cron = "0 25 15 * * MON-FRI", zone = "Asia/Kolkata")
-    void eodCloseAll() {
-        log.info("EOD_CLOSE_ALL triggered at 15:25 IST");
+    void eodCloseNSE() {
+        log.info("EOD_CLOSE_NSE triggered at 15:25 IST");
+        eodCloseByExchange("N", "B");
+    }
+
+    /** Currency EOD: Close currency positions at 16:59 IST. */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 59 16 * * MON-FRI", zone = "Asia/Kolkata")
+    void eodCloseCurrency() {
+        log.info("EOD_CLOSE_CURRENCY triggered at 16:59 IST");
+        eodCloseByExchange("C");
+    }
+
+    /**
+     * MCX EOD: Close MCX positions at the appropriate time.
+     * Until March 6, 2026: 23:50 IST
+     * From March 7 to Nov 6, 2026: 23:25 IST
+     * Runs at 23:25 and 23:50 — checks date to determine which run actually closes.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 25 23 * * MON-FRI", zone = "Asia/Kolkata")
+    void eodCloseMCX_2325() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        // 23:25 close applies from March 7 to Nov 6 (summer timing)
+        LocalDate summerStart = LocalDate.of(2026, 3, 7);
+        LocalDate summerEnd = LocalDate.of(2026, 11, 6);
+        if (!today.isBefore(summerStart) && !today.isAfter(summerEnd)) {
+            log.info("EOD_CLOSE_MCX triggered at 23:25 IST (summer schedule)");
+            eodCloseByExchange("M");
+        }
+    }
+
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 50 23 * * MON-FRI", zone = "Asia/Kolkata")
+    void eodCloseMCX_2350() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+        // 23:50 close applies before March 7 and after Nov 6 (winter timing)
+        LocalDate summerStart = LocalDate.of(2026, 3, 7);
+        LocalDate summerEnd = LocalDate.of(2026, 11, 6);
+        if (today.isBefore(summerStart) || today.isAfter(summerEnd)) {
+            log.info("EOD_CLOSE_MCX triggered at 23:50 IST (winter schedule)");
+            eodCloseByExchange("M");
+        }
+    }
+
+    /** Close all open positions for the given exchange codes. */
+    private void eodCloseByExchange(String... exchanges) {
         for (var p : repo.listPositions()) {
-            if (p.getQtyOpen() > 0) {
+            if (p.getQtyOpen() > 0 && matchesExchange(p, exchanges)) {
                 ReentrantLock lock = getLock(p.getScripCode());
                 lock.lock();
                 try {
@@ -500,14 +557,27 @@ public class VirtualEngineService {
                     if (ltp == null || ltp <= 0) ltp = p.getAvgEntry(); // fallback
                     closeAt(p, ltp, p.getQtyOpen(), false, "EOD");
                     p.setUpdatedAt(System.currentTimeMillis());
-                    repo.savePosition(p);
+                    repo.deletePosition(p.getScripCode());
                     bus.publish("eod.close", p);
-                    log.info("EOD_CLOSED scrip={} price={} pnl={}", p.getScripCode(), ltp, p.getRealizedPnl());
+                    log.info("EOD_CLOSED_DELETED scrip={} exch={} price={} pnl={}",
+                            p.getScripCode(), p.getExchange(), ltp, p.getRealizedPnl());
                 } finally {
                     lock.unlock();
                 }
             }
         }
+    }
+
+    /** Check if position matches any of the given exchange codes. Null/empty exchange defaults to NSE ("N"). */
+    private boolean matchesExchange(VirtualPosition p, String... exchanges) {
+        String posExchange = p.getExchange();
+        if (posExchange == null || posExchange.isEmpty()) {
+            posExchange = "N"; // Default to NSE for legacy positions without exchange
+        }
+        for (String ex : exchanges) {
+            if (posExchange.equalsIgnoreCase(ex)) return true;
+        }
+        return false;
     }
 
     private boolean closeAt(VirtualPosition p, double price, int qty, boolean partial){
@@ -543,7 +613,7 @@ public class VirtualEngineService {
 
         // If position fully closed and has signalId, send outcome to StreamingCandle
         if (p.getQtyOpen() == 0 && p.getSignalId() != null && outcomeProducer != null) {
-            sendOutcome(p, price, pnl, exitReason);
+            sendOutcome(p, price, pnl, exitReason, qty);
         }
 
         // Track position close
@@ -571,29 +641,40 @@ public class VirtualEngineService {
     /**
      * Send trade outcome to StreamingCandle for stats update
      */
-    private void sendOutcome(VirtualPosition p, double exitPrice, double pnl, String exitReason) {
+    private void sendOutcome(VirtualPosition p, double exitPrice, double pnl, String exitReason, int closedQty) {
         try {
-            // Calculate R-multiple
+            // Calculate R-multiple using the closed quantity (not p.getQtyOpen() which is already 0)
             double risk = Math.abs(p.getAvgEntry() - (p.getSl() != null ? p.getSl() : p.getAvgEntry()));
-            double rMultiple = risk > 0 ? pnl / (risk * p.getQtyOpen()) : 0;
-            
+            double rMultiple = risk > 0 ? pnl / (risk * closedQty) : 0;
+
             // Determine direction
             String direction = p.getSide() == VirtualPosition.Side.LONG ? "BULLISH" : "BEARISH";
-            
+
             // Calculate holding period
             long holdingMinutes = (System.currentTimeMillis() - p.getOpenedAt()) / 60000;
-            
+
+            // Derive signalSource from signalType (e.g. FUDKII_LONG → FUDKII)
+            String signalType = p.getSignalType() != null ? p.getSignalType() : "BREAKOUT_RETEST";
+            String signalSource = signalType;
+            if (signalType.contains("_")) {
+                signalSource = signalType.substring(0, signalType.indexOf("_"));
+            }
+
             PaperTradeOutcome outcome = PaperTradeOutcome.builder()
                     .id(UUID.randomUUID().toString())
                     .signalId(p.getSignalId())
                     .scripCode(p.getScripCode())
-                    .signalType(p.getSignalType() != null ? p.getSignalType() : "BREAKOUT_RETEST")
+                    .signalType(signalType)
+                    .signalSource(signalSource)
                     .direction(direction)
+                    .side(p.getSide() == VirtualPosition.Side.LONG ? "BUY" : "SELL")
+                    .companyName(p.getInstrumentSymbol())
+                    .exchange(p.getExchange())
                     .entryPrice(p.getAvgEntry())
                     .exitPrice(exitPrice)
                     .stopLoss(p.getSl() != null ? p.getSl() : 0)
                     .target(p.getTp1() != null ? p.getTp1() : 0)
-                    .quantity(p.getQtyOpen())
+                    .quantity(closedQty)
                     .exitReason(exitReason != null ? exitReason : "UNKNOWN")
                     .pnl(pnl)
                     .rMultiple(rMultiple)
@@ -603,9 +684,9 @@ public class VirtualEngineService {
                     .holdingPeriodMinutes(holdingMinutes)
                     .positionSizeMultiplier(p.getPositionSizeMultiplier())
                     .build();
-            
+
             outcomeProducer.send(outcome);
-            
+
         } catch (Exception e) {
             log.error("Failed to send outcome for {}: {}", p.getScripCode(), e.getMessage());
         }

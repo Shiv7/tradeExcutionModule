@@ -352,39 +352,81 @@ public class TradeManager {
         boolean hitSL = trade.isBullish() ? bar.getLow() <= trade.getStopLoss()
                 : bar.getHigh() >= trade.getStopLoss();
         if (hitSL) {
-            exitTrade(trade, trade.getStopLoss(), "STOP_LOSS");
+            exitTrade(trade, trade.getStopLoss(), "SL-OP");
             return;
         }
 
-        // 4. Check T1 (partial exit: 50%)
+        // Initialize original position size for tranche calculation if not set
+        if (trade.getOriginalPositionSize() == null) {
+            trade.setOriginalPositionSize(trade.getPositionSize());
+        }
+        int origSize = trade.getOriginalPositionSize();
+
+        // 4. Check T1 (partial exit: 40%)
         if (!Boolean.TRUE.equals(trade.getTarget1Hit()) && trade.getTarget1() != null && trade.getTarget1() > 0) {
             boolean hitT1 = trade.isBullish() ? bar.getHigh() >= trade.getTarget1()
                     : bar.getLow() <= trade.getTarget1();
             if (hitT1) {
                 trade.setTarget1Hit(true);
                 trade.setStatus(ActiveTrade.TradeStatus.PARTIAL_EXIT);
-                int partialQty = Math.max(1, trade.getPositionSize() / 2);
+                int partialQty = Math.max(1, (int) Math.round(origSize * 0.4));
+                partialQty = Math.min(partialQty, trade.getPositionSize());
                 int remaining = trade.getPositionSize() - partialQty;
-                // Move SL to breakeven
-                trade.setStopLoss(trade.getEntryPrice());
-                log.info("T1_HIT scrip={} partial_close={} remaining={} SL->BE",
+                trade.setStopLoss(trade.getEntryPrice()); // SL -> breakeven
+                log.info("T1-OP scrip={} partial_close={} remaining={} SL->BE",
                          trade.getScripCode(), partialQty, remaining);
-                publishPartialExit(trade, trade.getTarget1(), partialQty, "TARGET1_PARTIAL");
+                publishPartialExit(trade, trade.getTarget1(), partialQty, "T1-OP");
                 trade.setPositionSize(remaining);
-                if (remaining <= 0) {
-                    // If position was size 1, full close at T1
-                    exitTrade(trade, trade.getTarget1(), "TARGET1");
-                    return;
-                }
+                if (remaining <= 0) { exitTrade(trade, trade.getTarget1(), "T1-OP"); return; }
             }
         }
 
-        // 5. Check T2 (full exit of remaining)
-        if (Boolean.TRUE.equals(trade.getTarget1Hit()) && trade.getTarget2() != null && trade.getTarget2() > 0) {
+        // 5. Check T2 (partial exit: 30%)
+        if (Boolean.TRUE.equals(trade.getTarget1Hit()) && !Boolean.TRUE.equals(trade.getTarget2Hit())
+                && trade.getTarget2() != null && trade.getTarget2() > 0) {
             boolean hitT2 = trade.isBullish() ? bar.getHigh() >= trade.getTarget2()
                     : bar.getLow() <= trade.getTarget2();
             if (hitT2) {
-                exitTrade(trade, trade.getTarget2(), "TARGET2");
+                trade.setTarget2Hit(true);
+                int partialQty = Math.max(1, (int) Math.round(origSize * 0.3));
+                partialQty = Math.min(partialQty, trade.getPositionSize());
+                int remaining = trade.getPositionSize() - partialQty;
+                trade.setStopLoss(trade.getTarget1()); // SL -> T1
+                log.info("T2-OP scrip={} partial_close={} remaining={} SL->T1",
+                         trade.getScripCode(), partialQty, remaining);
+                publishPartialExit(trade, trade.getTarget2(), partialQty, "T2-OP");
+                trade.setPositionSize(remaining);
+                if (remaining <= 0) { exitTrade(trade, trade.getTarget2(), "T2-OP"); return; }
+            }
+        }
+
+        // 6. Check T3 (partial exit: 20%)
+        if (Boolean.TRUE.equals(trade.getTarget2Hit()) && !Boolean.TRUE.equals(trade.getTarget3Hit())
+                && trade.getTarget3() != null && trade.getTarget3() > 0) {
+            boolean hitT3 = trade.isBullish() ? bar.getHigh() >= trade.getTarget3()
+                    : bar.getLow() <= trade.getTarget3();
+            if (hitT3) {
+                trade.setTarget3Hit(true);
+                int partialQty = Math.max(1, (int) Math.round(origSize * 0.2));
+                partialQty = Math.min(partialQty, trade.getPositionSize());
+                int remaining = trade.getPositionSize() - partialQty;
+                trade.setStopLoss(trade.getTarget2()); // SL -> T2
+                log.info("T3-OP scrip={} partial_close={} remaining={} SL->T2",
+                         trade.getScripCode(), partialQty, remaining);
+                publishPartialExit(trade, trade.getTarget3(), partialQty, "T3-OP");
+                trade.setPositionSize(remaining);
+                if (remaining <= 0) { exitTrade(trade, trade.getTarget3(), "T3-OP"); return; }
+            }
+        }
+
+        // 7. Check T4 (full exit: remaining 10%)
+        if (Boolean.TRUE.equals(trade.getTarget3Hit()) && !Boolean.TRUE.equals(trade.getTarget4Hit())
+                && trade.getTarget4() != null && trade.getTarget4() > 0) {
+            boolean hitT4 = trade.isBullish() ? bar.getHigh() >= trade.getTarget4()
+                    : bar.getLow() <= trade.getTarget4();
+            if (hitT4) {
+                trade.setTarget4Hit(true);
+                exitTrade(trade, trade.getTarget4(), "T4-OP");
                 return;
             }
         }

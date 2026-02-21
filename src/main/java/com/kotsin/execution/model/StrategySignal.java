@@ -98,9 +98,21 @@ public class StrategySignal {
     private double priceMoveDuringPattern; // Price movement during pattern formation
     private long patternDurationMs;     // How long pattern took to complete
     private double target3;             // Extended target for pattern signals
+    private double target4;             // Fourth pivot target
+    private boolean pivotSource;        // true = SL/targets computed from pivot levels
+    private double atr30m;              // ATR 30m used for pivot computation
+
+    // ========== OI + Volume (for cross-instrument ranking) ==========
+    private double oiChangeRatio;       // OI change ratio (positive = buildup, negative = unwinding)
+    private String oiLabel;             // LONG_BUILDUP, SHORT_BUILDUP, SHORT_COVERING, LONG_UNWINDING
+    private double volumeT;             // Current candle volume
+    private double surgeT;              // Volume surge ratio (volumeT / avgVolume)
+
+    // ========== Instrument Display Name ==========
+    private String instrumentSymbol;    // e.g. "BDL" for equity, "BDL 1300 CE" for option
 
     // ========== Exchange Info (parsed from scripCode) ==========
-    private String exchange;            // N (NSE), B (BSE), M (MCX)
+    private String exchange;            // N (NSE), B (BSE), M (MCX), C (Currency)
     private String exchangeType;        // C (Cash), D (Derivatives)
 
     // ========== Derived Helpers ==========

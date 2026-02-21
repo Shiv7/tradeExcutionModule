@@ -199,7 +199,7 @@ public class WalletEntity {
                 .maxDailyLossPercent(3.0)
                 .maxDrawdown(initialCapital * 0.10) // 10% max drawdown
                 .maxDrawdownPercent(10.0)
-                .maxOpenPositions(10)
+                .maxOpenPositions(30)
                 .maxPositionsPerSymbol(2)
                 .maxPositionSizePercent(20.0) // Max 20% per position
                 .circuitBreakerTripped(false)

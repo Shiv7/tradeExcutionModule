@@ -116,6 +116,7 @@ public class BacktestTrade {
                 .xfactorFlag(signal.isXfactorFlag())
                 .signalTime(signalTime)
                 .signalPrice(signal.getEntryPrice())
+                .entryPrice(signal.getEntryPrice())
                 .stopLoss(signal.getStopLoss())
                 .target1(signal.getTarget1())
                 .target2(signal.getTarget2())

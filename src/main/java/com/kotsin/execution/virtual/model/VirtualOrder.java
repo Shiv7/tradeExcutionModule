@@ -1,8 +1,10 @@
 package com.kotsin.execution.virtual.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class VirtualOrder {
     public enum Side { BUY, SELL }
     public enum Type { MARKET, LIMIT }
@@ -29,9 +31,15 @@ public class VirtualOrder {
     private Status status;
     private String rejectionReason; // FIX: Reason if order was rejected (margin, risk, etc.)
 
+    // Exchange (N=NSE, B=BSE, M=MCX, C=Currency)
+    private String exchange;
+
     // Signal metadata (for quant signals)
     private String signalId;
     private String signalType;
     private String signalSource;  // Strategy source: FUDKII, FUKAA, PIVOT, etc.
     private String rationale;
+
+    // Display name: e.g. "BDL" for equity, "BDL 1300 CE" for option trades
+    private String instrumentSymbol;
 }

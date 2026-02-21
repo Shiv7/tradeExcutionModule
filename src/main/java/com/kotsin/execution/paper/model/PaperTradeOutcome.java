@@ -51,6 +51,12 @@ public class PaperTradeOutcome {
     private double positionValue;
     private double positionSizeMultiplier;
 
+    // Fields needed by Dashboard TradeOutcomeConsumer for StrategyWalletsService
+    private String signalSource;   // Strategy source: FUDKII, FUKAA, PIVOT, etc.
+    private String companyName;    // Display name: e.g. "GOLD MINI 995", "NATURALGAS 270 CE"
+    private String exchange;       // N=NSE, M=MCX, C=Currency
+    private String side;           // BUY, SELL
+
     // ========== Pattern Metadata (Phase 4 SMTIS) ==========
     private String patternId;           // Pattern template ID for stats update
     private String sequenceId;          // Sequence ID for correlation

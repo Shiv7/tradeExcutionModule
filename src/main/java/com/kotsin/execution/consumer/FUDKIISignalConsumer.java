@@ -4,29 +4,23 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
-import com.kotsin.execution.logic.TradeManager;
 import com.kotsin.execution.model.BacktestTrade;
 import com.kotsin.execution.model.StrategySignal;
 import com.kotsin.execution.repository.BacktestTradeRepository;
 import com.kotsin.execution.service.BacktestEngine;
+import com.kotsin.execution.service.SignalBufferService;
 import com.kotsin.execution.service.TradingHoursService;
-import com.kotsin.execution.virtual.PriceProvider;
-import com.kotsin.execution.virtual.VirtualEngineService;
-import com.kotsin.execution.virtual.VirtualWalletRepository;
-import com.kotsin.execution.virtual.model.VirtualOrder;
-import com.kotsin.execution.virtual.model.VirtualPosition;
-import com.kotsin.execution.virtual.model.VirtualSettings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.Optional;
 
 /**
  * FUDKIISignalConsumer - Consumes standalone FUDKII strategy signals
@@ -37,13 +31,8 @@ import java.util.Optional;
  * standalone BB-SuperTrend based ignition strategy that identifies high-probability
  * breakout/breakdown signals.
  *
- * Signal Format:
- * - scripCode, companyName, timestamp
- * - direction: BULLISH/BEARISH
- * - strength: -1.0 to +1.0
- * - entryPrice, stopLoss, target1, target2
- * - bbBand: UPPER/LOWER (Bollinger Band touch)
- * - superTrendDirection: UP/DOWN
+ * Live signals are submitted to SignalBufferService for cross-strategy dedup
+ * (FUKAA wins over FUDKII if both fire for same scrip within 35s).
  */
 @Service
 @Slf4j
@@ -53,20 +42,14 @@ public class FUDKIISignalConsumer {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final long BACKTEST_THRESHOLD_SECONDS = 120;
 
-    private final TradeManager tradeManager;
     private final TradingHoursService tradingHoursService;
     private final BacktestEngine backtestEngine;
     private final BacktestTradeRepository backtestRepository;
     private final Cache<String, Boolean> processedSignalsCache;
-    private final VirtualEngineService virtualEngine;
-    private final VirtualWalletRepository walletRepo;
-    private final PriceProvider priceProvider;
+    private final SignalBufferService signalBufferService;
 
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-    @Value("${trading.mode.live:true}")
-    private boolean liveTradeEnabled;
 
     @Value("${fudkii.min.trigger.score:50.0}")
     private double minTriggerScore;
@@ -76,7 +59,7 @@ public class FUDKIISignalConsumer {
             groupId = "${app.kafka.consumer.fudkii-group-id:fudkii-executor}",
             containerFactory = "curatedSignalKafkaListenerContainerFactory"
     )
-    public void processFUDKIISignal(String payload, ConsumerRecord<?, ?> rec) {
+    public void processFUDKIISignal(String payload, ConsumerRecord<?, ?> rec, Acknowledgment ack) {
         final String topic = rec.topic();
         final int partition = rec.partition();
         final long offset = rec.offset();
@@ -88,12 +71,12 @@ public class FUDKIISignalConsumer {
             // ========== Extract Core Fields ==========
             String scripCode = root.path("scripCode").asText();
             if (scripCode == null || scripCode.isEmpty()) {
-                // Try familyId as fallback
                 scripCode = root.path("familyId").asText();
             }
 
             if (scripCode == null || scripCode.isEmpty()) {
                 log.debug("fudkii_no_scripcode topic={} partition={} offset={}", topic, partition, offset);
+                if (ack != null) ack.acknowledge();
                 return;
             }
 
@@ -105,6 +88,7 @@ public class FUDKIISignalConsumer {
             boolean triggered = root.path("triggered").asBoolean(false);
             if (!triggered) {
                 log.debug("fudkii_not_triggered scrip={}", scripCode);
+                if (ack != null) ack.acknowledge();
                 return;
             }
 
@@ -118,13 +102,14 @@ public class FUDKIISignalConsumer {
                 timestamp = root.path("timestamp").asLong(System.currentTimeMillis());
             }
 
-            // Get triggerScore (0-100) -- NOT "strength" which doesn't exist in FUDKII signals
+            // Get triggerScore (0-100)
             double triggerScore = root.path("triggerScore").asDouble(0);
 
             // Check minimum trigger score threshold
             if (triggerScore < minTriggerScore) {
                 log.debug("fudkii_below_threshold scrip={} score={} min={}",
                         scripCode, triggerScore, minTriggerScore);
+                if (ack != null) ack.acknowledge();
                 return;
             }
 
@@ -137,7 +122,7 @@ public class FUDKIISignalConsumer {
             boolean longSignal = "BULLISH".equalsIgnoreCase(direction);
             boolean shortSignal = "BEARISH".equalsIgnoreCase(direction);
 
-            // BB-SuperTrend components (for SL/target fallback if pivot targets missing)
+            // BB-SuperTrend components (for logging/rationale only — no fallback)
             double bbUpper = root.path("bbUpper").asDouble(0);
             double bbLower = root.path("bbLower").asDouble(0);
             double superTrend = root.path("superTrend").asDouble(0);
@@ -149,39 +134,29 @@ public class FUDKIISignalConsumer {
                         root.path("price").asDouble(0));
             }
 
-            // Get pivot-enriched targets (preferred) or derive from BB/ST
+            // Read pivot-enriched targets from Kafka (computed by PivotTargetCalculator in streaming candle)
+            // No BB/ST fallback — trust pivot values as-is. null = DM, 0 = ERR.
             double stopLoss = root.path("stopLoss").asDouble(0);
             double target1 = root.path("target1").asDouble(0);
             double target2 = root.path("target2").asDouble(0);
+            double target3 = root.path("target3").asDouble(0);
+            double target4 = root.path("target4").asDouble(0);
             double riskReward = root.path("riskReward").asDouble(
                     root.path("riskRewardRatio").asDouble(0));
             boolean pivotSource = root.path("pivotSource").asBoolean(false);
+            double atr30m = root.path("atr30m").asDouble(0);
 
-            // Derive SL/targets from BB/ST if pivot targets not present
-            if (stopLoss <= 0 && entryPrice > 0) {
-                stopLoss = longSignal
-                        ? Math.min(bbLower, superTrend)
-                        : Math.max(bbUpper, superTrend);
-            }
-            double risk = Math.abs(entryPrice - stopLoss);
-            if (target1 <= 0 && risk > 0) {
-                target1 = longSignal
-                        ? entryPrice + 2 * risk
-                        : entryPrice - 2 * risk;
-            }
-            if (target2 <= 0 && risk > 0) {
-                target2 = longSignal
-                        ? entryPrice + 3 * risk
-                        : entryPrice - 3 * risk;
-            }
-            if (riskReward <= 0 && risk > 0) {
-                riskReward = Math.abs(target1 - entryPrice) / risk;
-            }
+            // OI + Volume fields for cross-instrument ranking
+            double oiChangeRatio = root.path("oiChangeRatio").asDouble(0);
+            String oiLabel = root.path("oiLabel").asText("");
+            double volumeT = root.path("volumeT").asDouble(0);
+            double surgeTVal = root.path("surgeT").asDouble(0);
 
-            // Validate trade parameters
+            // Validate trade parameters — reject if pivot data missing (no trade without proper SL)
             if (entryPrice <= 0 || stopLoss <= 0 || target1 <= 0) {
-                log.warn("fudkii_invalid_params scrip={} entry={} sl={} t1={} bbL={} bbU={} st={}",
-                        scripCode, entryPrice, stopLoss, target1, bbLower, bbUpper, superTrend);
+                log.warn("fudkii_invalid_params scrip={} entry={} sl={} t1={} pivotSource={}",
+                        scripCode, entryPrice, stopLoss, target1, pivotSource);
+                if (ack != null) ack.acknowledge();
                 return;
             }
 
@@ -189,8 +164,14 @@ public class FUDKIISignalConsumer {
             String idKey = "FUDKII|" + scripCode + "|" + triggerTimeStr;
             if (processedSignalsCache.asMap().putIfAbsent(idKey, Boolean.TRUE) != null) {
                 log.info("fudkii_duplicate key={} scrip={}", idKey, scripCode);
+                if (ack != null) ack.acknowledge();
                 return;
             }
+
+            // ========== Build Instrument Display Name ==========
+            // tradeExecutionModule trades EQUITY — use plain company name.
+            // Option suffix (e.g. "3020 CE") is only for StrategyTradeExecutor option positions.
+            String instrumentSymbol = companyName;
 
             // ========== Convert to StrategySignal ==========
             String rationale = String.format("FUDKII: %s score=%.0f | BB[%.2f-%.2f] ST=%.2f | pivot=%s",
@@ -199,6 +180,7 @@ public class FUDKIISignalConsumer {
             StrategySignal signal = StrategySignal.builder()
                     .scripCode(scripCode)
                     .companyName(companyName)
+                    .instrumentSymbol(instrumentSymbol)
                     .timestamp(timestamp)
                     .signal("FUDKII_" + (longSignal ? "LONG" : "SHORT"))
                     .confidence(Math.min(1.0, triggerScore / 100.0))
@@ -210,9 +192,18 @@ public class FUDKIISignalConsumer {
                     .stopLoss(stopLoss)
                     .target1(target1)
                     .target2(target2)
+                    .target3(target3)
+                    .target4(target4)
                     .riskRewardRatio(riskReward)
+                    .pivotSource(pivotSource)
+                    .atr30m(atr30m)
+                    .oiChangeRatio(oiChangeRatio)
+                    .oiLabel(oiLabel)
+                    .volumeT(volumeT)
+                    .surgeT(surgeTVal)
                     .positionSizeMultiplier(1.0)
                     .xfactorFlag(triggerScore >= 80)
+                    .exchange(root.path("exchange").asText("N"))
                     .build();
 
             signal.parseScripCode();
@@ -241,86 +232,34 @@ public class FUDKIISignalConsumer {
 
                 if (!tradingHoursService.shouldProcessTrade(exchange, receivedIst.toLocalDateTime())) {
                     log.info("fudkii_outside_hours scrip={} exch={}", scripCode, exchange);
+                    if (ack != null) ack.acknowledge();
                     return;
                 }
 
-                // Create virtual trade
+                // Create virtual trade as PENDING (will be updated by SignalBufferService)
                 BacktestTrade virtualTrade = BacktestTrade.fromSignal(signal, signalTimeIst.toLocalDateTime());
-                virtualTrade.setStatus(BacktestTrade.TradeStatus.ACTIVE);
+                virtualTrade.setStatus(BacktestTrade.TradeStatus.PENDING);
                 virtualTrade.setRationale(rationale);
                 backtestRepository.save(virtualTrade);
 
-                log.info("FUDKII_virtual_trade created id={} scrip={} score={}",
+                log.info("FUDKII_virtual_trade created id={} scrip={} score={} → submitting to buffer",
                         virtualTrade.getId(), scripCode, triggerScore);
 
-                // Forward to TradeManager for execution
-                if (liveTradeEnabled) {
-                    tradeManager.addSignalToWatchlist(signal, receivedIst.toLocalDateTime());
-                }
-
-                // SWITCH detection + Paper trade via VirtualEngineService
-                handlePaperTrade(signal, scripCode, companyName, longSignal, "FUDKII");
+                // Submit to SignalBufferService for cross-strategy dedup
+                // If FUKAA also fires for same scrip within 35s, FUKAA wins
+                signalBufferService.submitSignal("FUDKII", signal, virtualTrade,
+                        rationale, receivedIst.toLocalDateTime());
             }
+
+            // Acknowledge offset — bookmark this message as processed
+            if (ack != null) ack.acknowledge();
 
         } catch (Exception e) {
             log.error("fudkii_processing_error topic={} partition={} offset={} err={}",
                     topic, partition, offset, e.toString(), e);
-        }
-    }
-
-    private void handlePaperTrade(StrategySignal signal, String scripCode,
-                                  String companyName, boolean longSignal, String source) {
-        try {
-            String numericScrip = signal.getNumericScripCode() != null ? signal.getNumericScripCode() : scripCode;
-
-            // SWITCH detection: if opposite position exists, close it first
-            Optional<VirtualPosition> existingPos = walletRepo.getPosition(numericScrip)
-                    .filter(p -> p.getQtyOpen() > 0);
-            if (existingPos.isPresent()) {
-                VirtualPosition pos = existingPos.get();
-                boolean existingIsLong = pos.getSide() == VirtualPosition.Side.LONG;
-                if (existingIsLong != longSignal) {
-                    log.info("{}_SWITCH scrip={} oldSide={} newSide={}", source, numericScrip,
-                             pos.getSide(), longSignal ? "LONG" : "SHORT");
-                    virtualEngine.closePosition(numericScrip);
-                } else {
-                    log.debug("{}_same_direction_skip scrip={}", source, numericScrip);
-                    return;
-                }
-            }
-
-            // Create paper trade
-            double price = signal.getEntryPrice();
-            Double ltp = priceProvider.getLtp(numericScrip);
-            if (ltp != null && ltp > 0) price = ltp;
-
-            VirtualSettings settings = walletRepo.loadSettings();
-            int qty = price > 0 ? (int) Math.floor(settings.getAccountValue() * 0.02 / price) : 1;
-            if (qty < 1) qty = 1;
-
-            VirtualOrder order = new VirtualOrder();
-            order.setScripCode(numericScrip);
-            order.setSide(longSignal ? VirtualOrder.Side.BUY : VirtualOrder.Side.SELL);
-            order.setType(VirtualOrder.Type.MARKET);
-            order.setQty(qty);
-            order.setCurrentPrice(price);
-            order.setSl(signal.getStopLoss());
-            order.setTp1(signal.getTarget1());
-            order.setTp2(signal.getTarget2());
-            order.setTp1ClosePercent(0.5);  // 50% at T1
-            order.setTrailingType("PCT");
-            order.setTrailingValue(1.0);    // 1% trail after T1
-            order.setTrailingStep(0.5);
-            order.setSignalId(signal.getSignal() + "_" + numericScrip + "_" + signal.getTimestamp());
-            order.setSignalType(signal.getSignal());
-            order.setSignalSource(source);
-
-            VirtualOrder executed = virtualEngine.createOrder(order);
-            log.info("{}_paper_trade scrip={} status={} qty={} entry={} SL={} T1={}",
-                     source, numericScrip, executed.getStatus(), qty, price,
-                     signal.getStopLoss(), signal.getTarget1());
-        } catch (Exception e) {
-            log.error("{}_paper_trade_error scrip={} err={}", source, scripCode, e.getMessage());
+        } finally {
+            // Always acknowledge — even on error, don't replay failed messages forever
+            if (ack != null) ack.acknowledge();
         }
     }
 }

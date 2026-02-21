@@ -189,7 +189,10 @@ public class QuantSignalRouter {
         // Signal metadata
         order.setSignalId(signal.getSignalId());
         order.setSignalType(signal.getSignalType() != null ? signal.getSignalType().name() : "QUANT");
+        order.setSignalSource("QUANT");
+        order.setExchange(signal.getExchange() != null ? signal.getExchange() : "N");
         order.setRationale(signal.getRationale());
+        order.setInstrumentSymbol(signal.getCompanyName());
 
         return order;
     }

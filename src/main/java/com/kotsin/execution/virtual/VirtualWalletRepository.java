@@ -69,6 +69,15 @@ public class VirtualWalletRepository {
         return out;
     }
 
+    public void deletePosition(String scrip) {
+        try {
+            executionStringRedisTemplate.delete(posKey(scrip));
+            log.info("Deleted position from Redis: {}", scrip);
+        } catch (Exception e) {
+            log.warn("deletePosition failed for {}: {}", scrip, e.getMessage());
+        }
+    }
+
     public VirtualSettings loadSettings(){
         try { String raw = executionStringRedisTemplate.opsForValue().get(settingsKey());
             return raw == null ? new VirtualSettings() : mapper.readValue(raw, VirtualSettings.class);
