@@ -108,6 +108,11 @@ public class SignalBufferService {
     private volatile TimeframeBatch currentBatch;
     private final Object batchLock = new Object();
 
+    // Independent category batches (FUDKOI, future strategies)
+    // Each category has its own batch — doesn't compete with FUKAA/FUDKII pipeline
+    private final ConcurrentHashMap<String, TimeframeBatch> categoryBatches = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Object> categoryLocks = new ConcurrentHashMap<>();
+
     // ========== Public API ==========
 
     /**
@@ -153,6 +158,47 @@ public class SignalBufferService {
             } else {
                 log.info("BUFFER_signal_added scrip={} source={} (timer already running)",
                         scripCode, source);
+            }
+        }
+    }
+
+    /**
+     * Submit a signal for an independent strategy category (e.g., FUDKOI).
+     * Skips Layer 1 (per-scrip dedup) — goes directly to category-specific batch.
+     * Each category races independently: FUDKOI and FUKAA can both trade simultaneously.
+     */
+    public void submitIndependentSignal(String category, StrategySignal signal,
+                                         BacktestTrade virtualTrade, String rationale,
+                                         LocalDateTime receivedIst) {
+        String scripCode = signal.getNumericScripCode() != null
+                ? signal.getNumericScripCode() : signal.getScripCode();
+        double rankScore = computeRankScoreForCategory(category, signal);
+
+        ResolvedSignal resolved = new ResolvedSignal();
+        resolved.scripCode = scripCode;
+        resolved.source = category;
+        resolved.signal = signal;
+        resolved.virtualTrade = virtualTrade;
+        resolved.rationale = rationale;
+        resolved.receivedTimeIst = receivedIst;
+        resolved.rankScore = rankScore;
+
+        log.info("BATCH_{}_add scrip={} rankScore={} oiRatio={} oiLabel={}",
+                category, scripCode, String.format("%.2f", rankScore),
+                signal.getOiChangeRatio(), signal.getOiLabel());
+
+        Object lock = categoryLocks.computeIfAbsent(category, k -> new Object());
+        synchronized (lock) {
+            TimeframeBatch batch = categoryBatches.computeIfAbsent(category, k -> new TimeframeBatch());
+            batch.resolvedSignals.put(scripCode, resolved);
+
+            if (batch.batchTimerFuture == null) {
+                final TimeframeBatch b = batch;
+                final String cat = category;
+                batch.batchTimerFuture = scheduler.schedule(
+                        () -> evaluateCategoryBatch(cat, b),
+                        batchWindowSeconds, TimeUnit.SECONDS);
+                log.info("BATCH_{}_timer_started windowSec={} firstScrip={}", category, batchWindowSeconds, scripCode);
             }
         }
     }
@@ -263,29 +309,57 @@ public class SignalBufferService {
     }
 
     /**
-     * Compute ranking score for cross-instrument selection.
-     * Higher = better. Factors: OI in trade direction (60%) + Volume surge (40%).
+     * Compute OI score component. Extracted for reuse by category-specific ranking.
+     * Direction-aligned OI gets 2x boost, counter-direction gets 1x.
      */
-    private double computeRankScore(StrategySignal signal) {
-        double oiScore = 0;
+    private double computeOiScore(StrategySignal signal) {
         double oiRatio = signal.getOiChangeRatio();
         String oiLabel = signal.getOiLabel();
         boolean bullish = signal.isBullish();
 
-        // OI in favour of direction = high score
         if (bullish) {
-            if ("LONG_BUILDUP".equals(oiLabel)) oiScore = Math.abs(oiRatio) * 2.0;
-            else if ("SHORT_COVERING".equals(oiLabel)) oiScore = Math.abs(oiRatio) * 1.0;
+            if ("LONG_BUILDUP".equals(oiLabel)) return Math.abs(oiRatio) * 2.0;
+            else if ("SHORT_COVERING".equals(oiLabel)) return Math.abs(oiRatio) * 1.0;
         } else {
-            if ("SHORT_BUILDUP".equals(oiLabel)) oiScore = Math.abs(oiRatio) * 2.0;
-            else if ("LONG_UNWINDING".equals(oiLabel)) oiScore = Math.abs(oiRatio) * 1.0;
+            if ("SHORT_BUILDUP".equals(oiLabel)) return Math.abs(oiRatio) * 2.0;
+            else if ("LONG_UNWINDING".equals(oiLabel)) return Math.abs(oiRatio) * 1.0;
         }
+        return 0;
+    }
 
-        // Volume surge contribution (cap at 10x to prevent outlier domination)
+    /**
+     * Compute ranking score for cross-instrument selection (FUKAA/FUDKII pipeline).
+     * Higher = better. Factors: OI in trade direction (60%) + Volume surge (40%).
+     */
+    private double computeRankScore(StrategySignal signal) {
+        double oiScore = computeOiScore(signal);
         double volumeScore = Math.min(signal.getSurgeT(), 10.0);
-
-        // Combined: 60% OI + 40% Volume
         return oiScore * 0.6 + volumeScore * 0.4;
+    }
+
+    /**
+     * Compute ranking score for independent category strategies.
+     * FUDKOI uses 100% OI ranking; others fall back to default.
+     */
+    private double computeRankScoreForCategory(String category, StrategySignal signal) {
+        if ("FUDKOI".equals(category)) {
+            return computeOiScore(signal);
+        }
+        return computeRankScore(signal);
+    }
+
+    /**
+     * Evaluate an independent category batch. Cleans up category state, then
+     * delegates to the shared evaluateBatch() for winner selection and execution.
+     */
+    private void evaluateCategoryBatch(String category, TimeframeBatch batch) {
+        synchronized (categoryLocks.computeIfAbsent(category, k -> new Object())) {
+            if (categoryBatches.get(category) == batch) {
+                categoryBatches.remove(category);
+            }
+        }
+        // Reuse the exact same batch evaluation logic
+        evaluateBatch(batch);
     }
 
     /**
@@ -476,6 +550,15 @@ public class SignalBufferService {
         if (batch != null && !batch.resolvedSignals.isEmpty()) {
             log.info("SignalBufferService flushing active batch with {} signals", batch.resolvedSignals.size());
             evaluateBatch(batch);
+        }
+
+        // Flush independent category batches
+        for (Map.Entry<String, TimeframeBatch> entry : categoryBatches.entrySet()) {
+            if (!entry.getValue().resolvedSignals.isEmpty()) {
+                log.info("SignalBufferService flushing {} batch with {} signals",
+                        entry.getKey(), entry.getValue().resolvedSignals.size());
+                evaluateBatch(entry.getValue());
+            }
         }
 
         // Execute any remaining per-scrip buffered signals
