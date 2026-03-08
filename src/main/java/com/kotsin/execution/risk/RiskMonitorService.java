@@ -5,6 +5,7 @@ import com.kotsin.execution.virtual.model.VirtualPosition;
 import com.kotsin.execution.virtual.PriceProvider;
 import com.kotsin.execution.wallet.model.WalletEntity;
 import com.kotsin.execution.wallet.repository.WalletRepository;
+import com.kotsin.execution.wallet.service.StrategyWalletResolver;
 import com.kotsin.execution.wallet.service.WalletTransactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +14,9 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -40,6 +43,9 @@ public class RiskMonitorService {
     @Value("${wallet.id:virtual-wallet-1}")
     private String defaultWalletId;
 
+    @Value("${strategy.wallet.enabled:false}")
+    private boolean strategyWalletEnabled;
+
     // Track last warning to avoid spam
     private final ConcurrentHashMap<String, Long> lastWarningTime = new ConcurrentHashMap<>();
     private static final long WARNING_COOLDOWN_MS = 60000; // 1 minute
@@ -56,6 +62,8 @@ public class RiskMonitorService {
                 return;
             }
 
+            // Group unrealized PnL by wallet
+            Map<String, Double> walletPnl = new HashMap<>();
             double totalUnrealizedPnl = 0;
 
             for (VirtualPosition position : positions) {
@@ -72,12 +80,29 @@ public class RiskMonitorService {
                 }
 
                 totalUnrealizedPnl += positionPnl;
+
+                // Resolve which wallet this position belongs to
+                if (strategyWalletEnabled) {
+                    String strategyKey = StrategyWalletResolver.resolveStrategyKey(
+                            position.getSignalSource(), position.getSignalType());
+                    String walletId = (strategyKey != null)
+                            ? StrategyWalletResolver.walletIdForStrategy(strategyKey) : defaultWalletId;
+                    walletPnl.merge(walletId, positionPnl, Double::sum);
+                }
             }
 
-            // Update wallet unrealized P&L
-            walletTransactionService.updateUnrealizedPnl(defaultWalletId, totalUnrealizedPnl);
+            if (strategyWalletEnabled) {
+                // Update each strategy wallet separately
+                for (Map.Entry<String, Double> entry : walletPnl.entrySet()) {
+                    walletTransactionService.updateUnrealizedPnl(entry.getKey(), entry.getValue());
+                }
+                // Also update default wallet with total for backward compat
+                walletTransactionService.updateUnrealizedPnl(defaultWalletId, totalUnrealizedPnl);
+            } else {
+                walletTransactionService.updateUnrealizedPnl(defaultWalletId, totalUnrealizedPnl);
+            }
 
-            // Check risk thresholds
+            // Check risk thresholds on default wallet (backward compat)
             checkRiskThresholds(totalUnrealizedPnl);
 
         } catch (Exception e) {

@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Represents a transaction affecting the wallet balance.
@@ -46,6 +47,8 @@ public class WalletTransaction {
     private String reason;           // EXIT_REASON for PNL transactions
     private LocalDateTime timestamp;
 
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+
     public enum TransactionType {
         DEPOSIT,           // Initial deposit or add funds
         WITHDRAWAL,        // Withdraw funds
@@ -83,7 +86,7 @@ public class WalletTransaction {
                 .marginBefore(marginBefore)
                 .marginAfter(marginBefore + marginAmount)
                 .description(String.format("Margin blocked for %s %d %s @ %.2f", side, qty, scripCode, price))
-                .timestamp(LocalDateTime.now())
+                .timestamp(LocalDateTime.now(IST)) // BUG-009 FIX
                 .build();
     }
 
@@ -116,7 +119,7 @@ public class WalletTransaction {
                 .reason(exitReason)
                 .description(String.format("P&L %s%.2f for %s %d %s (exit: %s)",
                         pnl >= 0 ? "+" : "", pnl, side, qty, scripCode, exitReason))
-                .timestamp(LocalDateTime.now())
+                .timestamp(LocalDateTime.now(IST)) // BUG-009 FIX
                 .build();
     }
 
@@ -139,7 +142,7 @@ public class WalletTransaction {
                 .marginBefore(reservedBefore)
                 .marginAfter(reservedBefore + marginAmount)
                 .description(String.format("Reserved %.2f margin for pending order %s", marginAmount, orderId))
-                .timestamp(LocalDateTime.now())
+                .timestamp(LocalDateTime.now(IST)) // BUG-009 FIX
                 .build();
     }
 

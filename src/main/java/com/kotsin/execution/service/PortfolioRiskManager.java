@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -34,6 +35,8 @@ public class PortfolioRiskManager {
 
     @Autowired
     private SectorMappingService sectorMappingService;
+
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     // Portfolio state
     private final Map<LocalDate, DailyPerformance> dailyPerformance = new ConcurrentHashMap<>();
@@ -242,7 +245,7 @@ public class PortfolioRiskManager {
         }
 
         // Update daily performance
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(IST); // BUG-009 FIX
         DailyPerformance perf = dailyPerformance.computeIfAbsent(today, k -> new DailyPerformance());
         perf.totalPnL += pnl;
         perf.tradeCount++;
@@ -266,7 +269,7 @@ public class PortfolioRiskManager {
      * Calculate today's loss percentage
      */
     private double calculateDailyLoss() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(IST); // BUG-009 FIX
         DailyPerformance perf = dailyPerformance.get(today);
         if (perf == null || accountValueAtStart <= 0) return 0.0;
 
@@ -373,7 +376,7 @@ public class PortfolioRiskManager {
      */
     private void activateEmergencyStop(String reason) {
         this.emergencyStopActivated = true;
-        this.emergencyStopTime = LocalDateTime.now();
+        this.emergencyStopTime = LocalDateTime.now(IST); // BUG-009 FIX
 
         log.error("[PORTFOLIO-RISK] EMERGENCY STOP ACTIVATED");
         log.error("   Reason: {}", reason);
@@ -401,7 +404,7 @@ public class PortfolioRiskManager {
      */
     @org.springframework.scheduling.annotation.Scheduled(cron = "0 0 1 * * *", zone = "Asia/Kolkata")
     public void cleanupOldPerformance() {
-        LocalDate cutoff = LocalDate.now().minusDays(90);
+        LocalDate cutoff = LocalDate.now(IST).minusDays(90); // BUG-009 FIX
         int removed = 0;
         
         synchronized (this) {  // Thread-safe cleanup
@@ -450,8 +453,8 @@ public class PortfolioRiskManager {
         diagnostics.put("sectorExposure", sectorExposure);
 
         // Today's performance
-        LocalDate today = LocalDate.now();
-        DailyPerformance perf = dailyPerformance.get(today);
+        LocalDate todayDiag = LocalDate.now(IST); // BUG-009 FIX
+        DailyPerformance perf = dailyPerformance.get(todayDiag);
         if (perf != null) {
             diagnostics.put("dailyPnL", perf.totalPnL);
             diagnostics.put("dailyTrades", perf.tradeCount);

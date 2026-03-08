@@ -108,6 +108,25 @@ public class StrategySignal {
     private double volumeT;             // Current candle volume
     private double surgeT;              // Volume surge ratio (volumeT / avgVolume)
 
+    // ========== KII Score + Block Deal ==========
+    private double kiiScore;            // KII = (|OIChange%| + surgeT*100) / 2
+    private double blockTradeVol;       // Block deal volume
+    private double blockTradePct;       // Block deal as % of total volume
+    private double oiBuildupPct;        // Today's cumulative OI vs yesterday's close
+
+    // ========== Option Enrichment (from OptionDataEnricher in StreamingCandle) ==========
+    private boolean optionAvailable;
+    private String optionScripCode;
+    private double optionStrike;
+    private String optionType;           // CE or PE
+    private double optionLtp;
+    private String optionExpiry;
+    private int optionLotSize;
+    private int optionMultiplier;
+    private String optionSymbol;
+    private String optionExchange;
+    private String optionExchangeType;
+
     // ========== Instrument Display Name ==========
     private String instrumentSymbol;    // e.g. "BDL" for equity, "BDL 1300 CE" for option
 

@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -40,6 +41,9 @@ public class TradeManager {
     private final Map<String, ActiveTrade> waitingTrades = new ConcurrentHashMap<>();
     /** Single active trade at a time (per current design). */
     private final AtomicReference<ActiveTrade> activeTrade = new AtomicReference<>();
+    /** Cooldown: prevent same-scrip re-entry within 5 minutes of exit. */
+    private final Map<String, Instant> exitCooldown = new ConcurrentHashMap<>();
+    private static final long COOLDOWN_MINUTES = 5;
     /**
      * Recent candles keyed by **companyName** (matches Candlestick model);
      * we standardize on companyName here for consistency with live/historical candles.
@@ -152,6 +156,14 @@ public class TradeManager {
 
     /** Add/refresh a trade candidate and pre-load recent candles for that instrument. */
     public boolean addSignalToWatchlist(StrategySignal signal, LocalDateTime signalReceivedTime) {
+        // Cooldown: prevent rapid re-entry after recent exit
+        Instant lastExit = exitCooldown.get(signal.getNumericScripCode());
+        if (lastExit != null && Duration.between(lastExit, Instant.now()).toMinutes() < COOLDOWN_MINUTES) {
+            long ageSec = Duration.between(lastExit, Instant.now()).toSeconds();
+            log.info("COOLDOWN scrip={} exited {}s ago, skipping re-entry", signal.getNumericScripCode(), ageSec);
+            return false;
+        }
+
         // SWITCH detection: if active trade exists for same scrip in opposite direction, close it
         ActiveTrade open = activeTrade.get();
         if (open != null && open.getScripCode().equals(signal.getNumericScripCode())) {
@@ -191,7 +203,9 @@ public class TradeManager {
         // SL/T1/T2 are pre-computed by the signal source (StreamingCandle pivot-enriched or BB/ST derived)
         trade.setEntryTriggered(true);
         trade.setEntryPrice(entryPrice);
-        trade.setEntryTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(confirmationCandle.getWindowStartMillis()), IST));
+        long windowMs = confirmationCandle.getWindowStartMillis();
+        Instant entryInstant = (windowMs > 0) ? Instant.ofEpochMilli(windowMs) : Instant.now();
+        trade.setEntryTime(LocalDateTime.ofInstant(entryInstant, IST));
         // Use dynamic position size from signal metadata if available, otherwise use default
         int positionSize = defaultPositionSize;
         Object multiplier = trade.getMetadata().get("positionSizeMultiplier");
@@ -217,11 +231,12 @@ public class TradeManager {
 
         // Place the actual order via broker (spread-aware for options/MCX)
         try {
-            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
-            String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
-            String exchType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
-            String orderEx = String.valueOf(trade.getMetadata().getOrDefault("orderExchange", exch));
-            String orderExType = String.valueOf(trade.getMetadata().getOrDefault("orderExchangeType", exchType));
+            Map<String, Object> meta = trade.getMetadata();
+            String orderScrip = metaStr(meta, "orderScripCode", trade.getScripCode());
+            String exch = metaStr(meta, "exchange", "N");
+            String exchType = metaStr(meta, "exchangeType", "C");
+            String orderEx = metaStr(meta, "orderExchange", exch);
+            String orderExType = metaStr(meta, "orderExchangeType", exchType);
             BrokerOrderService.Side side = trade.isBullish() ? BrokerOrderService.Side.BUY : BrokerOrderService.Side.SELL;
 
             String orderId;
@@ -311,6 +326,12 @@ public class TradeManager {
         if (history.size() > max) {
             history.subList(0, history.size() - max).clear();
         }
+    }
+
+    /** Safely extract a metadata string, returning fallback when value is null. */
+    private String metaStr(Map<String, Object> meta, String key, String fallback) {
+        Object val = meta.get(key);
+        return (val != null && !"null".equals(String.valueOf(val))) ? String.valueOf(val) : fallback;
     }
 
     /** Helpers / Queries */
@@ -459,11 +480,12 @@ public class TradeManager {
     private void exitTrade(ActiveTrade trade, double exitPrice, String reason) {
         // Place exit order via broker
         try {
-            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
-            String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
-            String exType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
-            String orderEx = String.valueOf(trade.getMetadata().getOrDefault("orderExchange", exch));
-            String orderExType = String.valueOf(trade.getMetadata().getOrDefault("orderExchangeType", exType));
+            Map<String, Object> meta = trade.getMetadata();
+            String orderScrip = metaStr(meta, "orderScripCode", trade.getScripCode());
+            String exch = metaStr(meta, "exchange", "N");
+            String exType = metaStr(meta, "exchangeType", "C");
+            String orderEx = metaStr(meta, "orderExchange", exch);
+            String orderExType = metaStr(meta, "orderExchangeType", exType);
             BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
 
             String exitOrderId;
@@ -520,6 +542,9 @@ public class TradeManager {
 
         trade.setStatus(ActiveTrade.TradeStatus.COMPLETED);
         activeTrade.set(null);
+        exitCooldown.put(trade.getScripCode(), Instant.now());
+        // Remove from waiting to prevent immediate re-entry
+        waitingTrades.remove(trade.getScripCode());
         log.info("Trade EXITED: {} reason={} exitPrice={} PnL={}",
                  trade.getScripCode(), reason, exitPrice,
                  (trade.isBullish() ? exitPrice - trade.getEntryPrice() : trade.getEntryPrice() - exitPrice));
@@ -537,9 +562,10 @@ public class TradeManager {
             profitLossProducer.publishTradeExit(trade, exitPrice, reason, pnl);
 
             // Place partial exit order via broker
-            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
-            String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
-            String exType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+            Map<String, Object> meta2 = trade.getMetadata();
+            String orderScrip = metaStr(meta2, "orderScripCode", trade.getScripCode());
+            String exch = metaStr(meta2, "exchange", "N");
+            String exType = metaStr(meta2, "exchangeType", "C");
             BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
             String exitOrderId = brokerOrderService.placeMarketOrder(orderScrip, exch, exType, sideToClose, qty);
             trade.addMetadata("partialExitOrderId", exitOrderId);
@@ -555,9 +581,10 @@ public class TradeManager {
 
         // Place exit order via broker
         try {
-            String orderScrip = String.valueOf(trade.getMetadata().getOrDefault("orderScripCode", trade.getScripCode()));
-            String exch = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
-            String exType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+            Map<String, Object> meta = trade.getMetadata();
+            String orderScrip = metaStr(meta, "orderScripCode", trade.getScripCode());
+            String exch = metaStr(meta, "exchange", "N");
+            String exType = metaStr(meta, "exchangeType", "C");
             BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
             String exitOrderId = brokerOrderService.placeMarketOrder(orderScrip, exch, exType, sideToClose, trade.getPositionSize());
             trade.addMetadata("exitOrderId", exitOrderId);
@@ -580,6 +607,8 @@ public class TradeManager {
 
         trade.setStatus(ActiveTrade.TradeStatus.COMPLETED);
         activeTrade.set(null);
+        exitCooldown.put(trade.getScripCode(), Instant.now());
+        waitingTrades.remove(trade.getScripCode());
         log.info("FORCE_EXIT {} reason={} exitPrice={} pnl={}", trade.getScripCode(), reason, exitPrice, pnl);
     }
 
@@ -592,10 +621,13 @@ public class TradeManager {
             log.info("EOD_EXIT scrip={}", open.getScripCode());
             forceExitTrade(open, "EOD");
         }
-        // Clear stale waiting trades
+        // Clear stale waiting trades and cooldowns
         if (!waitingTrades.isEmpty()) {
             log.info("EOD clearing {} stale waiting trades", waitingTrades.size());
             waitingTrades.clear();
+        }
+        if (!exitCooldown.isEmpty()) {
+            exitCooldown.clear();
         }
     }
 }

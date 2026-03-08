@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.List;
 
@@ -40,8 +41,10 @@ public class HistoricalDataClient {
      */
     public List<Candlestick> getHistoricalCandles(String scripCode, LocalDate startDate, LocalDate endDate,
                                                    String exchange, String exchangeType) {
-        // Cap end date to tomorrow
-        LocalDate tomorrow = LocalDate.now().plusDays(1);
+        if (exchange == null) exchange = "N";
+        if (exchangeType == null) exchangeType = "C";
+        // Cap end date to tomorrow (IST)
+        LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Kolkata")).plusDays(1); // BUG-009 FIX
         if (endDate.isAfter(tomorrow)) {
             endDate = tomorrow;
         }

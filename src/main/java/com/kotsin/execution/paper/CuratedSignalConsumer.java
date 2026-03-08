@@ -9,6 +9,7 @@ import com.kotsin.execution.virtual.VirtualWalletRepository;
 import com.kotsin.execution.virtual.model.VirtualOrder;
 import com.kotsin.execution.virtual.model.VirtualPosition;
 import com.kotsin.execution.virtual.model.VirtualSettings;
+import com.kotsin.execution.service.LotSizeLookupService;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -37,6 +38,9 @@ public class CuratedSignalConsumer {
 
     @Autowired
     private PriceProvider priceProvider;
+
+    @Autowired
+    private LotSizeLookupService lotSizeLookup;
 
     @Value("${paper.trade.enabled:true}")
     private boolean enabled;
@@ -134,9 +138,12 @@ public class CuratedSignalConsumer {
                 return;
             }
 
-            int quantity = (int) Math.floor(positionValue / currentPrice);
-            if (quantity < 1) {
-                log.warn("Position too small for {}, skipping", signal.getScripCode());
+            // LOT-SIZE: qty MUST be lot-rounded via LotSizeLookupService
+            int rawQty = (int) Math.floor(positionValue / currentPrice);
+            int quantity = lotSizeLookup.roundToLotSize(rawQty, signal.getScripCode());
+            if (quantity < 1) quantity = lotSizeLookup.getLotSize(signal.getScripCode()); // minimum 1 lot
+            if (quantity * currentPrice > positionValue * 1.5) {
+                log.warn("Position too small for {} (1 lot exceeds budget), skipping", signal.getScripCode());
                 return;
             }
 

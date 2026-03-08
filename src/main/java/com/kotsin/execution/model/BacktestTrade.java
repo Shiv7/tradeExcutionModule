@@ -8,6 +8,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * BacktestTrade - MongoDB entity for storing backtest results
@@ -125,7 +126,7 @@ public class BacktestTrade {
                 .exchange(signal.getExchange())
                 .exchangeType(signal.getExchangeType())
                 .status(TradeStatus.PENDING)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneId.of("Asia/Kolkata"))) // BUG-009 FIX
                 .build();
     }
     
@@ -159,6 +160,6 @@ public class BacktestTrade {
             rMultiple = profit / initialRisk;
         }
         
-        updatedAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now(ZoneId.of("Asia/Kolkata")); // BUG-009 FIX
     }
 }

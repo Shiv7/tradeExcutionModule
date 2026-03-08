@@ -38,7 +38,7 @@ public class VirtualOrderController {
             o.setTrailingType(req.trailingType);
             o.setTrailingValue(req.trailingValue);
             o.setTrailingStep(req.trailingStep);
-            o.setSignalSource(req.signalSource);
+            o.setSignalSource(req.signalSource != null ? req.signalSource : "MANUAL");
             VirtualOrder saved = engine.createOrder(o);
             return ResponseEntity.ok(saved);
         } catch (Exception e){

@@ -9,6 +9,7 @@ import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -25,6 +26,7 @@ public class ProfitLossProducer {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
     
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private final String profitLossTopic = "profit-loss";
     
     /**
@@ -46,7 +48,7 @@ public class ProfitLossProducer {
             entryEvent.put("target2", trade.getTarget2());
             entryEvent.put("entryTime", trade.getEntryTime());
             entryEvent.put("riskReward", trade.getRiskRewardRatio());
-            entryEvent.put("timestamp", LocalDateTime.now());
+            entryEvent.put("timestamp", LocalDateTime.now(IST));
             
             String key = "ENTRY_" + trade.getTradeId();
             publishEvent(key, entryEvent);
@@ -77,11 +79,11 @@ public class ProfitLossProducer {
             exitEvent.put("roi", trade.getCurrentROI());
             exitEvent.put("exitReason", exitReason);
             exitEvent.put("entryTime", trade.getEntryTime());
-            exitEvent.put("exitTime", LocalDateTime.now());
-            exitEvent.put("durationMinutes", calculateDuration(trade.getEntryTime(), LocalDateTime.now()));
+            exitEvent.put("exitTime", LocalDateTime.now(IST));
+            exitEvent.put("durationMinutes", calculateDuration(trade.getEntryTime(), LocalDateTime.now(IST)));
             exitEvent.put("target1Hit", trade.getTarget1Hit());
             exitEvent.put("target2Hit", trade.getTarget2Hit());
-            exitEvent.put("timestamp", LocalDateTime.now());
+            exitEvent.put("timestamp", LocalDateTime.now(IST));
             
             // Add forced exit details if applicable
             if (trade.getMetadata("forcedExit") != null) {
@@ -116,7 +118,7 @@ public class ProfitLossProducer {
             replacementEvent.put("newEntryPrice", extractDoubleValue(newSignalData, "entryPrice"));
             replacementEvent.put("newRiskReward", extractDoubleValue(newSignalData, "riskReward"));
             replacementEvent.put("currentPrice", currentPrice);
-            replacementEvent.put("timestamp", LocalDateTime.now());
+            replacementEvent.put("timestamp", LocalDateTime.now(IST));
             
             String key = "REPLACEMENT_" + oldTrade.getTradeId();
             publishEvent(key, replacementEvent);
@@ -142,7 +144,7 @@ public class ProfitLossProducer {
             portfolioEvent.put("currentCapital", currentCapital);
             portfolioEvent.put("totalProfitLoss", totalProfitLoss);
             portfolioEvent.put("roi", roi);
-            portfolioEvent.put("timestamp", LocalDateTime.now());
+            portfolioEvent.put("timestamp", LocalDateTime.now(IST));
             
             String key = "PORTFOLIO_" + System.currentTimeMillis();
             publishEvent(key, portfolioEvent);
@@ -172,8 +174,8 @@ public class ProfitLossProducer {
             entryEvent.put("entryPrice", entryPrice);
             entryEvent.put("stopLoss", stopLoss);
             entryEvent.put("target", target);
-            entryEvent.put("entryTime", LocalDateTime.now());
-            entryEvent.put("timestamp", LocalDateTime.now());
+            entryEvent.put("entryTime", LocalDateTime.now(IST));
+            entryEvent.put("timestamp", LocalDateTime.now(IST));
             
             String key = "VIRTUAL_ENTRY_" + scripCode;
             publishEvent(key, entryEvent);
@@ -203,8 +205,8 @@ public class ProfitLossProducer {
             exitEvent.put("profitLoss", pnl);
             exitEvent.put("roi", entryPrice > 0 ? (pnl / (entryPrice * quantity)) * 100 : 0);
             exitEvent.put("exitReason", exitReason);
-            exitEvent.put("exitTime", LocalDateTime.now());
-            exitEvent.put("timestamp", LocalDateTime.now());
+            exitEvent.put("exitTime", LocalDateTime.now(IST));
+            exitEvent.put("timestamp", LocalDateTime.now(IST));
             exitEvent.put("win", pnl > 0);
             
             String key = "VIRTUAL_EXIT_" + scripCode;

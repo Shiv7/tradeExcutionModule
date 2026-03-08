@@ -1,5 +1,6 @@
 package com.kotsin.execution.service;
 
+import com.kotsin.execution.wallet.service.FundAllocationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -10,7 +11,7 @@ import java.time.*;
  *
  * Trading Hours:
  * - NSE/BSE: 09:15–15:30 IST, Mon–Fri
- * - MCX: 09:00–23:30 IST, Mon–Fri (includes evening session)
+ * - MCX: 09:00–23:30/23:55 IST (seasonal, US DST aligned), Mon–Fri
  * - Currency (CDS): 09:00–17:00 IST, Mon–Fri
  */
 @Service
@@ -23,9 +24,8 @@ public class TradingHoursService {
     private static final LocalTime NSE_OPEN = LocalTime.of(9, 15);
     private static final LocalTime NSE_CLOSE = LocalTime.of(15, 30);
 
-    // MCX trading hours (includes evening session until 11:30 PM)
+    // MCX trading hours — close is seasonal via FundAllocationService.getMcxCloseTime()
     private static final LocalTime MCX_OPEN = LocalTime.of(9, 0);
-    private static final LocalTime MCX_CLOSE = LocalTime.of(23, 30);
 
     // Currency (CDS) trading hours
     private static final LocalTime CDS_OPEN = LocalTime.of(9, 0);
@@ -47,11 +47,12 @@ public class TradingHoursService {
 
         LocalTime t = receivedIst.toLocalTime();
 
-        // MCX has extended hours (9:00 AM - 11:30 PM)
+        // MCX has extended hours (9:00 AM - 23:30/23:55 seasonal)
         if (isMCX(exchange)) {
-            boolean allowed = !t.isBefore(MCX_OPEN) && !t.isAfter(MCX_CLOSE);
+            LocalTime mcxClose = FundAllocationService.getMcxCloseTime();
+            boolean allowed = !t.isBefore(MCX_OPEN) && !t.isAfter(mcxClose);
             if (!allowed) {
-                log.debug("mcx_outside_hours time={} open={} close={}", t, MCX_OPEN, MCX_CLOSE);
+                log.debug("mcx_outside_hours time={} open={} close={}", t, MCX_OPEN, mcxClose);
             }
             return allowed;
         }

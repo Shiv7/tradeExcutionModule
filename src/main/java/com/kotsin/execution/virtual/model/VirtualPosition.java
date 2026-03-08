@@ -40,6 +40,7 @@ public class VirtualPosition {
     private String signalId;      // Links back to SignalHistory in StreamingCandle
     private String signalType;    // e.g., "BREAKOUT_RETEST"
     private String signalSource;  // Strategy source: FUDKII, FUKAA, PIVOT, etc.
+    private String walletId;      // Explicit wallet link: strategy-wallet-FUDKII, etc.
     private double positionSizeMultiplier;  // From gate chain
 
     // Display name: e.g. "BDL" for equity, "BDL 1300 CE" for option trades
@@ -78,4 +79,7 @@ public class VirtualPosition {
     private Boolean t4Hit;
     private Boolean slHit;
     private String exitReason;
+
+    // LOT-SIZE: Lot size used when opening position
+    private int lotSize = 1;
 }

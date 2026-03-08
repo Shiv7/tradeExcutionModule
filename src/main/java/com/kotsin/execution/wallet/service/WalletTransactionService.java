@@ -8,16 +8,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Service for managing wallet transactions, margin, and P&L.
- * Thread-safe operations for concurrent trading.
+ *
+ * All wallet state mutations use atomic Lua scripts in WalletRepository,
+ * eliminating cross-JVM race conditions with StrategyTradeExecutor (port 8085).
+ * ReentrantLock is no longer needed — Redis Lua provides atomicity.
  */
 @Service
 @Slf4j
@@ -26,15 +27,10 @@ public class WalletTransactionService {
 
     private final WalletRepository walletRepository;
 
-    @Value("${wallet.initial.capital:100000}")
+    @Value("${strategy.wallet.initial.capital:1000000}")
     private double initialCapital;
 
-    // Per-wallet locks for thread safety
-    private final ConcurrentHashMap<String, ReentrantLock> walletLocks = new ConcurrentHashMap<>();
-
-    private ReentrantLock getLock(String walletId) {
-        return walletLocks.computeIfAbsent(walletId, k -> new ReentrantLock());
-    }
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     /**
      * Get or create the default virtual wallet
@@ -44,232 +40,169 @@ public class WalletTransactionService {
     }
 
     /**
-     * Check if margin is available for a new position
+     * Check if margin is available for a new position.
+     * READ-ONLY — no wallet mutation. Uses atomic daily reset check.
      */
     public MarginCheckResult checkMarginAvailable(String walletId, double requiredMargin, int currentOpenPositions) {
-        ReentrantLock lock = getLock(walletId);
-        lock.lock();
-        try {
-            WalletEntity wallet = walletRepository.getWallet(walletId)
-                    .orElse(walletRepository.getOrCreateDefaultWallet(initialCapital));
+        // Atomic daily reset if needed (no race risk)
+        walletRepository.atomicEnsureDailyReset(walletId);
 
-            // Check trading day reset
-            ensureTradingDayReset(wallet);
+        WalletEntity wallet = walletRepository.getWallet(walletId)
+                .orElse(walletRepository.getOrCreateStrategyWallet(walletId, initialCapital));
 
-            // Check circuit breaker
-            if (wallet.isCircuitBreakerTripped()) {
-                return MarginCheckResult.failed("Circuit breaker tripped: " + wallet.getCircuitBreakerReason());
-            }
-
-            // Check daily loss limit
-            if (wallet.isDailyLossLimitBreached()) {
-                tripCircuitBreaker(wallet, "Daily loss limit breached");
-                return MarginCheckResult.failed("Daily loss limit breached. Trading halted for today.");
-            }
-
-            // Check drawdown limit
-            if (wallet.isDrawdownLimitBreached()) {
-                tripCircuitBreaker(wallet, "Drawdown limit breached");
-                return MarginCheckResult.failed("Max drawdown limit breached. Trading halted.");
-            }
-
-            // Check position limits
-            if (currentOpenPositions >= wallet.getMaxOpenPositions()) {
-                return MarginCheckResult.failed(String.format(
-                        "Max open positions limit reached: %d/%d",
-                        currentOpenPositions, wallet.getMaxOpenPositions()));
-            }
-
-            // Check available margin
-            double effectiveAvailable = wallet.getEffectiveAvailableMargin();
-            if (requiredMargin > effectiveAvailable) {
-                return MarginCheckResult.failed(String.format(
-                        "Insufficient margin: required %.2f, available %.2f",
-                        requiredMargin, effectiveAvailable));
-            }
-
-            // Check position size limit
-            if (wallet.getMaxPositionSize() > 0 && requiredMargin > wallet.getMaxPositionSize()) {
-                return MarginCheckResult.failed(String.format(
-                        "Position size %.2f exceeds max limit %.2f",
-                        requiredMargin, wallet.getMaxPositionSize()));
-            }
-
-            double maxByPercent = wallet.getCurrentBalance() * wallet.getMaxPositionSizePercent() / 100;
-            if (wallet.getMaxPositionSizePercent() > 0 && requiredMargin > maxByPercent) {
-                return MarginCheckResult.failed(String.format(
-                        "Position size %.2f exceeds %.1f%% of capital (max %.2f)",
-                        requiredMargin, wallet.getMaxPositionSizePercent(), maxByPercent));
-            }
-
-            return MarginCheckResult.success(effectiveAvailable, requiredMargin);
-
-        } finally {
-            lock.unlock();
+        if (wallet.isCircuitBreakerTripped()) {
+            return MarginCheckResult.failed("Circuit breaker tripped: " + wallet.getCircuitBreakerReason());
         }
+        if (wallet.isDailyLossLimitBreached()) {
+            walletRepository.atomicTripCircuitBreaker(walletId, "Daily loss limit breached");
+            return MarginCheckResult.failed("Daily loss limit breached. Trading halted for today.");
+        }
+        if (wallet.isDrawdownLimitBreached()) {
+            walletRepository.atomicTripCircuitBreaker(walletId, "Drawdown limit breached");
+            return MarginCheckResult.failed("Max drawdown limit breached. Trading halted.");
+        }
+        if (currentOpenPositions >= wallet.getMaxOpenPositions()) {
+            return MarginCheckResult.failed(String.format(
+                    "Max open positions limit reached: %d/%d",
+                    currentOpenPositions, wallet.getMaxOpenPositions()));
+        }
+        double effectiveAvailable = wallet.getEffectiveAvailableMargin();
+        if (requiredMargin > effectiveAvailable) {
+            return MarginCheckResult.failed(String.format(
+                    "Insufficient margin: required %.2f, available %.2f",
+                    requiredMargin, effectiveAvailable));
+        }
+        if (wallet.getMaxPositionSize() > 0 && requiredMargin > wallet.getMaxPositionSize()) {
+            return MarginCheckResult.failed(String.format(
+                    "Position size %.2f exceeds max limit %.2f",
+                    requiredMargin, wallet.getMaxPositionSize()));
+        }
+        double maxByPercent = wallet.getCurrentBalance() * wallet.getMaxPositionSizePercent() / 100;
+        if (wallet.getMaxPositionSizePercent() > 0 && requiredMargin > maxByPercent) {
+            return MarginCheckResult.failed(String.format(
+                    "Position size %.2f exceeds %.1f%% of capital (max %.2f)",
+                    requiredMargin, wallet.getMaxPositionSizePercent(), maxByPercent));
+        }
+        return MarginCheckResult.success(effectiveAvailable, requiredMargin);
     }
 
     /**
-     * Deduct margin when an order is filled
+     * Deduct margin when an order is filled. ATOMIC via Lua script.
      */
     public WalletOperationResult deductMargin(
             String walletId, String orderId, String scripCode, String symbol,
             String side, int qty, double fillPrice) {
 
-        ReentrantLock lock = getLock(walletId);
-        lock.lock();
-        try {
-            WalletEntity wallet = walletRepository.getWallet(walletId)
-                    .orElse(walletRepository.getOrCreateDefaultWallet(initialCapital));
+        walletRepository.atomicEnsureDailyReset(walletId);
 
-            ensureTradingDayReset(wallet);
+        double marginAmount = fillPrice * qty;
 
-            double marginAmount = fillPrice * qty;
-            double balanceBefore = wallet.getCurrentBalance();
-            double marginBefore = wallet.getUsedMargin();
+        // Read wallet state BEFORE for transaction record
+        WalletEntity walletBefore = walletRepository.getWallet(walletId)
+                .orElse(walletRepository.getOrCreateStrategyWallet(walletId, initialCapital));
+        double balanceBefore = walletBefore.getCurrentBalance();
+        double marginBefore = walletBefore.getUsedMargin();
 
-            // Update wallet
-            wallet.setUsedMargin(wallet.getUsedMargin() + marginAmount);
-            wallet.setAvailableMargin(wallet.getCurrentBalance() - wallet.getUsedMargin() - wallet.getReservedMargin());
-            wallet.setDayTradeCount(wallet.getDayTradeCount() + 1);
-            wallet.setTotalTradeCount(wallet.getTotalTradeCount() + 1);
-            wallet.setUpdatedAt(LocalDateTime.now());
-
-            // Create transaction record
-            WalletTransaction txn = WalletTransaction.marginDeduct(
-                    walletId, orderId, scripCode, symbol, side, qty, fillPrice,
-                    balanceBefore, marginBefore);
-
-            // Save
-            walletRepository.saveWallet(wallet);
-            walletRepository.saveTransaction(txn);
-
-            log.info("WALLET_MARGIN_DEDUCT walletId={} orderId={} scrip={} margin={} usedMargin={} available={}",
-                    walletId, orderId, scripCode, marginAmount, wallet.getUsedMargin(), wallet.getAvailableMargin());
-
-            return WalletOperationResult.success(wallet, txn);
-
-        } finally {
-            lock.unlock();
+        // Atomic margin deduction via Lua
+        String result = walletRepository.atomicDeductMargin(walletId, marginAmount);
+        if (result == null || "-1".equals(result)) {
+            log.error("WALLET_MARGIN_DEDUCT_FAILED walletId={} orderId={} scrip={} margin={}",
+                    walletId, orderId, scripCode, marginAmount);
+            return WalletOperationResult.failed("Atomic margin deduction failed for " + walletId);
         }
+
+        String[] parts = result.split("\\|");
+        String usedMargin = parts.length > 0 ? parts[0] : "?";
+        String available = parts.length > 1 ? parts[1] : "?";
+
+        // Create transaction record (non-critical, separate from atomic wallet update)
+        WalletTransaction txn = WalletTransaction.marginDeduct(
+                walletId, orderId, scripCode, symbol, side, qty, fillPrice,
+                balanceBefore, marginBefore);
+        walletRepository.saveTransaction(txn);
+
+        log.info("WALLET_MARGIN_DEDUCT walletId={} orderId={} scrip={} margin={} usedMargin={} available={}",
+                walletId, orderId, scripCode, marginAmount, usedMargin, available);
+
+        // Re-read wallet for return value
+        WalletEntity walletAfter = walletRepository.getWallet(walletId).orElse(walletBefore);
+        return WalletOperationResult.success(walletAfter, txn);
     }
 
     /**
-     * Credit P&L when a position is closed (partial or full)
+     * Credit P&L when a position is closed (partial or full). ATOMIC via Lua script.
      */
     public WalletOperationResult creditPnl(
             String walletId, String positionId, String scripCode, String symbol,
             String side, int qty, double entryPrice, double exitPrice, String exitReason) {
 
-        ReentrantLock lock = getLock(walletId);
-        lock.lock();
-        try {
-            WalletEntity wallet = walletRepository.getWallet(walletId)
-                    .orElse(walletRepository.getOrCreateDefaultWallet(initialCapital));
+        walletRepository.atomicEnsureDailyReset(walletId);
 
-            ensureTradingDayReset(wallet);
-
-            // Calculate P&L
-            double pnl;
-            if ("LONG".equalsIgnoreCase(side) || "BUY".equalsIgnoreCase(side)) {
-                pnl = (exitPrice - entryPrice) * qty;
-            } else {
-                pnl = (entryPrice - exitPrice) * qty;
-            }
-
-            double marginReleased = entryPrice * qty;
-            double balanceBefore = wallet.getCurrentBalance();
-            double marginBefore = wallet.getUsedMargin();
-
-            // Update wallet
-            wallet.setCurrentBalance(wallet.getCurrentBalance() + pnl);
-            wallet.setUsedMargin(Math.max(0, wallet.getUsedMargin() - marginReleased));
-            wallet.setAvailableMargin(wallet.getCurrentBalance() - wallet.getUsedMargin() - wallet.getReservedMargin());
-            wallet.setRealizedPnl(wallet.getRealizedPnl() + pnl);
-            wallet.setTotalPnl(wallet.getRealizedPnl() + wallet.getUnrealizedPnl());
-            wallet.setDayRealizedPnl(wallet.getDayRealizedPnl() + pnl);
-            wallet.setDayPnl(wallet.getDayRealizedPnl() + wallet.getDayUnrealizedPnl());
-
-            // Update win/loss stats
-            if (pnl > 0) {
-                wallet.setDayWinCount(wallet.getDayWinCount() + 1);
-                wallet.setTotalWinCount(wallet.getTotalWinCount() + 1);
-            } else if (pnl < 0) {
-                wallet.setDayLossCount(wallet.getDayLossCount() + 1);
-                wallet.setTotalLossCount(wallet.getTotalLossCount() + 1);
-            }
-
-            // Update stats
-            updateWinRate(wallet);
-            wallet.updatePeakBalance();
-
-            // Track max drawdown hit
-            double currentDrawdown = wallet.getPeakBalance() - wallet.getCurrentBalance();
-            if (currentDrawdown > wallet.getMaxDrawdownHit()) {
-                wallet.setMaxDrawdownHit(currentDrawdown);
-            }
-
-            wallet.setUpdatedAt(LocalDateTime.now());
-
-            // Check if we need to trip circuit breaker
-            if (wallet.isDailyLossLimitBreached()) {
-                tripCircuitBreaker(wallet, "Daily loss limit reached: " + wallet.getDayRealizedPnl());
-            } else if (wallet.isDrawdownLimitBreached()) {
-                tripCircuitBreaker(wallet, "Drawdown limit reached: " + currentDrawdown);
-            }
-
-            // Create transaction record
-            WalletTransaction txn = WalletTransaction.pnlCredit(
-                    walletId, positionId, scripCode, symbol, side, qty,
-                    entryPrice, exitPrice, pnl, exitReason, balanceBefore, marginBefore);
-
-            // Save
-            walletRepository.saveWallet(wallet);
-            walletRepository.saveTransaction(txn);
-
-            log.info("WALLET_PNL_CREDIT walletId={} positionId={} scrip={} pnl={} balance={} dayPnl={}",
-                    walletId, positionId, scripCode, pnl, wallet.getCurrentBalance(), wallet.getDayPnl());
-
-            return WalletOperationResult.success(wallet, txn);
-
-        } finally {
-            lock.unlock();
+        // Calculate P&L in Java (business logic stays in Java)
+        double pnl;
+        if ("LONG".equalsIgnoreCase(side) || "BUY".equalsIgnoreCase(side)) {
+            pnl = (exitPrice - entryPrice) * qty;
+        } else {
+            pnl = (entryPrice - exitPrice) * qty;
         }
+
+        double marginReleased = entryPrice * qty;
+
+        // Read wallet state BEFORE for transaction record
+        WalletEntity walletBefore = walletRepository.getWallet(walletId)
+                .orElse(walletRepository.getOrCreateStrategyWallet(walletId, initialCapital));
+        double balanceBefore = walletBefore.getCurrentBalance();
+        double marginBefore = walletBefore.getUsedMargin();
+
+        // Atomic PnL credit + margin release via Lua
+        String result = walletRepository.atomicCreditPnl(walletId, pnl, marginReleased);
+        if (result == null || "-1".equals(result)) {
+            log.error("WALLET_PNL_CREDIT_FAILED walletId={} positionId={} scrip={} pnl={} marginRelease={}",
+                    walletId, positionId, scripCode, pnl, marginReleased);
+            return WalletOperationResult.failed("Atomic PnL credit failed for " + walletId);
+        }
+
+        String[] parts = result.split("\\|");
+        String balance = parts.length > 0 ? parts[0] : "?";
+        String dayPnl = parts.length > 3 ? parts[3] : "?";
+        boolean cbTripped = parts.length > 4 && "1".equals(parts[4]);
+
+        if (cbTripped) {
+            log.warn("CIRCUIT_BREAKER_TRIPPED walletId={} (triggered by atomic creditPnl)", walletId);
+        }
+
+        // Create transaction record (non-critical)
+        WalletTransaction txn = WalletTransaction.pnlCredit(
+                walletId, positionId, scripCode, symbol, side, qty,
+                entryPrice, exitPrice, pnl, exitReason, balanceBefore, marginBefore);
+        walletRepository.saveTransaction(txn);
+
+        log.info("WALLET_PNL_CREDIT walletId={} positionId={} scrip={} pnl={} balance={} dayPnl={}",
+                walletId, positionId, scripCode, pnl, balance, dayPnl);
+
+        // Re-read wallet for return value
+        WalletEntity walletAfter = walletRepository.getWallet(walletId).orElse(walletBefore);
+        return WalletOperationResult.success(walletAfter, txn);
     }
 
     /**
-     * Update unrealized P&L for open positions
+     * Update unrealized P&L for open positions. ATOMIC via Lua script.
      */
     public void updateUnrealizedPnl(String walletId, double totalUnrealizedPnl) {
-        ReentrantLock lock = getLock(walletId);
-        lock.lock();
-        try {
-            WalletEntity wallet = walletRepository.getWallet(walletId).orElse(null);
-            if (wallet == null) return;
-
-            wallet.setUnrealizedPnl(totalUnrealizedPnl);
-            wallet.setTotalPnl(wallet.getRealizedPnl() + totalUnrealizedPnl);
-            wallet.setDayUnrealizedPnl(totalUnrealizedPnl);
-            wallet.setDayPnl(wallet.getDayRealizedPnl() + totalUnrealizedPnl);
-            wallet.setUpdatedAt(LocalDateTime.now());
-
-            walletRepository.saveWallet(wallet);
-
-        } finally {
-            lock.unlock();
+        String updatedAt = LocalDateTime.now(IST).toString();
+        boolean success = walletRepository.atomicUpdateUnrealizedPnl(walletId, totalUnrealizedPnl, updatedAt);
+        if (!success) {
+            log.debug("atomicUpdateUnrealizedPnl skipped for {} (wallet not found)", walletId);
         }
     }
 
     /**
-     * Get wallet summary for API
+     * Get wallet summary for API. Uses atomic daily reset check.
      */
     public WalletSummary getWalletSummary(String walletId) {
+        walletRepository.atomicEnsureDailyReset(walletId);
         WalletEntity wallet = walletRepository.getWallet(walletId)
-                .orElse(walletRepository.getOrCreateDefaultWallet(initialCapital));
-
-        ensureTradingDayReset(wallet);
-        walletRepository.saveWallet(wallet);
-
+                .orElse(walletRepository.getOrCreateStrategyWallet(walletId, initialCapital));
         return WalletSummary.from(wallet);
     }
 
@@ -281,53 +214,52 @@ public class WalletTransactionService {
     }
 
     /**
-     * Reset circuit breaker manually
+     * Reset circuit breaker. ATOMIC via Lua script.
      */
     public void resetCircuitBreaker(String walletId) {
-        ReentrantLock lock = getLock(walletId);
-        lock.lock();
-        try {
-            WalletEntity wallet = walletRepository.getWallet(walletId).orElse(null);
-            if (wallet != null) {
-                wallet.setCircuitBreakerTripped(false);
-                wallet.setCircuitBreakerReason(null);
-                wallet.setCircuitBreakerTrippedAt(null);
-                wallet.setCircuitBreakerResetsAt(null);
-                wallet.setUpdatedAt(LocalDateTime.now());
-                walletRepository.saveWallet(wallet);
-                log.info("Circuit breaker reset for wallet: {}", walletId);
-            }
-        } finally {
-            lock.unlock();
+        String result = walletRepository.atomicResetCircuitBreaker(walletId);
+        if (result != null && !"- 1".equals(result)) {
+            log.info("Circuit breaker reset for wallet: {}", walletId);
         }
     }
 
-    // ==================== Private Helpers ====================
+    /**
+     * Lightweight safety gates for strategy wallets.
+     * READ-ONLY — uses atomic daily reset check but no wallet mutation.
+     */
+    public SafetyGateResult checkSafetyGates(String walletId) {
+        walletRepository.atomicEnsureDailyReset(walletId);
 
-    private void ensureTradingDayReset(WalletEntity wallet) {
-        LocalDate today = LocalDate.now();
-        if (wallet.getTradingDate() == null || !wallet.getTradingDate().equals(today)) {
-            wallet.resetDailyCounters(today);
-            log.info("Trading day reset for wallet: {} on {}", wallet.getWalletId(), today);
+        WalletEntity wallet = walletRepository.getWallet(walletId)
+                .orElse(walletRepository.getOrCreateStrategyWallet(walletId, initialCapital));
+
+        if (wallet.isCircuitBreakerTripped()) {
+            return SafetyGateResult.failed("Circuit breaker tripped: " + wallet.getCircuitBreakerReason());
         }
+        if (wallet.isDailyLossLimitBreached()) {
+            walletRepository.atomicTripCircuitBreaker(walletId, "Daily loss limit breached");
+            return SafetyGateResult.failed("Daily loss limit breached. Trading halted for today.");
+        }
+        if (wallet.isDrawdownLimitBreached()) {
+            walletRepository.atomicTripCircuitBreaker(walletId, "Drawdown limit breached");
+            return SafetyGateResult.failed("Max drawdown limit breached. Trading halted.");
+        }
+        return SafetyGateResult.pass();
     }
 
-    private void tripCircuitBreaker(WalletEntity wallet, String reason) {
-        wallet.setCircuitBreakerTripped(true);
-        wallet.setCircuitBreakerReason(reason);
-        wallet.setCircuitBreakerTrippedAt(LocalDateTime.now());
-        // Reset next trading day at 9:00 AM
-        wallet.setCircuitBreakerResetsAt(
-                LocalDate.now().plusDays(1).atTime(9, 0));
-        walletRepository.saveWallet(wallet);
-        log.warn("CIRCUIT_BREAKER_TRIPPED walletId={} reason={}", wallet.getWalletId(), reason);
-    }
+    public static class SafetyGateResult {
+        private final boolean pass;
+        private final String reason;
 
-    private void updateWinRate(WalletEntity wallet) {
-        int total = wallet.getTotalWinCount() + wallet.getTotalLossCount();
-        if (total > 0) {
-            wallet.setWinRate((double) wallet.getTotalWinCount() / total * 100);
+        private SafetyGateResult(boolean pass, String reason) {
+            this.pass = pass;
+            this.reason = reason;
         }
+
+        public static SafetyGateResult pass() { return new SafetyGateResult(true, null); }
+        public static SafetyGateResult failed(String reason) { return new SafetyGateResult(false, reason); }
+        public boolean isPass() { return pass; }
+        public String getReason() { return reason; }
     }
 
     // ==================== Result Classes ====================

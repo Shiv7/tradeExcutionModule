@@ -110,6 +110,19 @@ public class FUDKOISignalConsumer {
             double surgeT = root.path("surgeT").asDouble(0);
             double volumeT = root.path("volumeT").asDouble(0);
 
+            // Option enrichment fields (from OptionDataEnricher in StreamingCandle)
+            boolean optionAvailable = root.path("optionAvailable").asBoolean(false);
+            String optionScripCode = root.path("optionScripCode").asText("");
+            double optionStrike = root.path("optionStrike").asDouble(0);
+            String optionType = root.path("optionType").asText("");
+            double optionLtp = root.path("optionLtp").asDouble(0);
+            String optionExpiry = root.path("optionExpiry").asText("");
+            int optionLotSize = root.path("optionLotSize").asInt(0);
+            int optionMultiplier = root.path("optionMultiplier").asInt(1);
+            String optionSymbol = root.path("optionSymbol").asText("");
+            String optionExchange = root.path("optionExchange").asText("");
+            String optionExchangeType = root.path("optionExchangeType").asText("");
+
             // Check minimum trigger score threshold
             if (triggerScore < minTriggerScore) {
                 log.debug("fudkoi_below_threshold scrip={} score={} min={}",
@@ -197,6 +210,17 @@ public class FUDKOISignalConsumer {
                     .oiLabel(oiLabel)
                     .volumeT(volumeT)
                     .surgeT(surgeT)
+                    .optionAvailable(optionAvailable)
+                    .optionScripCode(optionScripCode)
+                    .optionStrike(optionStrike)
+                    .optionType(optionType)
+                    .optionLtp(optionLtp)
+                    .optionExpiry(optionExpiry)
+                    .optionLotSize(optionLotSize)
+                    .optionMultiplier(optionMultiplier)
+                    .optionSymbol(optionSymbol)
+                    .optionExchange(optionExchange)
+                    .optionExchangeType(optionExchangeType)
                     .positionSizeMultiplier(1.0)
                     .xfactorFlag(oiChangeRatio >= 200)  // Extreme OI = strong conviction
                     .exchange(root.path("exchange").asText("N"))

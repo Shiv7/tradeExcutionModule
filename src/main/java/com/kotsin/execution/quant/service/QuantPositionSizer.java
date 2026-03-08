@@ -1,6 +1,8 @@
 package com.kotsin.execution.quant.service;
 
+import com.kotsin.execution.service.LotSizeLookupService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +31,9 @@ public class QuantPositionSizer {
     @Value("${quant.sizing.default-lot-size:25}")
     private int defaultLotSize;
 
+    @Autowired
+    private LotSizeLookupService lotSizeLookup;
+
     /**
      * Calculate position quantity based on risk parameters
      *
@@ -39,7 +44,8 @@ public class QuantPositionSizer {
      * @return Position quantity
      */
     public int calculateQuantity(double entryPrice, double stopLoss,
-                                  double confidence, double multiplier) {
+                                  double confidence, double multiplier,
+                                  String scripCode) {
         if (entryPrice <= 0 || stopLoss <= 0) {
             log.warn("quant_sizer_invalid_prices entry={} sl={}", entryPrice, stopLoss);
             return minQuantity;
@@ -80,11 +86,10 @@ public class QuantPositionSizer {
                     quantity, quantity * entryPrice);
         }
 
-        // Round to lot size if applicable
-        if (quantity >= defaultLotSize) {
-            int lots = quantity / defaultLotSize;
-            quantity = lots * defaultLotSize;
-        }
+        // LOT-SIZE: dynamic lot size lookup instead of hardcoded defaultLotSize
+        int dynamicLotSize = (scripCode != null) ? lotSizeLookup.getLotSize(scripCode) : defaultLotSize;
+        quantity = lotSizeLookup.roundToLotSize(quantity, scripCode != null ? scripCode : "");
+        if (quantity < dynamicLotSize) quantity = dynamicLotSize; // minimum 1 lot
 
         // Ensure minimum
         quantity = Math.max(minQuantity, quantity);
@@ -105,6 +110,14 @@ public class QuantPositionSizer {
      * @param multiplier Position size multiplier
      * @return Number of lots (multiply by lotSize for quantity)
      */
+    /**
+     * Backward-compatible overload (no scripCode → uses defaultLotSize)
+     */
+    public int calculateQuantity(double entryPrice, double stopLoss,
+                                  double confidence, double multiplier) {
+        return calculateQuantity(entryPrice, stopLoss, confidence, multiplier, null);
+    }
+
     public int calculateLots(double entryPrice, double stopLoss, int lotSize,
                               double confidence, double multiplier) {
         int quantity = calculateQuantity(entryPrice, stopLoss, confidence, multiplier);

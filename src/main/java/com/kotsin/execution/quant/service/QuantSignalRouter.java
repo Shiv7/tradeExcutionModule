@@ -149,12 +149,13 @@ public class QuantSignalRouter {
             return signal.getSizing().getQuantity();
         }
 
-        // Calculate from position sizer
+        // Calculate from position sizer (with scripCode for dynamic lot size)
         return positionSizer.calculateQuantity(
                 signal.getEntryPrice(),
                 signal.getStopLoss(),
                 signal.getConfidence(),
-                signal.getSizing() != null ? signal.getSizing().getPositionSizeMultiplier() : 1.0
+                signal.getSizing() != null ? signal.getSizing().getPositionSizeMultiplier() : 1.0,
+                signal.getScripCode()
         );
     }
 
@@ -219,6 +220,7 @@ public class QuantSignalRouter {
 
             hedgeOrder.setSignalId(signal.getSignalId() + "_HEDGE");
             hedgeOrder.setSignalType("HEDGE_" + hedge.getHedgeType());
+            hedgeOrder.setSignalSource("QUANT_HEDGE");
             hedgeOrder.setRationale(hedge.getHedgeRationale());
 
             VirtualOrder filledHedge = virtualEngine.createOrder(hedgeOrder);

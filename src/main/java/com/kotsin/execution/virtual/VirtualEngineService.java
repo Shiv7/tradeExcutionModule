@@ -7,6 +7,9 @@ import com.kotsin.execution.tracking.service.OrderStatusTracker;
 import com.kotsin.execution.virtual.model.VirtualOrder;
 import com.kotsin.execution.virtual.model.VirtualPosition;
 import com.kotsin.execution.virtual.model.VirtualSettings;
+import com.kotsin.execution.service.LotSizeLookupService;
+import com.kotsin.execution.wallet.service.SignalQueueService;
+import com.kotsin.execution.wallet.service.StrategyWalletResolver;
 import com.kotsin.execution.wallet.service.WalletTransactionService;
 import com.kotsin.execution.wallet.service.WalletTransactionService.MarginCheckResult;
 import lombok.RequiredArgsConstructor;
@@ -44,11 +47,23 @@ public class VirtualEngineService {
     @Autowired(required = false)
     private OrderStatusTracker orderStatusTracker;
 
+    @Autowired(required = false)
+    private StrategyWalletResolver strategyWalletResolver;
+
+    @Autowired(required = false)
+    private LotSizeLookupService lotSizeLookup;
+
+    @Autowired(required = false)
+    private SignalQueueService signalQueueService;
+
     @Value("${wallet.enabled:true}")
     private boolean walletEnabled;
 
     @Value("${wallet.id:virtual-wallet-1}")
     private String defaultWalletId;
+
+    @Value("${strategy.wallet.enabled:false}")
+    private boolean strategyWalletEnabled;
 
     // BUG-009 FIX: Per-scripCode locking to prevent race conditions
     private final ConcurrentHashMap<String, ReentrantLock> scripLocks = new ConcurrentHashMap<>();
@@ -63,6 +78,19 @@ public class VirtualEngineService {
     private int getOpenPositionCount() {
         return (int) repo.listPositions().stream()
                 .filter(p -> p.getQtyOpen() > 0)
+                .count();
+    }
+
+    /**
+     * Get open position count for a specific strategy wallet.
+     */
+    private int getOpenPositionCountForStrategy(String walletId) {
+        String strategyKey = StrategyWalletResolver.strategyKeyFromWalletId(walletId);
+        if (strategyKey == null) return getOpenPositionCount();
+        return (int) repo.listPositions().stream()
+                .filter(p -> p.getQtyOpen() > 0)
+                .filter(p -> strategyKey.equals(
+                        StrategyWalletResolver.resolveStrategyKey(p.getSignalSource(), p.getSignalType())))
                 .count();
     }
 
@@ -85,34 +113,58 @@ public class VirtualEngineService {
             estimatedPrice = 100.0; // Fallback for margin check
         }
 
-        // FIX: Check margin before creating order
+        // STRATEGY-WALLET: Wallet ID resolved from order.signalSource
         if (walletEnabled && walletTransactionService != null) {
-            double requiredMargin = estimatedPrice * req.getQty();
-            int openPositions = getOpenPositionCount();
+            String walletId = (strategyWalletEnabled && strategyWalletResolver != null)
+                    ? strategyWalletResolver.resolveWalletId(req) : defaultWalletId;
 
-            MarginCheckResult marginCheck = walletTransactionService.checkMarginAvailable(
-                    defaultWalletId, requiredMargin, openPositions);
-
-            if (!marginCheck.isSuccess()) {
-                log.warn("❌ Order REJECTED - margin check failed: scripCode={}, qty={}, required={}, reason={}",
-                        req.getScripCode(), req.getQty(), requiredMargin, marginCheck.getMessage());
-                req.setStatus(VirtualOrder.Status.REJECTED);
-                req.setRejectionReason(marginCheck.getMessage());
-                repo.saveOrder(req);
-                bus.publish("order.rejected", req);
-                // Track rejection
-                if (orderStatusTracker != null) {
-                    orderStatusTracker.trackOrderRejected(req, marginCheck.getMessage());
+            if (strategyWalletEnabled) {
+                // BUG-001 FIX: FundAllocationService is the sole capital gatekeeper.
+                // Only check safety gates: circuit breaker + daily loss + drawdown.
+                WalletTransactionService.SafetyGateResult gate = walletTransactionService.checkSafetyGates(walletId);
+                if (!gate.isPass()) {
+                    log.warn("ERR [ORDER] Safety gate failed scripCode={} wallet={} reason={}",
+                            req.getScripCode(), walletId, gate.getReason());
+                    req.setStatus(VirtualOrder.Status.REJECTED);
+                    req.setRejectionReason(gate.getReason());
+                    repo.saveOrder(req);
+                    bus.publish("order.rejected", req);
+                    if (orderStatusTracker != null) {
+                        orderStatusTracker.trackOrderRejected(req, gate.getReason());
+                    }
+                    return req;
                 }
-                return req;
+                log.info("✓ Safety gates passed: scripCode={}, wallet={}", req.getScripCode(), walletId);
+            } else {
+                // Legacy path: full margin check (unchanged)
+                double requiredMargin = estimatedPrice * req.getQty();
+                int openPositions = getOpenPositionCount();
+
+                MarginCheckResult marginCheck = walletTransactionService.checkMarginAvailable(
+                        walletId, requiredMargin, openPositions);
+
+                if (!marginCheck.isSuccess()) {
+                    log.warn("ERR [ORDER] Rejected scripCode={} qty={} required={} wallet={} reason={}",
+                            req.getScripCode(), req.getQty(), requiredMargin, walletId, marginCheck.getMessage());
+                    req.setStatus(VirtualOrder.Status.REJECTED);
+                    req.setRejectionReason(marginCheck.getMessage());
+                    repo.saveOrder(req);
+                    bus.publish("order.rejected", req);
+                    if (orderStatusTracker != null) {
+                        orderStatusTracker.trackOrderRejected(req, marginCheck.getMessage());
+                    }
+                    return req;
+                }
+                log.info("✓ Margin check passed: scripCode={}, required={}, available={}, wallet={}",
+                        req.getScripCode(), requiredMargin, marginCheck.getAvailableMargin(), walletId);
             }
-            log.info("✓ Margin check passed: scripCode={}, required={}, available={}",
-                    req.getScripCode(), requiredMargin, marginCheck.getAvailableMargin());
         }
 
         // Track order creation
         if (orderStatusTracker != null) {
-            orderStatusTracker.trackOrderCreated(req, defaultWalletId);
+            String walletId = (strategyWalletEnabled && strategyWalletResolver != null)
+                    ? strategyWalletResolver.resolveWalletId(req) : defaultWalletId;
+            orderStatusTracker.trackOrderCreated(req, walletId);
         }
 
         // Fill immediately for MARKET; LIMIT left pending for MVP
@@ -195,6 +247,10 @@ public class VirtualEngineService {
 
         if (p.getQtyOpen() == 0) {
             p.setSide(side);
+            // LOT-SIZE: Track lot size on new positions
+            if (lotSizeLookup != null) {
+                p.setLotSize(lotSizeLookup.getLotSize(p.getScripCode()));
+            }
         }
         int q = filled.getQty();
         if (filled.getSide() == VirtualOrder.Side.BUY){
@@ -270,6 +326,12 @@ public class VirtualEngineService {
         if (filled.getSignalSource() != null) {
             p.setSignalSource(filled.getSignalSource());
         }
+        // Set explicit walletId on position
+        if (strategyWalletEnabled && strategyWalletResolver != null) {
+            p.setWalletId(strategyWalletResolver.resolveWalletId(filled));
+        } else {
+            p.setWalletId(defaultWalletId);
+        }
         if (filled.getExchange() != null) {
             p.setExchange(filled.getExchange());
         }
@@ -280,11 +342,12 @@ public class VirtualEngineService {
         repo.savePosition(p);
         bus.publish("position.updated", p);
 
-        // FIX: Deduct margin from wallet when position opens/increases
+        // STRATEGY-WALLET: Deduct margin from the position's wallet
         if (walletEnabled && walletTransactionService != null && filled.getQty() > 0) {
             try {
+                String walletId = p.getWalletId();
                 walletTransactionService.deductMargin(
-                        defaultWalletId,
+                        walletId,
                         filled.getId(),
                         p.getScripCode(),
                         p.getScripCode(), // symbol
@@ -394,7 +457,11 @@ public class VirtualEngineService {
             // TP1
             if (Boolean.FALSE.equals(p.getTp1Hit()) && p.getTp1()!=null){
                 if (p.getSide()== VirtualPosition.Side.LONG && ltp >= p.getTp1()){
-                    int partial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
+                    int rawPartial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
+                    // LOT-SIZE: Round partial close qty to lot size boundary
+                    int partial = (lotSizeLookup != null) ? lotSizeLookup.roundToLotSize(rawPartial, p.getScripCode()) : rawPartial;
+                    if (partial < 1) partial = (lotSizeLookup != null) ? lotSizeLookup.getLotSize(p.getScripCode()) : 1;
+                    if (partial > p.getQtyOpen()) partial = p.getQtyOpen();
                     double tp1Pnl = (ltp - p.getAvgEntry()) * partial;
                     changed |= closeAt(p, ltp, partial, true, "TP1_PARTIAL");
                     p.setTp1Hit(true);
@@ -421,7 +488,11 @@ public class VirtualEngineService {
                     }
                     bus.publish("tp1.hit", p);
                 } else if (p.getSide()== VirtualPosition.Side.SHORT && ltp <= p.getTp1()){
-                    int partial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
+                    int rawPartial = (int)Math.max(1, Math.floor(p.getQtyOpen() * (p.getTp1ClosePercent()!=null ? p.getTp1ClosePercent() : 0.5)));
+                    // LOT-SIZE: Round partial close qty to lot size boundary
+                    int partial = (lotSizeLookup != null) ? lotSizeLookup.roundToLotSize(rawPartial, p.getScripCode()) : rawPartial;
+                    if (partial < 1) partial = (lotSizeLookup != null) ? lotSizeLookup.getLotSize(p.getScripCode()) : 1;
+                    if (partial > p.getQtyOpen()) partial = p.getQtyOpen();
                     double tp1Pnl = (p.getAvgEntry() - ltp) * partial;
                     changed |= closeAt(p, ltp, partial, true, "TP1_PARTIAL");
                     p.setTp1Hit(true);
@@ -549,6 +620,10 @@ public class VirtualEngineService {
     /** Close all open positions for the given exchange codes. */
     private void eodCloseByExchange(String... exchanges) {
         for (var p : repo.listPositions()) {
+            // Skip strategy positions — managed by StrategyTradeExecutor (dashboard module)
+            if (p.getStrategy() != null && !p.getStrategy().isEmpty()) {
+                continue;
+            }
             if (p.getQtyOpen() > 0 && matchesExchange(p, exchanges)) {
                 ReentrantLock lock = getLock(p.getScripCode());
                 lock.lock();
@@ -591,11 +666,17 @@ public class VirtualEngineService {
         int remaining = p.getQtyOpen() - qty;
         p.setQtyOpen(Math.max(0, remaining));
 
-        // FIX: Credit P&L to wallet when position closes
+        // STRATEGY-WALLET: Credit P&L to the position's wallet
         if (walletEnabled && walletTransactionService != null) {
             try {
+                String walletId = p.getWalletId();
+                if (walletId == null || walletId.isBlank()) {
+                    // Fallback for legacy positions without walletId
+                    walletId = (strategyWalletEnabled && strategyWalletResolver != null)
+                            ? strategyWalletResolver.resolveWalletIdFromPosition(p) : defaultWalletId;
+                }
                 walletTransactionService.creditPnl(
-                        defaultWalletId,
+                        walletId,
                         p.getScripCode() + "_" + p.getOpenedAt(),
                         p.getScripCode(),
                         p.getScripCode(), // symbol
@@ -605,7 +686,19 @@ public class VirtualEngineService {
                         price,
                         exitReason != null ? exitReason : "UNKNOWN"
                 );
-                log.info("WALLET_PNL_CREDITED scrip={} pnl={} exit={}", p.getScripCode(), pnl, exitReason);
+                log.info("WALLET_PNL_CREDITED scrip={} pnl={} wallet={} exit={}", p.getScripCode(), pnl, walletId, exitReason);
+
+                // BUG-013B FIX: Auto-retry queued signals when funds become available
+                if (signalQueueService != null && strategyWalletEnabled) {
+                    try {
+                        int retried = signalQueueService.retryQueuedSignals(walletId);
+                        if (retried > 0) {
+                            log.info("AUTO_RETRY_QUEUED wallet={} retried={} after P&L credit", walletId, retried);
+                        }
+                    } catch (Exception retryEx) {
+                        log.warn("AUTO_RETRY_QUEUED_ERROR wallet={} err={}", walletId, retryEx.getMessage());
+                    }
+                }
             } catch (Exception e) {
                 log.error("Failed to credit P&L for position {}: {}", p.getScripCode(), e.getMessage());
             }

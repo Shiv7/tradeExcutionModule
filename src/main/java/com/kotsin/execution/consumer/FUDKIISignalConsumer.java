@@ -151,6 +151,29 @@ public class FUDKIISignalConsumer {
             String oiLabel = root.path("oiLabel").asText("");
             double volumeT = root.path("volumeT").asDouble(0);
             double surgeTVal = root.path("surgeT").asDouble(0);
+            double blockTradeVol = root.path("blockTradeVol").asDouble(0);
+            double blockTradePct = root.path("blockTradePct").asDouble(0);
+            double oiBuildupPct = root.path("oiBuildupPct").asDouble(0);
+
+            // Option enrichment fields (from OptionDataEnricher in StreamingCandle)
+            boolean optionAvailable = root.path("optionAvailable").asBoolean(false);
+            String optionScripCode = root.path("optionScripCode").asText("");
+            double optionStrike = root.path("optionStrike").asDouble(0);
+            String optionType = root.path("optionType").asText("");
+            double optionLtp = root.path("optionLtp").asDouble(0);
+            String optionExpiry = root.path("optionExpiry").asText("");
+            int optionLotSize = root.path("optionLotSize").asInt(0);
+            int optionMultiplier = root.path("optionMultiplier").asInt(1);
+            String optionSymbol = root.path("optionSymbol").asText("");
+            String optionExchange = root.path("optionExchange").asText("");
+            String optionExchangeType = root.path("optionExchangeType").asText("");
+
+            // ========== KII Score (for ranking only, no gate) ==========
+            // KII_Score = (|OIChange%| + VolumeSurge%) / 2
+            double kiiScore = (Math.abs(oiChangeRatio) + surgeTVal * 100.0) / 2.0;
+
+            log.info("fudkii_signal_accepted scrip={} OI={}% buildup={}% surge={}x KII={} blockVol={} blockPct={}%",
+                    scripCode, oiChangeRatio, oiBuildupPct, surgeTVal, kiiScore, blockTradeVol, blockTradePct);
 
             // Validate trade parameters — reject if pivot data missing (no trade without proper SL)
             if (entryPrice <= 0 || stopLoss <= 0 || target1 <= 0) {
@@ -201,6 +224,21 @@ public class FUDKIISignalConsumer {
                     .oiLabel(oiLabel)
                     .volumeT(volumeT)
                     .surgeT(surgeTVal)
+                    .kiiScore(kiiScore)
+                    .blockTradeVol(blockTradeVol)
+                    .blockTradePct(blockTradePct)
+                    .oiBuildupPct(oiBuildupPct)
+                    .optionAvailable(optionAvailable)
+                    .optionScripCode(optionScripCode)
+                    .optionStrike(optionStrike)
+                    .optionType(optionType)
+                    .optionLtp(optionLtp)
+                    .optionExpiry(optionExpiry)
+                    .optionLotSize(optionLotSize)
+                    .optionMultiplier(optionMultiplier)
+                    .optionSymbol(optionSymbol)
+                    .optionExchange(optionExchange)
+                    .optionExchangeType(optionExchangeType)
                     .positionSizeMultiplier(1.0)
                     .xfactorFlag(triggerScore >= 80)
                     .exchange(root.path("exchange").asText("N"))

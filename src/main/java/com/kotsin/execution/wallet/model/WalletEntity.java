@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Core Wallet Entity for managing trading capital, margin, and limits.
@@ -80,16 +81,19 @@ public class WalletEntity {
     private LocalDateTime updatedAt;
     private long version;
 
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+
     public enum WalletMode {
         VIRTUAL,
         LIVE
     }
 
     /**
-     * Calculate available margin after accounting for used and reserved
+     * Calculate available margin after accounting for used margin.
+     * BUG-007 FIX: reservedMargin excluded — not used in current fund allocation flow.
      */
     public double getEffectiveAvailableMargin() {
-        return currentBalance - usedMargin - reservedMargin;
+        return currentBalance - usedMargin;
     }
 
     /**
@@ -146,6 +150,14 @@ public class WalletEntity {
     }
 
     /**
+     * BUG-010 FIX: Recalculate availableMargin from current state.
+     * Call after any change to currentBalance or usedMargin.
+     */
+    public void recalcAvailableMargin() {
+        this.availableMargin = currentBalance - usedMargin;
+    }
+
+    /**
      * Update peak balance if new high
      */
     public void updatePeakBalance() {
@@ -167,9 +179,12 @@ public class WalletEntity {
         this.dayWinCount = 0;
         this.dayLossCount = 0;
 
-        // Reset circuit breaker if it was date-based
+        // BUG-010 FIX: Recalculate availableMargin on daily reset
+        recalcAvailableMargin();
+
+        // BUG-009 FIX: Use IST for circuit breaker reset check
         if (circuitBreakerTripped && circuitBreakerResetsAt != null
-                && LocalDateTime.now().isAfter(circuitBreakerResetsAt)) {
+                && LocalDateTime.now(IST).isAfter(circuitBreakerResetsAt)) {
             circuitBreakerTripped = false;
             circuitBreakerReason = null;
             circuitBreakerTrippedAt = null;
@@ -181,7 +196,7 @@ public class WalletEntity {
      * Create default virtual wallet
      */
     public static WalletEntity createDefaultVirtual(String walletId, double initialCapital) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(IST);
         return WalletEntity.builder()
                 .walletId(walletId)
                 .userId("default")
@@ -190,13 +205,13 @@ public class WalletEntity {
                 .currentBalance(initialCapital)
                 .availableMargin(initialCapital)
                 .usedMargin(0)
-                .reservedMargin(0)
+                .reservedMargin(0) // kept for Redis serialization backward compat
                 .peakBalance(initialCapital)
-                .tradingDate(LocalDate.now())
+                .tradingDate(LocalDate.now(IST))
                 .dayStartBalance(initialCapital)
                 // Default risk limits
-                .maxDailyLoss(initialCapital * 0.03) // 3% daily loss limit
-                .maxDailyLossPercent(3.0)
+                .maxDailyLoss(initialCapital * 0.10) // 10% daily loss limit
+                .maxDailyLossPercent(10.0)
                 .maxDrawdown(initialCapital * 0.10) // 10% max drawdown
                 .maxDrawdownPercent(10.0)
                 .maxOpenPositions(30)

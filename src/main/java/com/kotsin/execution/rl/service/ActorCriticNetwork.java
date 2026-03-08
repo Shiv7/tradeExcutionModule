@@ -159,13 +159,11 @@ public class ActorCriticNetwork {
         double[] predicted = tanh(preOutput);
 
         // Simple policy gradient: push action probability in direction of advantage
+        double clippedAdvantage = clip(advantage);
         double[] actionGrad = new double[ACTION_DIM];
         for (int i = 0; i < ACTION_DIM; i++) {
-            // Gradient: advantage * gradient of log probability
-            // Simplified: advantage * (action - predicted) for Gaussian policy
-            // Include tanh derivative: (1 - predicted^2)
             double tanhDeriv = 1.0 - predicted[i] * predicted[i];
-            actionGrad[i] = advantage * (action[i] - predicted[i]) * tanhDeriv;
+            actionGrad[i] = clip(clippedAdvantage * (action[i] - predicted[i]) * tanhDeriv);
         }
 
         // === Layer 3: wA2, bA2 (output layer) ===
@@ -179,14 +177,12 @@ public class ActorCriticNetwork {
         }
 
         // === Layer 2: wA1, bA1 (actor head hidden layer) ===
-        // Backprop through wA2: dL/dhead = actionGrad * wA2^T
         double[] headGrad = new double[HEAD_DIM];
         for (int i = 0; i < HEAD_DIM; i++) {
             for (int j = 0; j < ACTION_DIM; j++) {
                 headGrad[i] += actionGrad[j] * wA2[i][j];
             }
-            // ReLU derivative
-            headGrad[i] *= (preHead[i] > 0 ? 1.0 : 0.0);
+            headGrad[i] = clip(headGrad[i] * (preHead[i] > 0 ? 1.0 : 0.0));
         }
 
         for (int i = 0; i < HIDDEN_DIM; i++) {
@@ -199,27 +195,25 @@ public class ActorCriticNetwork {
         }
 
         // === Layer 1: w1, b1 (shared hidden layer) ===
-        // Backprop through wA1: dL/dhidden = headGrad * wA1^T
         double[] hiddenGrad = new double[HIDDEN_DIM];
         for (int i = 0; i < HIDDEN_DIM; i++) {
             for (int j = 0; j < HEAD_DIM; j++) {
                 hiddenGrad[i] += headGrad[j] * wA1[i][j];
             }
-            // ReLU derivative
-            hiddenGrad[i] *= (preHidden[i] > 0 ? 1.0 : 0.0);
+            hiddenGrad[i] = clip(hiddenGrad[i] * (preHidden[i] > 0 ? 1.0 : 0.0));
         }
 
         for (int i = 0; i < STATE_DIM; i++) {
             for (int j = 0; j < HIDDEN_DIM; j++) {
-                w1[i][j] += learningRate * state[i] * hiddenGrad[j];
+                w1[i][j] += learningRate * clip(state[i] * hiddenGrad[j]);
             }
         }
         for (int j = 0; j < HIDDEN_DIM; j++) {
-            b1[j] += learningRate * hiddenGrad[j];
+            b1[j] += learningRate * clip(hiddenGrad[j]);
         }
 
         // Track input gradients for feature importance
-        trackInputGradients(state, advantage);
+        trackInputGradients(state, clippedAdvantage);
     }
     
     /**
@@ -228,7 +222,7 @@ public class ActorCriticNetwork {
      */
     public void updateCritic(double[] state, double target) {
         double predicted = criticForward(state);
-        double error = target - predicted;
+        double error = clip(target - predicted);
 
         // Forward pass with caching for backprop
         double[] preHidden = add(matmul(state, w1), b1);
@@ -243,44 +237,38 @@ public class ActorCriticNetwork {
         bC2 += learningRate * error;
 
         // === Layer 2: wC1, bC1 (critic head hidden layer) ===
-        // Backprop through wC2: dL/dhead = error * wC2
-        double[] headGrad = new double[HEAD_DIM];
+        double[] cHeadGrad = new double[HEAD_DIM];
         for (int i = 0; i < HEAD_DIM; i++) {
-            headGrad[i] = error * wC2[i];
-            // ReLU derivative
-            headGrad[i] *= (preHead[i] > 0 ? 1.0 : 0.0);
+            cHeadGrad[i] = clip(error * wC2[i] * (preHead[i] > 0 ? 1.0 : 0.0));
         }
 
         for (int i = 0; i < HIDDEN_DIM; i++) {
             for (int j = 0; j < HEAD_DIM; j++) {
-                wC1[i][j] += learningRate * hidden[i] * headGrad[j];
+                wC1[i][j] += learningRate * clip(hidden[i] * cHeadGrad[j]);
             }
         }
         for (int j = 0; j < HEAD_DIM; j++) {
-            bC1[j] += learningRate * headGrad[j];
+            bC1[j] += learningRate * clip(cHeadGrad[j]);
         }
 
         // === Layer 1: w1, b1 (shared hidden layer) ===
-        // Note: Shared layer is also updated by actor, so use smaller learning rate
-        // to avoid unstable updates from both actor and critic
-        double[] hiddenGrad = new double[HIDDEN_DIM];
+        double[] cHiddenGrad = new double[HIDDEN_DIM];
         for (int i = 0; i < HIDDEN_DIM; i++) {
             for (int j = 0; j < HEAD_DIM; j++) {
-                hiddenGrad[i] += headGrad[j] * wC1[i][j];
+                cHiddenGrad[i] += cHeadGrad[j] * wC1[i][j];
             }
-            // ReLU derivative
-            hiddenGrad[i] *= (preHidden[i] > 0 ? 1.0 : 0.0);
+            cHiddenGrad[i] = clip(cHiddenGrad[i] * (preHidden[i] > 0 ? 1.0 : 0.0));
         }
 
         // Use half learning rate for shared layer (since both actor and critic update it)
         double sharedLR = learningRate * 0.5;
         for (int i = 0; i < STATE_DIM; i++) {
             for (int j = 0; j < HIDDEN_DIM; j++) {
-                w1[i][j] += sharedLR * state[i] * hiddenGrad[j];
+                w1[i][j] += sharedLR * clip(state[i] * cHiddenGrad[j]);
             }
         }
         for (int j = 0; j < HIDDEN_DIM; j++) {
-            b1[j] += sharedLR * hiddenGrad[j];
+            b1[j] += sharedLR * clip(cHiddenGrad[j]);
         }
     }
     
@@ -372,10 +360,41 @@ public class ActorCriticNetwork {
         }
         
         log.info("Loaded weights from policy version {}", policy.getVersion());
+
+        // NaN guard: if loaded weights are corrupted, reinitialize
+        if (checkAndRepairWeights()) {
+            log.error("Corrupted weights detected in policy {}, reinitialized!", policy.getVersion());
+        }
     }
     
     // === Math utilities ===
-    
+
+    private static final double GRAD_CLIP = 5.0;
+
+    /** Clip gradient to [-GRAD_CLIP, GRAD_CLIP] and guard against NaN */
+    private double clip(double v) {
+        if (Double.isNaN(v) || Double.isInfinite(v)) return 0.0;
+        return Math.max(-GRAD_CLIP, Math.min(GRAD_CLIP, v));
+    }
+
+    /** Check if any weight in array is NaN; if so, reinitialize the network */
+    private boolean hasNaN(double[] arr) {
+        for (double v : arr) {
+            if (Double.isNaN(v)) return true;
+        }
+        return false;
+    }
+
+    /** Safety check: if any weights are NaN, reinitialize */
+    public boolean checkAndRepairWeights() {
+        if (hasNaN(b1) || hasNaN(bA1) || hasNaN(bA2) || hasNaN(bC1) || hasNaN(wC2)) {
+            log.warn("NaN detected in weights, reinitializing network!");
+            initialize();
+            return true;
+        }
+        return false;
+    }
+
     private double[][] xavierInit(int in, int out) {
         double[][] w = new double[in][out];
         double scale = Math.sqrt(2.0 / (in + out));

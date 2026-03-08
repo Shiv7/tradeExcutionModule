@@ -1,6 +1,8 @@
 package com.kotsin.execution.service;
 
+import com.kotsin.execution.service.LotSizeLookupService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -51,6 +53,9 @@ public class DynamicPositionSizer {
     @Value("${position.sizing.kelly-fraction:0.25}")
     private double kellyFraction;
 
+    @Autowired
+    private LotSizeLookupService lotSizeLookup;
+
     /**
      * Calculate optimal position size based on multiple factors
      *
@@ -70,7 +75,8 @@ public class DynamicPositionSizer {
             double mlConfidence,
             double garchVolatility,
             double vpinValue,
-            double riskRewardRatio
+            double riskRewardRatio,
+            String scripCode
     ) {
         log.debug("[POSITION-SIZING] Calculating position size:");
         log.debug("   Account: {}, Entry: {}, SL: {}", accountValue, entryPrice, stopLoss);
@@ -190,6 +196,15 @@ public class DynamicPositionSizer {
             quantity = maxQuantity;
         }
 
+        // LOT-SIZE: Round to lot size boundary
+        if (scripCode != null && lotSizeLookup != null) {
+            quantity = lotSizeLookup.roundToLotSize(quantity, scripCode);
+            if (quantity < 1) {
+                int lotSize = lotSizeLookup.getLotSize(scripCode);
+                quantity = lotSize; // minimum 1 lot
+            }
+        }
+
         // ========================================
         // FINAL LOGGING
         // ========================================
@@ -229,7 +244,8 @@ public class DynamicPositionSizer {
                 mlConfidence,
                 defaultVolatility,
                 defaultVpin,
-                defaultRR
+                defaultRR,
+                null
         );
     }
 
@@ -297,7 +313,8 @@ public class DynamicPositionSizer {
         // Calculate
         int quantity = calculatePositionSize(
                 accountValue, entryPrice, stopLoss,
-                mlConfidence, garchVolatility, vpinValue, riskRewardRatio
+                mlConfidence, garchVolatility, vpinValue, riskRewardRatio,
+                null
         );
 
         // Gather diagnostics

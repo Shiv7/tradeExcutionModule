@@ -42,4 +42,7 @@ public class VirtualOrder {
 
     // Display name: e.g. "BDL" for equity, "BDL 1300 CE" for option trades
     private String instrumentSymbol;
+
+    // LOT-SIZE: Lot size used when calculating qty
+    private int lotSize = 1;
 }
