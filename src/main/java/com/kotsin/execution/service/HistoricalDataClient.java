@@ -42,7 +42,7 @@ public class HistoricalDataClient {
     public List<Candlestick> getHistoricalCandles(String scripCode, LocalDate startDate, LocalDate endDate,
                                                    String exchange, String exchangeType) {
         if (exchange == null) exchange = "N";
-        if (exchangeType == null) exchangeType = "C";
+        if (exchangeType == null) exchangeType = "M".equalsIgnoreCase(exchange) ? "D" : "C";
         // Cap end date to tomorrow (IST)
         LocalDate tomorrow = LocalDate.now(ZoneId.of("Asia/Kolkata")).plusDays(1); // BUG-009 FIX
         if (endDate.isAfter(tomorrow)) {

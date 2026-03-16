@@ -189,10 +189,19 @@ public class ProfitLossProducer {
     }
     
     /**
-     * Publish virtual trade exit event (for paper trading)
+     * Publish virtual trade exit event (for paper trading) — backward-compatible (no charges).
      */
     public void publishVirtualTradeExit(String scripCode, String side, int quantity,
             double entryPrice, double exitPrice, double pnl, String exitReason) {
+        publishVirtualTradeExit(scripCode, side, quantity, entryPrice, exitPrice, pnl, 0.0, pnl, exitReason);
+    }
+
+    /**
+     * Publish virtual trade exit event with Zerodha charges breakdown.
+     */
+    public void publishVirtualTradeExit(String scripCode, String side, int quantity,
+            double entryPrice, double exitPrice, double grossPnl,
+            double totalCharges, double netPnl, String exitReason) {
         try {
             Map<String, Object> exitEvent = new HashMap<>();
             exitEvent.put("eventType", "VIRTUAL_TRADE_EXIT");
@@ -202,22 +211,26 @@ public class ProfitLossProducer {
             exitEvent.put("quantity", quantity);
             exitEvent.put("entryPrice", entryPrice);
             exitEvent.put("exitPrice", exitPrice);
-            exitEvent.put("profitLoss", pnl);
-            exitEvent.put("roi", entryPrice > 0 ? (pnl / (entryPrice * quantity)) * 100 : 0);
+            exitEvent.put("grossPnl", grossPnl);
+            exitEvent.put("totalCharges", totalCharges);
+            exitEvent.put("profitLoss", netPnl);
+            exitEvent.put("roi", entryPrice > 0 ? (netPnl / (entryPrice * quantity)) * 100 : 0);
             exitEvent.put("exitReason", exitReason);
             exitEvent.put("exitTime", LocalDateTime.now(IST));
             exitEvent.put("timestamp", LocalDateTime.now(IST));
-            exitEvent.put("win", pnl > 0);
-            
+            exitEvent.put("win", netPnl > 0);
+
             String key = "VIRTUAL_EXIT_" + scripCode;
             publishEvent(key, exitEvent);
-            
-            String pnlEmoji = pnl >= 0 ? "💰" : "💸";
-            log.info("{} [V-P&L] Published VIRTUAL_TRADE_EXIT: {} @ ₹{} | P&L: ₹{} | Reason: {}", 
-                    pnlEmoji, scripCode, exitPrice, String.format("%.2f", pnl), exitReason);
-            
+
+            String pnlEmoji = netPnl >= 0 ? "+" : "";
+            log.info("[V-P&L] VIRTUAL_TRADE_EXIT: {} @ {} | gross={} charges={} net={}{} | {}",
+                    scripCode, exitPrice,
+                    String.format("%.2f", grossPnl), String.format("%.2f", totalCharges),
+                    pnlEmoji, String.format("%.2f", netPnl), exitReason);
+
         } catch (Exception e) {
-            log.error("🚨 [V-P&L] Error publishing virtual exit: {}", e.getMessage(), e);
+            log.error("[V-P&L] Error publishing virtual exit: {}", e.getMessage(), e);
         }
     }
     

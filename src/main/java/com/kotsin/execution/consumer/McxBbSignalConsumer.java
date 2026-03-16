@@ -23,20 +23,21 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
 /**
- * MereSignalConsumer - Consumes MERE (Mean Exhaustion Reversion Engine) strategy signals
+ * McxBbSignalConsumer - Consumes MCX Bollinger Band strategy signals
  *
- * Topic: kotsin_MERE
+ * Topic: kotsin_MCX_BB
  *
- * MERE is a multi-phase mean reversion strategy that identifies price exhaustion at
- * BB extremes via 3 phases: SCAN (M30 BB gate) → QUALIFY (5-layer scoring) → TRIGGER (M15/M5 confirm).
+ * MCX-BB is a commodity-focused Bollinger Band breakout strategy targeting
+ * MCX instruments. Signals are submitted to SignalBufferService for
+ * cross-strategy dedup and fund allocation.
  *
- * Signals are submitted as independent signals to SignalBufferService (like FUDKOI)
- * since MERE trades counter-trend setups that should not compete with trend-following strategies.
+ * Default exchange is MCX ("M") since this strategy exclusively targets
+ * commodity instruments.
  */
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class MereSignalConsumer {
+public class McxBbSignalConsumer {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final long BACKTEST_THRESHOLD_SECONDS = 120;
@@ -50,15 +51,15 @@ public class MereSignalConsumer {
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    @Value("${mere.min.trigger.score:60.0}")
+    @Value("${mcxbb.min.trigger.score:40.0}")
     private double minTriggerScore;
 
     @KafkaListener(
-            topics = {"kotsin_MERE", "kotsin_MERE_SCALP", "kotsin_MERE_SWING", "kotsin_MERE_POSITIONAL"},
-            groupId = "${app.kafka.consumer.mere-group-id:mere-executor}",
+            topics = "kotsin_MCX_BB",
+            groupId = "${app.kafka.consumer.mcxbb-group-id:mcxbb-executor}",
             containerFactory = "curatedSignalKafkaListenerContainerFactory"
     )
-    public void processMERESignal(String payload, ConsumerRecord<?, ?> rec, Acknowledgment ack) {
+    public void processMcxBbSignal(String payload, ConsumerRecord<?, ?> rec, Acknowledgment ack) {
         final String topic = rec.topic();
         final int partition = rec.partition();
         final long offset = rec.offset();
@@ -74,27 +75,24 @@ public class MereSignalConsumer {
             }
 
             if (scripCode == null || scripCode.isEmpty()) {
-                log.debug("mere_no_scripcode topic={} partition={} offset={}", topic, partition, offset);
+                log.debug("mcxbb_no_scripcode topic={} partition={} offset={}", topic, partition, offset);
                 if (ack != null) ack.acknowledge();
                 return;
             }
 
-            // ========== Parse MERE Signal ==========
-            // Read variant (MERE_SCALP, MERE_SWING, MERE_POSITIONAL) from payload
-            String mereVariant = root.path("strategy").asText("MERE");
-            if (!mereVariant.startsWith("MERE")) mereVariant = "MERE";
-
+            // ========== Parse MCX-BB Signal ==========
             String companyName = root.path("companyName").asText(
                     root.path("symbol").asText(scripCode));
 
+            // Only process triggered signals
             boolean triggered = root.path("triggered").asBoolean(false);
             if (!triggered) {
-                log.debug("mere_not_triggered scrip={}", scripCode);
+                log.debug("mcxbb_not_triggered scrip={}", scripCode);
                 if (ack != null) ack.acknowledge();
                 return;
             }
 
-            // Parse triggerTime
+            // Parse triggerTime ISO string to epoch millis (primary), fallback to timestamp field
             String triggerTimeStr = root.path("triggerTime").asText("");
             long timestamp;
             try {
@@ -104,23 +102,12 @@ public class MereSignalConsumer {
                 timestamp = root.path("timestamp").asLong(System.currentTimeMillis());
             }
 
-            // MERE score (uses triggerScore or mereScore)
-            double triggerScore = root.path("triggerScore").asDouble(
-                    root.path("mereScore").asDouble(0));
+            // Get triggerScore (0-100)
+            double triggerScore = root.path("triggerScore").asDouble(0);
 
-            // Check autoExecute flag — WATCHING signals (score 30-84) are display-only
-            boolean autoExecute = root.path("autoExecute").asBoolean(true);
-            String tradeStatus = root.path("tradeStatus").asText("ACTIVE");
-
-            if (!autoExecute) {
-                log.info("mere_watching_only scrip={} score={} status={}",
-                        scripCode, triggerScore, tradeStatus);
-                if (ack != null) ack.acknowledge();
-                return;
-            }
-
+            // Check minimum trigger score threshold
             if (triggerScore < minTriggerScore) {
-                log.debug("mere_below_threshold scrip={} score={} min={}",
+                log.debug("mcxbb_below_threshold scrip={} score={} min={}",
                         scripCode, triggerScore, minTriggerScore);
                 if (ack != null) ack.acknowledge();
                 return;
@@ -128,26 +115,29 @@ public class MereSignalConsumer {
 
             // Direction
             String direction = root.path("direction").asText();
+            String trend = root.path("trend").asText("");
             if (direction == null || direction.isEmpty()) {
-                String trend = root.path("trend").asText("");
                 direction = "UP".equalsIgnoreCase(trend) ? "BULLISH" : "BEARISH";
             }
             boolean longSignal = "BULLISH".equalsIgnoreCase(direction);
             boolean shortSignal = "BEARISH".equalsIgnoreCase(direction);
 
-            // Trade parameters
+            // BB components (for logging/rationale — no SuperTrend for MCX-BB)
+            double bbUpper = root.path("bbUpper").asDouble(0);
+            double bbLower = root.path("bbLower").asDouble(0);
+
+            // Get entry price (triggerPrice is the primary field in MCX-BB signals)
             double entryPrice = root.path("triggerPrice").asDouble(0);
             if (entryPrice <= 0) {
                 entryPrice = root.path("entryPrice").asDouble(
                         root.path("price").asDouble(0));
             }
 
-            double stopLoss = root.path("stopLoss").asDouble(
-                    root.path("equitySl").asDouble(0));
-            double target1 = root.path("target1").asDouble(
-                    root.path("equityT1").asDouble(0));
-            double target2 = root.path("target2").asDouble(
-                    root.path("equityT2").asDouble(0));
+            // Read pivot-enriched targets from Kafka (computed by PivotTargetCalculator in streaming candle)
+            // No BB fallback — trust pivot values as-is. null = DM, 0 = ERR.
+            double stopLoss = root.path("stopLoss").asDouble(0);
+            double target1 = root.path("target1").asDouble(0);
+            double target2 = root.path("target2").asDouble(0);
             double target3 = root.path("target3").asDouble(0);
             double target4 = root.path("target4").asDouble(0);
             double riskReward = root.path("riskReward").asDouble(
@@ -155,18 +145,16 @@ public class MereSignalConsumer {
             boolean pivotSource = root.path("pivotSource").asBoolean(false);
             double atr30m = root.path("atr30m").asDouble(0);
 
-            // OI + Volume fields
-            double oiChangeRatio = root.path("oiChangeRatio").asDouble(
-                    root.path("oiChangePct").asDouble(0));
-            String oiLabel = root.path("oiLabel").asText(
-                    root.path("oiInterpretation").asText(""));
+            // OI + Volume fields for cross-instrument ranking
+            double oiChangeRatio = root.path("oiChangeRatio").asDouble(0);
+            String oiLabel = root.path("oiLabel").asText("");
             double volumeT = root.path("volumeT").asDouble(0);
             double surgeTVal = root.path("surgeT").asDouble(0);
             double blockTradeVol = root.path("blockTradeVol").asDouble(0);
             double blockTradePct = root.path("blockTradePct").asDouble(0);
             double oiBuildupPct = root.path("oiBuildupPct").asDouble(0);
 
-            // Option enrichment fields
+            // Option enrichment fields (from OptionDataEnricher in StreamingCandle)
             boolean optionAvailable = root.path("optionAvailable").asBoolean(false);
             String optionScripCode = root.path("optionScripCode").asText("");
             double optionStrike = root.path("optionStrike").asDouble(0);
@@ -178,50 +166,47 @@ public class MereSignalConsumer {
             String optionSymbol = root.path("optionSymbol").asText("");
             String optionExchange = root.path("optionExchange").asText("");
             String optionExchangeType = root.path("optionExchangeType").asText("");
+            boolean optionSwapped = root.path("optionSwapped").asBoolean(false);
             boolean optionIsITM = root.path("optionIsITM").asBoolean(false);
 
-            // ========== KII Score (for ranking) ==========
+            // ========== KII Score (for ranking only, no gate) ==========
+            // KII_Score = (|OIChange%| + VolumeSurge%) / 2
             double kiiScore = (Math.abs(oiChangeRatio) + surgeTVal * 100.0) / 2.0;
 
-            // MERE-specific score breakdown
-            int mereL1 = root.path("mereL1Extension").asInt(root.path("mereLayer1").asInt(0));
-            int mereL2 = root.path("mereL2Exhaustion").asInt(root.path("mereLayer2").asInt(0));
-            int mereL3 = root.path("mereL3Options").asInt(root.path("mereLayer3").asInt(0));
-            String mereReasons = root.path("mereReasons").asText("");
-            String entryReason = root.path("entryReason").asText("");
-            String confirmReasons = root.path("confirmReasons").asText("");
+            log.info("mcxbb_signal_accepted scrip={} OI={}% buildup={}% surge={}x KII={} blockVol={} blockPct={}%",
+                    scripCode, oiChangeRatio, oiBuildupPct, surgeTVal, kiiScore, blockTradeVol, blockTradePct);
 
-            log.info("mere_signal_accepted scrip={} score={} L1={} L2={} L3={} OI={}% surge={}x KII={} entry={} reason={}",
-                    scripCode, triggerScore, mereL1, mereL2, mereL3,
-                    oiChangeRatio, surgeTVal, kiiScore, entryReason, confirmReasons);
-
-            // Validate trade parameters
+            // Validate trade parameters — reject if pivot data missing (no trade without proper SL)
             if (entryPrice <= 0 || stopLoss <= 0 || target1 <= 0) {
-                log.warn("mere_invalid_params scrip={} entry={} sl={} t1={}",
-                        scripCode, entryPrice, stopLoss, target1);
+                log.warn("mcxbb_invalid_params scrip={} entry={} sl={} t1={} pivotSource={}",
+                        scripCode, entryPrice, stopLoss, target1, pivotSource);
                 if (ack != null) ack.acknowledge();
                 return;
             }
 
             // ========== Idempotency Check ==========
-            String idKey = "MERE|" + scripCode + "|" + triggerTimeStr;
+            String idKey = "MCX_BB|" + scripCode + "|" + triggerTimeStr;
             if (processedSignalsCache.asMap().putIfAbsent(idKey, Boolean.TRUE) != null) {
-                log.info("mere_duplicate key={} scrip={}", idKey, scripCode);
+                log.info("mcxbb_duplicate key={} scrip={}", idKey, scripCode);
                 if (ack != null) ack.acknowledge();
                 return;
             }
 
+            // ========== Build Instrument Display Name ==========
+            // tradeExecutionModule trades EQUITY — use plain company name.
+            // Option suffix (e.g. "3020 CE") is only for StrategyTradeExecutor option positions.
+            String instrumentSymbol = companyName;
+
             // ========== Convert to StrategySignal ==========
-            String rationale = String.format("MERE: %s score=%.0f | L1=%d L2=%d L3=%d | %s | %s",
-                    direction, triggerScore, mereL1, mereL2, mereL3,
-                    entryReason, mereReasons);
+            String rationale = String.format("MCX-BB: %s score=%.0f | BB[%.2f-%.2f] surge=%.1fx oiChg=%.1f%%",
+                    direction, triggerScore, bbLower, bbUpper, surgeTVal, oiChangeRatio);
 
             StrategySignal signal = StrategySignal.builder()
                     .scripCode(scripCode)
                     .companyName(companyName)
-                    .instrumentSymbol(companyName)
+                    .instrumentSymbol(instrumentSymbol)
                     .timestamp(timestamp)
-                    .signal("MERE_" + (longSignal ? "LONG" : "SHORT"))
+                    .signal("MCX_BB_" + (longSignal ? "LONG" : "SHORT"))
                     .confidence(Math.min(1.0, triggerScore / 100.0))
                     .rationale(rationale)
                     .direction(direction)
@@ -284,7 +269,7 @@ public class MereSignalConsumer {
                     .optionLotAllocation(root.path("optionLotAllocation").asText(null))
                     .positionSizeMultiplier(1.0)
                     .xfactorFlag(triggerScore >= 80)
-                    .exchange(root.path("exchange").asText("N"))
+                    .exchange(root.path("exchange").asText("M"))
                     .build();
 
             signal.parseScripCode();
@@ -296,46 +281,49 @@ public class MereSignalConsumer {
 
             if (ageSeconds > BACKTEST_THRESHOLD_SECONDS) {
                 // BACKTEST MODE
-                log.info("MERE_backtest_mode scrip={} ageSeconds={} score={}",
-                        scripCode, ageSeconds, triggerScore);
+                log.info("mcxbb_backtest_mode scrip={} ageSeconds={} score={} pivot={}",
+                        scripCode, ageSeconds, triggerScore, pivotSource);
 
                 BacktestTrade result = backtestEngine.runBacktest(signal, signalTimeIst.toLocalDateTime());
-                log.info("mere_backtest_complete scrip={} profit={}", result.getScripCode(), result.getProfit());
+                log.info("mcxbb_backtest_complete scrip={} profit={}", result.getScripCode(), result.getProfit());
 
             } else {
                 // LIVE MODE
-                log.info("MERE_live_mode scrip={} ageSeconds={} score={}",
-                        scripCode, ageSeconds, triggerScore);
+                log.info("mcxbb_live_mode scrip={} ageSeconds={} score={} pivot={}",
+                        scripCode, ageSeconds, triggerScore, pivotSource);
 
-                String exchange = signal.getExchange() != null ? signal.getExchange() : "N";
+                // Check trading hours
+                String exchange = signal.getExchange() != null ? signal.getExchange() : "M";
                 final ZonedDateTime receivedIst = receivedAt.atZone(IST);
 
                 if (!tradingHoursService.shouldProcessTrade(exchange, receivedIst.toLocalDateTime())) {
-                    log.info("mere_outside_hours scrip={} exch={}", scripCode, exchange);
+                    log.info("mcxbb_outside_hours scrip={} exch={}", scripCode, exchange);
                     if (ack != null) ack.acknowledge();
                     return;
                 }
 
-                // Create virtual trade as PENDING
+                // Create virtual trade as PENDING (will be updated by SignalBufferService)
                 BacktestTrade virtualTrade = BacktestTrade.fromSignal(signal, signalTimeIst.toLocalDateTime());
                 virtualTrade.setStatus(BacktestTrade.TradeStatus.PENDING);
                 virtualTrade.setRationale(rationale);
                 backtestRepository.save(virtualTrade);
 
-                log.info("MERE_virtual_trade created id={} scrip={} score={} → submitting to buffer",
+                log.info("mcxbb_virtual_trade created id={} scrip={} score={} -> submitting to buffer",
                         virtualTrade.getId(), scripCode, triggerScore);
 
-                // Submit as independent signal (MERE is counter-trend, should not compete with FUDKII/FUKAA)
-                signalBufferService.submitIndependentSignal(mereVariant, signal, virtualTrade,
+                // Submit to SignalBufferService for cross-strategy dedup
+                signalBufferService.submitSignal("MCX_BB", signal, virtualTrade,
                         rationale, receivedIst.toLocalDateTime());
             }
 
+            // Acknowledge offset — bookmark this message as processed
             if (ack != null) ack.acknowledge();
 
         } catch (Exception e) {
-            log.error("mere_processing_error topic={} partition={} offset={} err={}",
+            log.error("mcxbb_processing_error topic={} partition={} offset={} err={}",
                     topic, partition, offset, e.toString(), e);
         } finally {
+            // Always acknowledge — even on error, don't replay failed messages forever
             if (ack != null) ack.acknowledge();
         }
     }

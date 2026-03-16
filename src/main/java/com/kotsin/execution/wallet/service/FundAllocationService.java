@@ -46,6 +46,9 @@ public class FundAllocationService {
     // Per-wallet locks to prevent concurrent over-allocation
     private final ConcurrentHashMap<String, ReentrantLock> walletLocks = new ConcurrentHashMap<>();
 
+    /** MCX-only strategies: get 100% MCX budget, no NSE/CDS allocation */
+    private static final Set<String> MCX_ONLY_STRATEGIES = Set.of("MCX_BB", "MCX_BBT1");
+
     @Value("${strategy.wallet.initial.capital:1000000}")
     private double initialCapital;
 
@@ -127,10 +130,11 @@ public class FundAllocationService {
             }
 
             int phase = getCurrentPhase();
-            log.info("SLOT_ALLOC_PHASE strategy={} phase={} mcxBudget={}% cdsBudget={}% nseBudget={}% mcxClose={}",
+            log.info("SLOT_ALLOC_PHASE strategy={} phase={} mcxBudget={}% cdsBudget={}% nseBudget={}% mcxClose={} mcxOnly={}",
                     strategyKey, phase,
-                    getExchangeAllocPct("MCX"), getExchangeAllocPct("CDS"), getExchangeAllocPct("NSE"),
-                    getMcxCloseTime());
+                    getExchangeAllocPct("MCX", strategyKey), getExchangeAllocPct("CDS", strategyKey),
+                    getExchangeAllocPct("NSE", strategyKey),
+                    getMcxCloseTime(), MCX_ONLY_STRATEGIES.contains(strategyKey));
 
             // Count open positions per exchange for this strategy
             Map<String, Integer> openByExchange = countOpenPositionsByExchange(strategyKey);
@@ -155,9 +159,9 @@ public class FundAllocationService {
                     continue;
                 }
 
-                // Exchange budget lookup
-                double allocPct = getExchangeAllocPct(exchange);
-                int maxPositions = getExchangeMaxPositions(exchange);
+                // Exchange budget lookup (MCX_BB/MCX_BBT1 get 100% MCX, no NSE/CDS)
+                double allocPct = getExchangeAllocPct(exchange, strategyKey);
+                int maxPositions = getExchangeMaxPositions(exchange, strategyKey);
 
                 // Available slots = max - already open - consumed in this batch
                 int openInExchange = openByExchange.getOrDefault(exchange, 0);
@@ -170,14 +174,39 @@ public class FundAllocationService {
                     continue;
                 }
 
-                // Determine slots to use: high conviction + high RR → double slot
+                // Capital calculation
+                double capitalPerSlot = (availableMargin * (allocPct / 100.0)) / maxPositions;
+
+                // Determine slots to use: start with 1
                 int slotsToUse = 1;
-                if (conf > confidenceHigh && sig.riskRewardRatio >= rrHigh && availableSlots >= 2) {
+
+                // Slot consolidation for expensive lots (e.g., MCX ALUMINI needs 339K but slot is 142K)
+                // If minimum lot cost exceeds per-slot capital, combine multiple slots to cover it
+                if (sig.minLotCost > 0 && sig.minLotCost > capitalPerSlot) {
+                    int slotsNeeded = (int) Math.ceil(sig.minLotCost / capitalPerSlot);
+                    if (slotsNeeded > availableSlots) {
+                        log.info("SLOT_LOT_TOO_EXPENSIVE strategy={} scrip={} exchange={} minLotCost={} " +
+                                        "perSlot={} slotsNeeded={} available={}",
+                                strategyKey, sig.scripCode, exchange,
+                                String.format("%.0f", sig.minLotCost),
+                                String.format("%.0f", capitalPerSlot),
+                                slotsNeeded, availableSlots);
+                        continue;
+                    }
+                    slotsToUse = slotsNeeded;
+                    log.info("SLOT_CONSOLIDATE strategy={} scrip={} exchange={} minLotCost={} " +
+                                    "perSlot={} slotsConsolidated={}",
+                            strategyKey, sig.scripCode, exchange,
+                            String.format("%.0f", sig.minLotCost),
+                            String.format("%.0f", capitalPerSlot), slotsToUse);
+                }
+
+                // High conviction: confidence > 80% AND RR >= 3.0 → double slot (2x capital)
+                // Only upgrade if we haven't already consolidated for lot cost
+                if (slotsToUse == 1 && conf > confidenceHigh && sig.riskRewardRatio >= rrHigh && availableSlots >= 2) {
                     slotsToUse = 2;
                 }
 
-                // Capital calculation
-                double capitalPerSlot = (availableMargin * (allocPct / 100.0)) / maxPositions;
                 double allocatedCapital = capitalPerSlot * slotsToUse;
 
                 allocations.put(sig.scripCode, allocatedCapital);
@@ -236,7 +265,11 @@ public class FundAllocationService {
         return 1;
     }
 
-    private double getExchangeAllocPct(String exchange) {
+    private double getExchangeAllocPct(String exchange, String strategyKey) {
+        // MCX-only strategies: 100% to MCX, 0% to everything else
+        if (MCX_ONLY_STRATEGIES.contains(strategyKey)) {
+            return "MCX".equals(exchange) ? 100.0 : 0.0;
+        }
         int phase = getCurrentPhase();
         return switch (phase) {
             case 3 -> switch (exchange) {
@@ -256,7 +289,11 @@ public class FundAllocationService {
         };
     }
 
-    private int getExchangeMaxPositions(String exchange) {
+    private int getExchangeMaxPositions(String exchange, String strategyKey) {
+        // MCX-only strategies: 7 MCX positions, 0 for everything else
+        if (MCX_ONLY_STRATEGIES.contains(strategyKey)) {
+            return "MCX".equals(exchange) ? 7 : 0;
+        }
         int phase = getCurrentPhase();
         return switch (phase) {
             case 3 -> switch (exchange) {
@@ -335,5 +372,6 @@ public class FundAllocationService {
         private String exchange;
         private double confidence;       // 0.0-1.0 scale
         private double riskRewardRatio;  // e.g. 2.5, 3.0
+        private double minLotCost;       // minimum capital to buy 1 lot (price * multiplier)
     }
 }

@@ -126,6 +126,46 @@ public class StrategySignal {
     private String optionSymbol;
     private String optionExchange;
     private String optionExchangeType;
+    private boolean optionSwapped;       // true = OTM dynamically swapped at signal time
+    private boolean optionIsITM;         // true = option is ITM (swap failed, using ITM fallback)
+
+    // ========== Greek-Enriched Option Targets (from OptionDataEnricher in StreamingCandle) ==========
+    // These are the authoritative option SL/targets — computed using Black-Scholes Greeks.
+    // When present, Trade Execution and Dashboard should use them directly, NOT recompute.
+    private double greekDelta;
+    private double greekGamma;
+    private double greekTheta;
+    private double greekVega;
+    private double greekRho;
+    private double greekIV;
+    private int greekDte;
+    private String greekMoneynessType;
+    private double greekTheoreticalPrice;
+    private double greekMispricing;
+    private double greekLeverage;
+    private double greekTimeValue;
+    private double greekIntrinsicValue;
+    private boolean greekThetaImpaired;
+    private String greekSlMethod;
+    private double greekSlIvFloor;
+    private double greekGammaBoost;
+    // Greek-computed option execution levels
+    private double optionSL;             // Greek-aware option SL
+    private double optionT1;             // Greek-aware option T1
+    private double optionT2;             // Greek-aware option T2
+    private double optionT3;             // Greek-aware option T3
+    private double optionT4;             // Greek-aware option T4
+    private double optionRR;             // Option risk-reward ratio
+    private boolean optionRRpassed;      // true = option RR >= minimum gate
+    private String optionLotAllocation;  // e.g. "40,30,20,10" or "100,0,0,0" (theta impaired)
+    private boolean optionLtpDeferred;   // true = swap succeeded but LTP deferred to batch resolution
+    private double leftoverCapital;      // Capital remaining after lot rounding (cascades to next rank)
+    // Cross-instrument futures SL/targets
+    private double futuresSL;
+    private double futuresT1;
+    private double futuresT2;
+    private double futuresT3;
+    private double futuresT4;
 
     // ========== Instrument Display Name ==========
     private String instrumentSymbol;    // e.g. "BDL" for equity, "BDL 1300 CE" for option

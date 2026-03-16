@@ -74,13 +74,13 @@ public class LiveOrderController {
                     // Fallback if format is unexpected
                     numericScripCode = req.scripCode;
                     exch = req.exch != null ? req.exch : "N";
-                    exchType = req.exchType != null ? req.exchType : "C";
+                    exchType = req.exchType != null ? req.exchType : ("M".equalsIgnoreCase(exch) ? "D" : "C");
                 }
             } else {
                 // Plain numeric scripCode
                 numericScripCode = req.scripCode;
                 exch = req.exch != null ? req.exch : "N";
-                exchType = req.exchType != null ? req.exchType : "C";
+                exchType = req.exchType != null ? req.exchType : ("M".equalsIgnoreCase(exch) ? "D" : "C");
             }
 
             BrokerOrderService.Side side = "BUY".equalsIgnoreCase(req.side)

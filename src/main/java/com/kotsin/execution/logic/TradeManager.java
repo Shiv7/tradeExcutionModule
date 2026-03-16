@@ -234,7 +234,7 @@ public class TradeManager {
             Map<String, Object> meta = trade.getMetadata();
             String orderScrip = metaStr(meta, "orderScripCode", trade.getScripCode());
             String exch = metaStr(meta, "exchange", "N");
-            String exchType = metaStr(meta, "exchangeType", "C");
+            String exchType = metaStr(meta, "exchangeType", defaultExchType(exch));
             String orderEx = metaStr(meta, "orderExchange", exch);
             String orderExType = metaStr(meta, "orderExchangeType", exchType);
             BrokerOrderService.Side side = trade.isBullish() ? BrokerOrderService.Side.BUY : BrokerOrderService.Side.SELL;
@@ -332,6 +332,17 @@ public class TradeManager {
     private String metaStr(Map<String, Object> meta, String key, String fallback) {
         Object val = meta.get(key);
         return (val != null && !"null".equals(String.valueOf(val))) ? String.valueOf(val) : fallback;
+    }
+
+    /**
+     * Derive the correct broker ExchType from exchange code.
+     * N (NSE) -> C (Cash/Capital Market)
+     * M (MCX) -> D (Commodity Derivatives)
+     * C (CDS) -> C (Currency Derivatives — broker uses "C" for both cash and currency)
+     */
+    private String defaultExchType(String exchange) {
+        if ("M".equalsIgnoreCase(exchange)) return "D";
+        return "C"; // NSE cash + CDS currency both use "C"
     }
 
     /** Helpers / Queries */
@@ -483,7 +494,7 @@ public class TradeManager {
             Map<String, Object> meta = trade.getMetadata();
             String orderScrip = metaStr(meta, "orderScripCode", trade.getScripCode());
             String exch = metaStr(meta, "exchange", "N");
-            String exType = metaStr(meta, "exchangeType", "C");
+            String exType = metaStr(meta, "exchangeType", defaultExchType(exch));
             String orderEx = metaStr(meta, "orderExchange", exch);
             String orderExType = metaStr(meta, "orderExchangeType", exType);
             BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
@@ -565,7 +576,7 @@ public class TradeManager {
             Map<String, Object> meta2 = trade.getMetadata();
             String orderScrip = metaStr(meta2, "orderScripCode", trade.getScripCode());
             String exch = metaStr(meta2, "exchange", "N");
-            String exType = metaStr(meta2, "exchangeType", "C");
+            String exType = metaStr(meta2, "exchangeType", defaultExchType(exch));
             BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
             String exitOrderId = brokerOrderService.placeMarketOrder(orderScrip, exch, exType, sideToClose, qty);
             trade.addMetadata("partialExitOrderId", exitOrderId);
@@ -584,7 +595,7 @@ public class TradeManager {
             Map<String, Object> meta = trade.getMetadata();
             String orderScrip = metaStr(meta, "orderScripCode", trade.getScripCode());
             String exch = metaStr(meta, "exchange", "N");
-            String exType = metaStr(meta, "exchangeType", "C");
+            String exType = metaStr(meta, "exchangeType", defaultExchType(exch));
             BrokerOrderService.Side sideToClose = trade.isBullish() ? BrokerOrderService.Side.SELL : BrokerOrderService.Side.BUY;
             String exitOrderId = brokerOrderService.placeMarketOrder(orderScrip, exch, exType, sideToClose, trade.getPositionSize());
             trade.addMetadata("exitOrderId", exitOrderId);

@@ -211,6 +211,7 @@ public class PivotConfluenceSignalConsumer {
             String optionSymbol = root.path("optionSymbol").asText("");
             String optionExchange = root.path("optionExchange").asText("");
             String optionExchangeType = root.path("optionExchangeType").asText("");
+            boolean optionIsITM = root.path("optionIsITM").asBoolean(false);
 
             // Futures fallback fields (MCX instruments without options)
             boolean futuresAvailable = root.path("futuresAvailable").asBoolean(false);
@@ -299,6 +300,33 @@ public class PivotConfluenceSignalConsumer {
                     .optionSymbol(optionSymbol)
                     .optionExchange(optionExchange)
                     .optionExchangeType(optionExchangeType)
+                    .optionIsITM(optionIsITM)
+                    .optionLtpDeferred(root.path("optionLtpDeferred").asBoolean(false))
+                    .greekDelta(root.path("greekDelta").asDouble(0))
+                    .greekGamma(root.path("greekGamma").asDouble(0))
+                    .greekTheta(root.path("greekTheta").asDouble(0))
+                    .greekVega(root.path("greekVega").asDouble(0))
+                    .greekRho(root.path("greekRho").asDouble(0))
+                    .greekIV(root.path("greekIV").asDouble(0))
+                    .greekDte(root.path("greekDte").asInt(0))
+                    .greekMoneynessType(root.path("greekMoneynessType").asText(null))
+                    .greekTheoreticalPrice(root.path("greekTheoreticalPrice").asDouble(0))
+                    .greekMispricing(root.path("greekMispricing").asDouble(0))
+                    .greekLeverage(root.path("greekLeverage").asDouble(0))
+                    .greekTimeValue(root.path("greekTimeValue").asDouble(0))
+                    .greekIntrinsicValue(root.path("greekIntrinsicValue").asDouble(0))
+                    .greekThetaImpaired(root.path("greekThetaImpaired").asBoolean(false))
+                    .greekSlMethod(root.path("greekSlMethod").asText(null))
+                    .greekSlIvFloor(root.path("greekSlIvFloor").asDouble(0))
+                    .greekGammaBoost(root.path("greekGammaBoost").asDouble(0))
+                    .optionSL(root.path("optionSL").asDouble(0))
+                    .optionT1(root.path("optionT1").asDouble(0))
+                    .optionT2(root.path("optionT2").asDouble(0))
+                    .optionT3(root.path("optionT3").asDouble(0))
+                    .optionT4(root.path("optionT4").asDouble(0))
+                    .optionRR(root.path("optionRR").asDouble(0))
+                    .optionRRpassed(root.path("optionRRpassed").asBoolean(false))
+                    .optionLotAllocation(root.path("optionLotAllocation").asText(null))
                     .positionSizeMultiplier(positionSizeMultiplier > 0 ? positionSizeMultiplier : 1.0)
                     .xfactorFlag(score >= 80 && riskReward >= 2.0)
                     .exchange(root.path("exchange").asText("N"))

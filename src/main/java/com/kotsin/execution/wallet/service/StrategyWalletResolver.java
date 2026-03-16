@@ -20,7 +20,7 @@ public class StrategyWalletResolver {
 
     // STRATEGY-WALLET-SOP: Add new strategy keys here. Wallet auto-creates on startup.
     public static final List<String> ALL_STRATEGY_KEYS = List.of(
-            "FUDKII", "FUKAA", "FUDKOI", "PIVOT_CONFLUENCE", "MICROALPHA", "MERE", "QUANT"
+            "FUDKII", "FUKAA", "FUDKOI", "PIVOT_CONFLUENCE", "MICROALPHA", "MERE", "QUANT", "MCX_BB", "MCX_BBT1"
     );
 
     @Value("${wallet.id:virtual-wallet-1}")
@@ -48,6 +48,8 @@ public class StrategyWalletResolver {
             case "MICRO", "MICROALPHA", "MICRO_ALPHA" -> "MICROALPHA";
             case "QUANT", "QUANT_HEDGE" -> "QUANT"; // BUG-004 FIX: QUANT gets its own wallet
             case "MERE_SCALP", "MERE_SWING", "MERE_POSITIONAL" -> "MERE";
+            case "MCX_BB", "MCXBB", "MCX-BB" -> "MCX_BB";
+            case "MCX_BBT1", "MCXBBT1", "MCX-BBT1", "MCX_BBT+1" -> "MCX_BBT1";
             case "MANUAL" -> null; // Manual orders → default wallet
             default -> {
                 log.warn("ERR [WALLET-RESOLVE] Unknown signalSource={}, falling back to default wallet", src);

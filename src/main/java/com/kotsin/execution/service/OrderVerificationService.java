@@ -84,7 +84,8 @@ public class OrderVerificationService {
 
         // CRITICAL FIX: Extract exchange/side context from trade metadata
         String exchange = String.valueOf(trade.getMetadata().getOrDefault("exchange", "N"));
-        String exchangeType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType", "C"));
+        String exchangeType = String.valueOf(trade.getMetadata().getOrDefault("exchangeType",
+                "M".equalsIgnoreCase(exchange) ? "D" : "C"));
         BrokerOrderService.Side side = trade.isBullish() 
                 ? BrokerOrderService.Side.BUY 
                 : BrokerOrderService.Side.SELL;
@@ -347,7 +348,8 @@ public class OrderVerificationService {
 
             // CRITICAL FIX: Use stored exchange/side context (not hardcoded!)
             String exchange = pending.exchange != null ? pending.exchange : "N";  // Fallback to NSE
-            String exchangeType = pending.exchangeType != null ? pending.exchangeType : "C";  // Fallback to Cash
+            String exchangeType = pending.exchangeType != null ? pending.exchangeType
+                    : ("M".equalsIgnoreCase(exchange) ? "D" : "C");  // MCX=D, NSE/CDS=C
             BrokerOrderService.Side side = pending.side != null 
                     ? pending.side 
                     : BrokerOrderService.Side.BUY;  // Fallback (should never happen)

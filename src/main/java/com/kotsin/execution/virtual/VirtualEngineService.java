@@ -8,6 +8,7 @@ import com.kotsin.execution.virtual.model.VirtualOrder;
 import com.kotsin.execution.virtual.model.VirtualPosition;
 import com.kotsin.execution.virtual.model.VirtualSettings;
 import com.kotsin.execution.service.LotSizeLookupService;
+import com.kotsin.execution.service.TransactionCostService;
 import com.kotsin.execution.wallet.service.SignalQueueService;
 import com.kotsin.execution.wallet.service.StrategyWalletResolver;
 import com.kotsin.execution.wallet.service.WalletTransactionService;
@@ -55,6 +56,9 @@ public class VirtualEngineService {
 
     @Autowired(required = false)
     private SignalQueueService signalQueueService;
+
+    @Autowired(required = false)
+    private TransactionCostService transactionCostService;
 
     @Value("${wallet.enabled:true}")
     private boolean walletEnabled;
@@ -661,12 +665,52 @@ public class VirtualEngineService {
     
     private boolean closeAt(VirtualPosition p, double price, int qty, boolean partial, String exitReason){
         if (qty<=0) return false;
-        double pnl = (p.getSide()== VirtualPosition.Side.LONG ? (price - p.getAvgEntry()) : (p.getAvgEntry() - price)) * qty;
-        p.setRealizedPnl(p.getRealizedPnl() + pnl);
+        double grossPnl = (p.getSide()== VirtualPosition.Side.LONG ? (price - p.getAvgEntry()) : (p.getAvgEntry() - price)) * qty;
+
+        // ── Calculate Zerodha charges (round-trip: entry BUY + exit SELL) ──
+        double totalCharges = 0.0;
+        if (transactionCostService != null) {
+            try {
+                TransactionCostService.TradeType tradeType = TransactionCostService.resolveTradeType(
+                        p.getExchange(), p.getInstrumentType());
+                String normExchange = TransactionCostService.normalizeExchange(p.getExchange());
+
+                TransactionCostService.RoundTripCost rtCost = transactionCostService.calculateRoundTripCost(
+                        tradeType, p.getAvgEntry(), price, qty, normExchange);
+                totalCharges = rtCost.getTotalCost();
+                p.setTotalCharges(p.getTotalCharges() + totalCharges);
+
+                // Populate charge breakdown for frontend display
+                TransactionCostService.TransactionCost entry = rtCost.getEntryCost();
+                TransactionCostService.TransactionCost exit = rtCost.getExitCost();
+                p.setChargesBrokerage(sum(p.getChargesBrokerage(), entry.getBrokerage() + exit.getBrokerage()));
+                p.setChargesStt(sum(p.getChargesStt(), entry.getStt() + exit.getStt()));
+                p.setChargesExchange(sum(p.getChargesExchange(), entry.getExchangeCharges() + exit.getExchangeCharges()));
+                p.setChargesGst(sum(p.getChargesGst(), entry.getGst() + exit.getGst()));
+                p.setChargesSebi(sum(p.getChargesSebi(), entry.getSebiCharges() + exit.getSebiCharges()));
+                p.setChargesStamp(sum(p.getChargesStamp(), entry.getStampDuty() + exit.getStampDuty()));
+
+                log.info("CHARGES scrip={} type={} exch={} grossPnl={} charges={} netPnl={} [brok={} stt={} txn={} gst={} sebi={} stamp={}]",
+                        p.getScripCode(), tradeType, normExchange,
+                        String.format("%.2f", grossPnl), String.format("%.2f", totalCharges),
+                        String.format("%.2f", grossPnl - totalCharges),
+                        String.format("%.2f", entry.getBrokerage() + exit.getBrokerage()),
+                        String.format("%.2f", entry.getStt() + exit.getStt()),
+                        String.format("%.2f", entry.getExchangeCharges() + exit.getExchangeCharges()),
+                        String.format("%.2f", entry.getGst() + exit.getGst()),
+                        String.format("%.2f", entry.getSebiCharges() + exit.getSebiCharges()),
+                        String.format("%.2f", entry.getStampDuty() + exit.getStampDuty()));
+            } catch (Exception e) {
+                log.warn("CHARGES_CALC_ERROR scrip={} err={}, crediting gross PnL", p.getScripCode(), e.getMessage());
+            }
+        }
+
+        double netPnl = grossPnl - totalCharges;
+        p.setRealizedPnl(p.getRealizedPnl() + netPnl);
         int remaining = p.getQtyOpen() - qty;
         p.setQtyOpen(Math.max(0, remaining));
 
-        // STRATEGY-WALLET: Credit P&L to the position's wallet
+        // STRATEGY-WALLET: Credit NET P&L (after charges) to the position's wallet
         if (walletEnabled && walletTransactionService != null) {
             try {
                 String walletId = p.getWalletId();
@@ -684,9 +728,13 @@ public class VirtualEngineService {
                         qty,
                         p.getAvgEntry(),
                         price,
-                        exitReason != null ? exitReason : "UNKNOWN"
+                        exitReason != null ? exitReason : "UNKNOWN",
+                        totalCharges
                 );
-                log.info("WALLET_PNL_CREDITED scrip={} pnl={} wallet={} exit={}", p.getScripCode(), pnl, walletId, exitReason);
+                log.info("WALLET_PNL_CREDITED scrip={} grossPnl={} charges={} netPnl={} wallet={} exit={}",
+                        p.getScripCode(), String.format("%.2f", grossPnl),
+                        String.format("%.2f", totalCharges), String.format("%.2f", netPnl),
+                        walletId, exitReason);
 
                 // BUG-013B FIX: Auto-retry queued signals when funds become available
                 if (signalQueueService != null && strategyWalletEnabled) {
@@ -706,12 +754,12 @@ public class VirtualEngineService {
 
         // If position fully closed and has signalId, send outcome to StreamingCandle
         if (p.getQtyOpen() == 0 && p.getSignalId() != null && outcomeProducer != null) {
-            sendOutcome(p, price, pnl, exitReason, qty);
+            sendOutcome(p, price, netPnl, exitReason, qty);
         }
 
         // Track position close
         if (p.getQtyOpen() == 0 && orderStatusTracker != null) {
-            orderStatusTracker.trackPositionClosed(p, price, pnl, exitReason);
+            orderStatusTracker.trackPositionClosed(p, price, netPnl, exitReason);
         }
 
         // BUG-002 FIX: Publish P&L exit event to Kafka for dashboard
@@ -722,7 +770,9 @@ public class VirtualEngineService {
                 qty,
                 p.getAvgEntry(),
                 price,
-                pnl,
+                grossPnl,
+                totalCharges,
+                netPnl,
                 exitReason != null ? exitReason : "UNKNOWN"
             );
         }
@@ -783,5 +833,10 @@ public class VirtualEngineService {
         } catch (Exception e) {
             log.error("Failed to send outcome for {}: {}", p.getScripCode(), e.getMessage());
         }
+    }
+
+    /** Null-safe accumulator for charge breakdown fields (supports partial exits). */
+    private static double sum(Double existing, double delta) {
+        return (existing != null ? existing : 0.0) + delta;
     }
 }

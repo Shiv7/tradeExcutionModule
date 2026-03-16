@@ -131,20 +131,36 @@ public class WalletTransactionService {
 
     /**
      * Credit P&L when a position is closed (partial or full). ATOMIC via Lua script.
+     * Backward-compatible overload — zero charges.
      */
     public WalletOperationResult creditPnl(
             String walletId, String positionId, String scripCode, String symbol,
             String side, int qty, double entryPrice, double exitPrice, String exitReason) {
+        return creditPnl(walletId, positionId, scripCode, symbol, side, qty,
+                entryPrice, exitPrice, exitReason, 0.0);
+    }
+
+    /**
+     * Credit P&L when a position is closed (partial or full). ATOMIC via Lua script.
+     * Deducts totalCharges (Zerodha brokerage+STT+txn+GST+SEBI+stamp) from gross P&L.
+     */
+    public WalletOperationResult creditPnl(
+            String walletId, String positionId, String scripCode, String symbol,
+            String side, int qty, double entryPrice, double exitPrice,
+            String exitReason, double totalCharges) {
 
         walletRepository.atomicEnsureDailyReset(walletId);
 
-        // Calculate P&L in Java (business logic stays in Java)
-        double pnl;
+        // Calculate gross P&L in Java
+        double grossPnl;
         if ("LONG".equalsIgnoreCase(side) || "BUY".equalsIgnoreCase(side)) {
-            pnl = (exitPrice - entryPrice) * qty;
+            grossPnl = (exitPrice - entryPrice) * qty;
         } else {
-            pnl = (entryPrice - exitPrice) * qty;
+            grossPnl = (entryPrice - exitPrice) * qty;
         }
+
+        // Net P&L = gross - charges (charges always reduce P&L)
+        double netPnl = grossPnl - totalCharges;
 
         double marginReleased = entryPrice * qty;
 
@@ -154,11 +170,11 @@ public class WalletTransactionService {
         double balanceBefore = walletBefore.getCurrentBalance();
         double marginBefore = walletBefore.getUsedMargin();
 
-        // Atomic PnL credit + margin release via Lua
-        String result = walletRepository.atomicCreditPnl(walletId, pnl, marginReleased);
+        // Atomic PnL credit + margin release via Lua — credits NET P&L
+        String result = walletRepository.atomicCreditPnl(walletId, netPnl, marginReleased);
         if (result == null || "-1".equals(result)) {
-            log.error("WALLET_PNL_CREDIT_FAILED walletId={} positionId={} scrip={} pnl={} marginRelease={}",
-                    walletId, positionId, scripCode, pnl, marginReleased);
+            log.error("WALLET_PNL_CREDIT_FAILED walletId={} positionId={} scrip={} grossPnl={} charges={} netPnl={} marginRelease={}",
+                    walletId, positionId, scripCode, grossPnl, totalCharges, netPnl, marginReleased);
             return WalletOperationResult.failed("Atomic PnL credit failed for " + walletId);
         }
 
@@ -171,14 +187,16 @@ public class WalletTransactionService {
             log.warn("CIRCUIT_BREAKER_TRIPPED walletId={} (triggered by atomic creditPnl)", walletId);
         }
 
-        // Create transaction record (non-critical)
+        // Create transaction record with net P&L (non-critical)
         WalletTransaction txn = WalletTransaction.pnlCredit(
                 walletId, positionId, scripCode, symbol, side, qty,
-                entryPrice, exitPrice, pnl, exitReason, balanceBefore, marginBefore);
+                entryPrice, exitPrice, netPnl, exitReason, balanceBefore, marginBefore);
         walletRepository.saveTransaction(txn);
 
-        log.info("WALLET_PNL_CREDIT walletId={} positionId={} scrip={} pnl={} balance={} dayPnl={}",
-                walletId, positionId, scripCode, pnl, balance, dayPnl);
+        log.info("WALLET_PNL_CREDIT walletId={} positionId={} scrip={} grossPnl={} charges={} netPnl={} balance={} dayPnl={}",
+                walletId, positionId, scripCode,
+                String.format("%.2f", grossPnl), String.format("%.2f", totalCharges),
+                String.format("%.2f", netPnl), balance, dayPnl);
 
         // Re-read wallet for return value
         WalletEntity walletAfter = walletRepository.getWallet(walletId).orElse(walletBefore);

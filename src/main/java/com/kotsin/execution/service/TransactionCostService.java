@@ -10,190 +10,266 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 💰 Transaction Cost Calculator for Indian Markets
- * 
- * Calculates all-inclusive transaction costs including:
- * - Brokerage (flat or percentage-based)
- * - STT (Securities Transaction Tax)
- * - Exchange charges
- * - GST (on brokerage + exchange fees)
- * - SEBI charges
- * - Stamp duty
- * 
- * Critical for accurate P&L calculation and strategy backtesting
+ * Transaction Cost Calculator — Zerodha Rate Card (2026)
+ *
+ * Covers all segments: Equity (NSE/BSE), Currency, Commodity (MCX).
+ * Calculates brokerage, STT/CTT, exchange/transaction charges, GST, SEBI, stamp duty.
  */
 @Service
 @Slf4j
 public class TransactionCostService {
-    
-    // Configuration (can be externalized to properties)
-    private static final double BROKERAGE_FLAT_PER_ORDER = 20.0; // ₹20 per order
-    private static final double BROKERAGE_PERCENTAGE = 0.05; // 0.05% for F&O
-    private static final boolean USE_FLAT_BROKERAGE = true; // true for discount brokers
-    
-    // STT rates (as of 2024)
-    private static final double STT_EQUITY_DELIVERY = 0.1 / 100; // 0.1% both sides
-    private static final double STT_EQUITY_INTRADAY = 0.025 / 100; // 0.025% sell side only
-    private static final double STT_FUTURES_SELL = 0.0125 / 100; // 0.0125% sell side only
-    private static final double STT_OPTIONS_SELL = 0.05 / 100; // 0.05% sell side (on premium)
-    
-    // Other charges
-    private static final double EXCHANGE_CHARGES_NSE_FO = 0.00325 / 100; // 0.00325%
-    private static final double EXCHANGE_CHARGES_NSE_EQ = 0.00345 / 100; // 0.00345%
-    private static final double GST_RATE = 0.18; // 18% on brokerage + exchange fees
-    private static final double SEBI_CHARGES_PER_CRORE = 10.0; // ₹10 per crore turnover
-    private static final double STAMP_DUTY = 0.003 / 100; // 0.003% (buy side only)
-    
+
+    // ── Brokerage ──
+    private static final double BROKERAGE_FLAT = 20.0;           // Rs 20 per order
+    private static final double BROKERAGE_PCT = 0.03 / 100;      // 0.03%  (whichever is lower)
+
+    // ── STT / CTT ──
+    // Equity
+    private static final double STT_EQ_DELIVERY_RATE = 0.1 / 100;       // 0.1% buy+sell
+    private static final double STT_EQ_INTRADAY_SELL = 0.025 / 100;     // 0.025% sell side
+    private static final double STT_EQ_FUTURES_SELL  = 0.02 / 100;      // 0.02% sell side
+    private static final double STT_EQ_OPTIONS_SELL  = 0.1 / 100;       // 0.1% sell (on premium)
+    // Currency — NIL
+    // Commodity (CTT)
+    private static final double CTT_COMM_FUTURES_SELL = 0.01 / 100;     // 0.01% sell (Non-Agri)
+    private static final double CTT_COMM_OPTIONS_SELL = 0.05 / 100;     // 0.05% sell
+
+    // ── Exchange / Transaction Charges ──
+    // Equity
+    private static final double TXN_NSE_EQ      = 0.00307 / 100;   // NSE equity
+    private static final double TXN_BSE_EQ      = 0.00375 / 100;   // BSE equity
+    private static final double TXN_NSE_FUTURES  = 0.00183 / 100;  // NSE futures
+    private static final double TXN_NSE_OPTIONS  = 0.03553 / 100;  // NSE options (on premium)
+    // Currency
+    private static final double TXN_CUR_FUTURES_NSE = 0.00035 / 100;
+    private static final double TXN_CUR_FUTURES_BSE = 0.00045 / 100;
+    private static final double TXN_CUR_OPTIONS_NSE = 0.0311 / 100;
+    private static final double TXN_CUR_OPTIONS_BSE = 0.001 / 100;
+    // Commodity
+    private static final double TXN_COMM_FUTURES_MCX = 0.0021 / 100;
+    private static final double TXN_COMM_FUTURES_NSE = 0.0001 / 100;
+    private static final double TXN_COMM_OPTIONS_MCX = 0.0418 / 100;
+    private static final double TXN_COMM_OPTIONS_NSE = 0.001 / 100;
+
+    // ── GST ──
+    private static final double GST_RATE = 0.18;   // 18% on (brokerage + SEBI + txn)
+
+    // ── SEBI ──
+    private static final double SEBI_PER_CRORE = 10.0;  // Rs 10 per crore
+    private static final double CRORE = 1_00_00_000.0;
+
+    // ── Stamp Duty (buy side only) ──
+    private static final double STAMP_EQ_DELIVERY  = 0.015 / 100;
+    private static final double STAMP_EQ_INTRADAY  = 0.003 / 100;
+    private static final double STAMP_EQ_FUTURES   = 0.002 / 100;
+    private static final double STAMP_EQ_OPTIONS   = 0.003 / 100;
+    private static final double STAMP_CUR_FUTURES  = 0.0001 / 100;
+    private static final double STAMP_CUR_OPTIONS  = 0.0001 / 100;
+    private static final double STAMP_COMM_FUTURES = 0.002 / 100;
+    private static final double STAMP_COMM_OPTIONS = 0.003 / 100;
+
+    // ═══════════════════════════════════════════════════════════════
+    //  PUBLIC API
+    // ═══════════════════════════════════════════════════════════════
+
     /**
-     * Calculate total transaction cost for a trade
-     * 
-     * @param tradeType Type of trade (EQUITY_DELIVERY, EQUITY_INTRADAY, FUTURES, OPTIONS)
-     * @param tradeValue Total trade value in INR
-     * @param side BUY or SELL
-     * @param quantity Quantity traded
-     * @param price Price per unit
-     * @return Complete breakdown of all costs
+     * Calculate cost for one leg (BUY or SELL) of a trade.
      */
-    public TransactionCost calculateCost(TradeType tradeType, double tradeValue, TradeSide side, int quantity, double price) {
-        
-        log.debug("💰 Calculating transaction cost | type={} value={} side={} qty={} price={}",
-                tradeType, tradeValue, side, quantity, price);
-        
-        // 1. Brokerage
-        double brokerage = calculateBrokerage(tradeValue);
-        
-        // 2. STT (Securities Transaction Tax)
-        double stt = calculateSTT(tradeType, tradeValue, side);
-        
-        // 3. Exchange charges
-        double exchangeCharges = calculateExchangeCharges(tradeType, tradeValue);
-        
-        // 4. GST (18% on brokerage + exchange charges)
-        double gst = (brokerage + exchangeCharges) * GST_RATE;
-        
-        // 5. SEBI charges (₹10 per crore)
-        double sebiCharges = (tradeValue / 10000000.0) * SEBI_CHARGES_PER_CRORE;
-        
-        // 6. Stamp duty (only on buy side)
-        double stampDuty = 0.0;
-        if (side == TradeSide.BUY) {
-            stampDuty = tradeValue * STAMP_DUTY;
-        }
-        
-        // Total
-        double total = brokerage + stt + exchangeCharges + gst + sebiCharges + stampDuty;
-        
-        // Breakdown map (ordered)
+    public TransactionCost calculateCost(TradeType tradeType, double tradeValue,
+                                          TradeSide side, String exchange) {
+
+        double brokerage = calculateBrokerage(tradeType, tradeValue);
+        double stt       = calculateSTT(tradeType, tradeValue, side);
+        double txnCharge = calculateTransactionCharges(tradeType, tradeValue, exchange);
+        double sebi      = (tradeValue / CRORE) * SEBI_PER_CRORE;
+        double gst       = (brokerage + sebi + txnCharge) * GST_RATE;
+        double stamp     = (side == TradeSide.BUY) ? calculateStampDuty(tradeType, tradeValue) : 0.0;
+
+        double total = brokerage + stt + txnCharge + gst + sebi + stamp;
+
         Map<String, Double> breakdown = new LinkedHashMap<>();
         breakdown.put("brokerage", brokerage);
         breakdown.put("stt", stt);
-        breakdown.put("exchangeCharges", exchangeCharges);
+        breakdown.put("exchangeCharges", txnCharge);
         breakdown.put("gst", gst);
-        breakdown.put("sebiCharges", sebiCharges);
-        breakdown.put("stampDuty", stampDuty);
-        
-        TransactionCost cost = TransactionCost.builder()
+        breakdown.put("sebiCharges", sebi);
+        breakdown.put("stampDuty", stamp);
+
+        return TransactionCost.builder()
                 .total(total)
                 .brokerage(brokerage)
                 .stt(stt)
-                .exchangeCharges(exchangeCharges)
+                .exchangeCharges(txnCharge)
                 .gst(gst)
-                .sebiCharges(sebiCharges)
-                .stampDuty(stampDuty)
+                .sebiCharges(sebi)
+                .stampDuty(stamp)
                 .breakdown(breakdown)
                 .tradeValue(tradeValue)
-                .costPercentage((total / tradeValue) * 100)
+                .costPercentage(tradeValue > 0 ? (total / tradeValue) * 100 : 0)
                 .build();
-        
-        log.info("Transaction cost calculated | type={} value={} side={} | " +
-                "total={} ({}%) | breakdown: brokerage={} stt={} exchange={} gst={} sebi={} stamp={}",
-                tradeType, tradeValue, side,
-                String.format("%.2f", total), String.format("%.3f", cost.getCostPercentage()),
-                String.format("%.2f", brokerage), String.format("%.2f", stt), String.format("%.2f", exchangeCharges), String.format("%.2f", gst), String.format("%.2f", sebiCharges), String.format("%.2f", stampDuty));
-        
-        return cost;
     }
-    
+
     /**
-     * Calculate brokerage (flat or percentage-based)
+     * Calculate round-trip (entry + exit) cost and derive net P&L.
      */
-    private double calculateBrokerage(double tradeValue) {
-        if (USE_FLAT_BROKERAGE) {
-            return BROKERAGE_FLAT_PER_ORDER;
-        } else {
-            return tradeValue * (BROKERAGE_PERCENTAGE / 100);
-        }
-    }
-    
-    /**
-     * Calculate STT based on trade type and side
-     */
-    private double calculateSTT(TradeType tradeType, double tradeValue, TradeSide side) {
-        switch (tradeType) {
-            case EQUITY_DELIVERY:
-                // 0.1% on both buy and sell
-                return tradeValue * STT_EQUITY_DELIVERY;
-                
-            case EQUITY_INTRADAY:
-                // 0.025% only on sell side
-                return side == TradeSide.SELL ? tradeValue * STT_EQUITY_INTRADAY : 0.0;
-                
-            case FUTURES:
-                // 0.0125% only on sell side
-                return side == TradeSide.SELL ? tradeValue * STT_FUTURES_SELL : 0.0;
-                
-            case OPTIONS:
-                // 0.05% on sell side (on premium, not notional)
-                return side == TradeSide.SELL ? tradeValue * STT_OPTIONS_SELL : 0.0;
-                
-            default:
-                log.warn("⚠️ Unknown trade type for STT calculation: {}", tradeType);
-                return 0.0;
-        }
-    }
-    
-    /**
-     * Calculate exchange charges (NSE F&O vs Equity)
-     */
-    private double calculateExchangeCharges(TradeType tradeType, double tradeValue) {
-        if (tradeType == TradeType.EQUITY_DELIVERY || tradeType == TradeType.EQUITY_INTRADAY) {
-            return tradeValue * EXCHANGE_CHARGES_NSE_EQ;
-        } else {
-            return tradeValue * EXCHANGE_CHARGES_NSE_FO;
-        }
-    }
-    
-    /**
-     * Calculate round-trip cost (entry + exit)
-     */
-    public RoundTripCost calculateRoundTripCost(TradeType tradeType, double entryValue, double exitValue, int quantity, double entryPrice, double exitPrice) {
-        
-        TransactionCost entryCost = calculateCost(tradeType, entryValue, TradeSide.BUY, quantity, entryPrice);
-        TransactionCost exitCost = calculateCost(tradeType, exitValue, TradeSide.SELL, quantity, exitPrice);
-        
+    public RoundTripCost calculateRoundTripCost(TradeType tradeType,
+                                                 double entryPrice, double exitPrice,
+                                                 int qty, String exchange) {
+
+        double entryValue = entryPrice * qty;
+        double exitValue  = exitPrice * qty;
+
+        TransactionCost entryCost = calculateCost(tradeType, entryValue, TradeSide.BUY, exchange);
+        TransactionCost exitCost  = calculateCost(tradeType, exitValue, TradeSide.SELL, exchange);
+
         double totalCost = entryCost.getTotal() + exitCost.getTotal();
-        double grossPnL = exitValue - entryValue;
-        double netPnL = grossPnL - totalCost;
-        double costImpactPercent = (totalCost / entryValue) * 100;
-        
-        log.info("Round-trip cost | entry={} exit={} | grossPnL={} costs={} netPnL={} | costImpact={}%",
-                entryValue, exitValue, String.format("%.2f", grossPnL), String.format("%.2f", totalCost), String.format("%.2f", netPnL), String.format("%.3f", costImpactPercent));
-        
+        double grossPnL  = exitValue - entryValue;       // always LONG perspective; caller adjusts for SHORT
+        double netPnL    = grossPnL - totalCost;
+        double costPct   = entryValue > 0 ? (totalCost / entryValue) * 100 : 0;
+
+        log.info("ROUND_TRIP_COST type={} entry={} exit={} qty={} exch={} | " +
+                        "grossPnL={} charges={} netPnL={} costPct={}%",
+                tradeType, entryPrice, exitPrice, qty, exchange,
+                fmt(grossPnL), fmt(totalCost), fmt(netPnL), fmt(costPct));
+
         return RoundTripCost.builder()
                 .entryCost(entryCost)
                 .exitCost(exitCost)
                 .totalCost(totalCost)
                 .grossPnL(grossPnL)
                 .netPnL(netPnL)
-                .costImpactPercent(costImpactPercent)
+                .costImpactPercent(costPct)
                 .build();
     }
-    
-    // ==================== DTOs ====================
-    
-    @Data
-    @Builder
-    @AllArgsConstructor
+
+    // ═══════════════════════════════════════════════════════════════
+    //  HELPERS — resolve TradeType from position metadata
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Resolve TradeType from position exchange code and instrumentType.
+     *
+     * @param exchange       N=NSE, B=BSE, M=MCX, C=Currency (nullable, defaults to N)
+     * @param instrumentType OPTION / FUTURES / null (equity intraday)
+     */
+    public static TradeType resolveTradeType(String exchange, String instrumentType) {
+        String ex  = (exchange == null || exchange.isEmpty()) ? "N" : exchange.toUpperCase();
+        String ins = (instrumentType == null) ? "" : instrumentType.toUpperCase();
+
+        if ("M".equals(ex)) {
+            // Commodity (MCX)
+            if (ins.contains("OPTION")) return TradeType.COMMODITY_OPTIONS;
+            return TradeType.COMMODITY_FUTURES;
+        }
+        if ("C".equals(ex)) {
+            // Currency
+            if (ins.contains("OPTION")) return TradeType.CURRENCY_OPTIONS;
+            return TradeType.CURRENCY_FUTURES;
+        }
+        // Default: Equity (NSE/BSE)
+        if (ins.contains("OPTION")) return TradeType.EQUITY_OPTIONS;
+        if (ins.contains("FUTURE")) return TradeType.EQUITY_FUTURES;
+        return TradeType.EQUITY_INTRADAY;
+    }
+
+    /** Normalize exchange code to NSE/BSE/MCX for rate lookup. */
+    public static String normalizeExchange(String exchange) {
+        if (exchange == null || exchange.isEmpty()) return "NSE";
+        switch (exchange.toUpperCase()) {
+            case "N": return "NSE";
+            case "B": return "BSE";
+            case "M": return "MCX";
+            case "C": return "NSE";  // Currency on NSE by default
+            default:  return "NSE";
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  PRIVATE CALCULATION METHODS
+    // ═══════════════════════════════════════════════════════════════
+
+    private double calculateBrokerage(TradeType tradeType, double tradeValue) {
+        if (tradeType == TradeType.EQUITY_DELIVERY) {
+            return 0.0;  // Zero brokerage on delivery
+        }
+        if (tradeType == TradeType.EQUITY_OPTIONS ||
+            tradeType == TradeType.CURRENCY_OPTIONS ||
+            tradeType == TradeType.COMMODITY_OPTIONS) {
+            return BROKERAGE_FLAT;  // Flat Rs 20 for options
+        }
+        // Intraday / Futures / Currency Futures / Commodity Futures: lower of 0.03% or Rs 20
+        return Math.min(tradeValue * BROKERAGE_PCT, BROKERAGE_FLAT);
+    }
+
+    private double calculateSTT(TradeType tradeType, double tradeValue, TradeSide side) {
+        switch (tradeType) {
+            case EQUITY_DELIVERY:
+                return tradeValue * STT_EQ_DELIVERY_RATE;           // both sides
+            case EQUITY_INTRADAY:
+                return side == TradeSide.SELL ? tradeValue * STT_EQ_INTRADAY_SELL : 0.0;
+            case EQUITY_FUTURES:
+                return side == TradeSide.SELL ? tradeValue * STT_EQ_FUTURES_SELL : 0.0;
+            case EQUITY_OPTIONS:
+                return side == TradeSide.SELL ? tradeValue * STT_EQ_OPTIONS_SELL : 0.0;
+            case CURRENCY_FUTURES:
+            case CURRENCY_OPTIONS:
+                return 0.0;  // Currency — NIL STT
+            case COMMODITY_FUTURES:
+                return side == TradeSide.SELL ? tradeValue * CTT_COMM_FUTURES_SELL : 0.0;
+            case COMMODITY_OPTIONS:
+                return side == TradeSide.SELL ? tradeValue * CTT_COMM_OPTIONS_SELL : 0.0;
+            default:
+                return 0.0;
+        }
+    }
+
+    private double calculateTransactionCharges(TradeType tradeType, double tradeValue, String exchange) {
+        String exch = (exchange == null) ? "NSE" : exchange.toUpperCase();
+
+        switch (tradeType) {
+            case EQUITY_DELIVERY:
+            case EQUITY_INTRADAY:
+                return tradeValue * ("BSE".equals(exch) ? TXN_BSE_EQ : TXN_NSE_EQ);
+            case EQUITY_FUTURES:
+                return tradeValue * TXN_NSE_FUTURES;
+            case EQUITY_OPTIONS:
+                return tradeValue * TXN_NSE_OPTIONS;
+            case CURRENCY_FUTURES:
+                return tradeValue * ("BSE".equals(exch) ? TXN_CUR_FUTURES_BSE : TXN_CUR_FUTURES_NSE);
+            case CURRENCY_OPTIONS:
+                return tradeValue * ("BSE".equals(exch) ? TXN_CUR_OPTIONS_BSE : TXN_CUR_OPTIONS_NSE);
+            case COMMODITY_FUTURES:
+                return tradeValue * ("MCX".equals(exch) ? TXN_COMM_FUTURES_MCX : TXN_COMM_FUTURES_NSE);
+            case COMMODITY_OPTIONS:
+                return tradeValue * ("MCX".equals(exch) ? TXN_COMM_OPTIONS_MCX : TXN_COMM_OPTIONS_NSE);
+            default:
+                return tradeValue * TXN_NSE_EQ;
+        }
+    }
+
+    private double calculateStampDuty(TradeType tradeType, double tradeValue) {
+        switch (tradeType) {
+            case EQUITY_DELIVERY:   return tradeValue * STAMP_EQ_DELIVERY;
+            case EQUITY_INTRADAY:   return tradeValue * STAMP_EQ_INTRADAY;
+            case EQUITY_FUTURES:    return tradeValue * STAMP_EQ_FUTURES;
+            case EQUITY_OPTIONS:    return tradeValue * STAMP_EQ_OPTIONS;
+            case CURRENCY_FUTURES:  return tradeValue * STAMP_CUR_FUTURES;
+            case CURRENCY_OPTIONS:  return tradeValue * STAMP_CUR_OPTIONS;
+            case COMMODITY_FUTURES: return tradeValue * STAMP_COMM_FUTURES;
+            case COMMODITY_OPTIONS: return tradeValue * STAMP_COMM_OPTIONS;
+            default:                return tradeValue * STAMP_EQ_INTRADAY;
+        }
+    }
+
+    private static String fmt(double v) {
+        return String.format("%.2f", v);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  DTOs
+    // ═══════════════════════════════════════════════════════════════
+
+    @Data @Builder @AllArgsConstructor
     public static class TransactionCost {
         private double total;
         private double brokerage;
@@ -204,12 +280,10 @@ public class TransactionCostService {
         private double stampDuty;
         private Map<String, Double> breakdown;
         private double tradeValue;
-        private double costPercentage; // % of trade value
+        private double costPercentage;
     }
-    
-    @Data
-    @Builder
-    @AllArgsConstructor
+
+    @Data @Builder @AllArgsConstructor
     public static class RoundTripCost {
         private TransactionCost entryCost;
         private TransactionCost exitCost;
@@ -218,16 +292,19 @@ public class TransactionCostService {
         private double netPnL;
         private double costImpactPercent;
     }
-    
+
     public enum TradeType {
         EQUITY_DELIVERY,
         EQUITY_INTRADAY,
-        FUTURES,
-        OPTIONS
+        EQUITY_FUTURES,
+        EQUITY_OPTIONS,
+        CURRENCY_FUTURES,
+        CURRENCY_OPTIONS,
+        COMMODITY_FUTURES,
+        COMMODITY_OPTIONS
     }
-    
+
     public enum TradeSide {
-        BUY,
-        SELL
+        BUY, SELL
     }
 }

@@ -80,6 +80,15 @@ public class VirtualPosition {
     private Boolean slHit;
     private String exitReason;
 
+    // Transaction charges (Zerodha round-trip: brokerage+STT+txn+GST+SEBI+stamp)
+    private double totalCharges;
+    private Double chargesBrokerage;
+    private Double chargesStt;
+    private Double chargesExchange;
+    private Double chargesGst;
+    private Double chargesSebi;
+    private Double chargesStamp;
+
     // LOT-SIZE: Lot size used when opening position
     private int lotSize = 1;
 }
